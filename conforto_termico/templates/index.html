@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Sistema de Controle dos Índices de Conforto Térmico</title>
+<title>Conforto Térmico</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -13,21 +13,12 @@
 
 <div class="app-shell">
 
-  <header class="rail">
-    <div class="rail-esquerda">
-      <span class="rail-logo" aria-hidden="true">◉</span>
-      <div class="rail-titulos">
-        <h1>Sistema de Controle dos Índices de Conforto Térmico</h1>
-        <p>ITU &middot; ITUV &middot; IGNU — produção industrial de frangos, bovinos de leite e suínos</p>
-      </div>
-    </div>
-    <div class="rail-direita">
-      <span class="chip-origem">Baseado na dissertação de Mariano S. P. de Angelo — UNIP, 2013</span>
-      <span id="relogio" class="relogio">--:--:--</span>
-    </div>
-  </header>
+  <nav class="abas-app" role="tablist" aria-label="Navegação do app">
+    <button class="aba-botao ativo" type="button" role="tab" data-aba="principal" aria-controls="aba-principal" aria-selected="true">Principal</button>
+    <button class="aba-botao" type="button" role="tab" data-aba="settings" aria-controls="aba-settings" aria-selected="false">Settings</button>
+  </nav>
 
-  <main class="grade">
+  <main id="aba-principal" class="grade aba-conteudo" data-aba-conteudo="principal">
 
     <!-- Seletor de espécie e índice -------------------------------------------------->
     <section class="painel seletor-painel">
@@ -73,7 +64,7 @@
       <div class="acao-linha">
         <label class="check check--automatico">
           <input type="checkbox" id="cfg-auto">
-          <span>Modo automático (simula monitoramento contínuo a cada 1s)</span>
+          <span>Modo automático</span>
         </label>
         <button id="btn-limpar" class="botao botao--texto" type="button">Limpar histórico</button>
       </div>
@@ -95,7 +86,11 @@
       <p id="mensagem-orientacao" class="mensagem-orientacao">
         Preencha os dados e clique em <strong>Calcular</strong> para ver o status do lote.
       </p>
+    </section>
 
+    <!-- Equipamentos remotos ------------------------------------------------------------->
+    <section class="painel equipamentos-painel">
+      <h2 class="painel-titulo">Equipamentos remotos</h2>
       <div class="equipamentos">
         <div class="lampada-grupo">
           <div id="icones-ventilador" class="icones-equipamento" role="img" aria-label="Ventilador desligado"></div>
@@ -113,15 +108,15 @@
     </section>
 
     <!-- Gráficos --------------------------------------------------------------------------->
-    <section class="painel graficos-painel">
-      <div class="grafico-bloco">
-        <p class="grafico-titulo">Valor do índice por leitura</p>
-        <div class="grafico-canvas-wrap"><canvas id="grafico-indice"></canvas></div>
-      </div>
-      <div class="grafico-bloco">
-        <p class="grafico-titulo">Variáveis de entrada por leitura</p>
+    <section class="painel entradas-grafico-painel">
+      <div class="grafico-bloco grafico-bloco--sem-moldura">
+        <p class="grafico-titulo">Valores de entrada por leitura</p>
         <div class="grafico-canvas-wrap"><canvas id="grafico-entradas"></canvas></div>
       </div>
+    </section>
+
+    <section class="painel graficos-painel">
+      <div id="graficos-indices" class="graficos-indices"></div>
     </section>
 
     <!-- E-mail simulado -------------------------------------------------------------------->
@@ -132,24 +127,53 @@
 
     <!-- Histórico em tabela ------------------------------------------------------------------>
     <section class="painel tabela-painel">
+      <div id="historico-acoes" class="tabela-cabecalho">
+        <p class="grafico-titulo">Histórico de leituras</p>
+        <button id="btn-toggle-historico" class="botao botao--fantasma botao--compacto" type="button" aria-expanded="false">Expandir</button>
+      </div>
+      <div id="historico-corpo" class="historico-corpo oculto">
       <div class="tabela-scroll">
         <table id="tabela-historico">
           <thead>
-            <tr><th>Hora</th><th>Entradas</th><th>Valor</th><th>Status</th></tr>
+            <tr><th>Hora</th><th>Índice</th><th>Entradas</th><th>Valor</th><th>Status</th></tr>
           </thead>
           <tbody></tbody>
         </table>
       </div>
-      <p id="tabela-vazia" class="tabela-vazia">Nenhuma leitura registrada ainda para esta combinação de espécie e índice.</p>
+        <div id="historico-paginacao" class="historico-paginacao">
+          <button id="btn-historico-anterior" class="botao botao--fantasma botao--compacto" type="button">Anterior</button>
+          <span id="historico-pagina-info" class="historico-pagina-info">Página 1 de 1</span>
+          <button id="btn-historico-proximo" class="botao botao--fantasma botao--compacto" type="button">Próxima</button>
+        </div>
+      </div>
+      <p id="tabela-vazia" class="tabela-vazia">Nenhuma leitura registrada ainda para esta espécie.</p>
     </section>
 
   </main>
 
-  <footer class="rodape">
-    Equações e faixas de Conforto/Alerta/Perigo/Emergência conforme a dissertação
-    "Programa Computacional para o Cálculo de Índices de Conforto Térmico na Produção
-    Industrial de Animais para Carne e Leite" (M. S. P. de Angelo, UNIP, 2013).
-  </footer>
+  <section id="aba-settings" class="grade grade-settings aba-conteudo oculto" data-aba-conteudo="settings" role="tabpanel">
+    <section class="painel settings-painel">
+      <h2 class="painel-titulo">Configurações do app</h2>
+      <div id="settings-opcoes" class="settings-bloco"></div>
+      <div id="settings-email" class="settings-bloco"></div>
+      <div id="settings-automacao" class="settings-bloco"></div>
+    </section>
+
+    <section class="painel settings-painel">
+      <h2 class="painel-titulo">Leituras e banco de dados</h2>
+
+      <div class="campos-config">
+        <div class="campo-config">
+          <label for="cfg-intervalo-leitura">Intervalo entre leituras (segundos)</label>
+          <input type="number" id="cfg-intervalo-leitura" min="1" step="1" value="1">
+        </div>
+        <div class="campo-config">
+          <label for="cfg-intervalo-gravacao">Gravar no banco a cada (minutos)</label>
+          <input type="number" id="cfg-intervalo-gravacao" min="0" step="1" value="1">
+        </div>
+      </div>
+    </section>
+  </section>
 
 </div>
 

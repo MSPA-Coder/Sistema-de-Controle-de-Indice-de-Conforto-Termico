@@ -54,6 +54,7 @@ button { font-family: inherit; }
    Estrutura geral
    ------------------------------------------------------------------------- */
 .app-shell { min-height: 100vh; display: flex; flex-direction: column; }
+.rail, .rodape { display: none !important; }
 
 .rail {
   display: flex;
@@ -101,9 +102,36 @@ button { font-family: inherit; }
   letter-spacing: 0.05em;
 }
 
+.abas-app {
+  display: flex;
+  gap: 0.5rem;
+  max-width: 1360px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 1.5rem 1.75rem 0;
+}
+.aba-botao {
+  font-weight: 600;
+  font-size: 0.85rem;
+  padding: 0.55rem 1rem;
+  border-radius: 6px 6px 0 0;
+  border: 1px solid var(--cor-borda);
+  border-bottom-color: var(--cor-acento);
+  background: #201c17;
+  color: var(--cor-texto-mute);
+  cursor: pointer;
+}
+.aba-botao:hover { color: var(--cor-texto); border-color: var(--cor-acento); }
+.aba-botao.ativo {
+  background: var(--cor-painel);
+  color: var(--cor-acento-2);
+  border-color: var(--cor-acento);
+  box-shadow: inset 0 2px 0 var(--cor-acento);
+}
+
 .grade {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1.25rem;
   padding: 1.5rem 1.75rem 2.5rem;
   max-width: 1360px;
@@ -111,10 +139,18 @@ button { font-family: inherit; }
   margin: 0 auto;
   flex: 1;
 }
-.seletor-painel, .graficos-painel, .email-painel, .tabela-painel { grid-column: 1 / -1; }
+.entrada-painel { grid-column: span 2; }
+.graficos-painel, .email-painel, .tabela-painel { grid-column: 1 / -1; }
+.grade-settings {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+}
 
 @media (max-width: 900px) {
   .grade { grid-template-columns: 1fr; padding: 1rem; }
+  .entrada-painel { grid-column: auto; }
+  .grade-settings { grid-template-columns: 1fr; }
+  .abas-app { padding: 0.85rem 1rem 0; }
   .rail { padding: 0.8rem 1rem; }
 }
 
@@ -138,6 +174,12 @@ button { font-family: inherit; }
   background-position:
     11px 11px, calc(100% - 11px) 11px,
     11px calc(100% - 11px), calc(100% - 11px) calc(100% - 11px);
+}
+.painel-titulo {
+  margin: 0 0 1rem;
+  color: var(--cor-texto);
+  font-size: 0.92rem;
+  font-weight: 600;
 }
 
 /* ---------------------------------------------------------------------------
@@ -223,8 +265,13 @@ button { font-family: inherit; }
 .botao--fantasma:disabled { opacity: 0.4; cursor: not-allowed; }
 .botao--texto { background: transparent; border: none; color: var(--cor-texto-mute); text-decoration: underline; padding: 0.4rem 0; font-size: 0.8rem; }
 .botao--texto:hover { color: var(--status-perigo); }
+.botao--compacto { padding: 0.4rem 0.75rem; font-size: 0.75rem; }
 
 .divisor { height: 1px; background: var(--cor-borda); margin: 1rem 0; }
+.entrada-painel > .divisor { display: none; }
+.entrada-painel > .config-grade,
+.entrada-painel > .campo-email-destino,
+.entrada-painel .check--automatico { display: none; }
 
 .config-grade { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem 1rem; }
 .check { display: flex; align-items: center; gap: 0.55rem; font-size: 0.83rem; color: var(--cor-texto-mute); cursor: pointer; }
@@ -243,6 +290,36 @@ button { font-family: inherit; }
   border: 1px solid var(--cor-borda);
   background: var(--cor-painel-alt);
   color: var(--cor-texto);
+}
+
+.settings-bloco + .settings-bloco { margin-top: 1rem; }
+.settings-bloco:empty { display: none; }
+.campos-config {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.9rem 1rem;
+}
+.campo-config { display: flex; flex-direction: column; gap: 0.35rem; }
+.campo-config label {
+  font-family: var(--fonte-mono);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--cor-texto-mute);
+}
+.campo-config input {
+  font-family: var(--fonte-mono);
+  font-size: 1.05rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 6px;
+  border: 1px solid var(--cor-borda);
+  background: var(--cor-painel-alt);
+  color: var(--cor-texto);
+  width: 100%;
+}
+.campo-config input:focus { border-color: var(--cor-acento); }
+@media (max-width: 620px) {
+  .campos-entrada, .campos-config, .config-grade { grid-template-columns: 1fr; }
 }
 
 .mensagem-erro {
@@ -312,7 +389,7 @@ button { font-family: inherit; }
 
 .mensagem-orientacao { font-size: 0.88rem; line-height: 1.5; color: var(--cor-texto); margin: 1rem 0; }
 
-.equipamentos { display: flex; align-items: center; gap: 1.75rem; flex-wrap: wrap; padding-top: 0.5rem; border-top: 1px solid var(--cor-borda); }
+.equipamentos { display: flex; align-items: center; gap: 1.75rem; flex-wrap: wrap; }
 .lampada-grupo { display: flex; align-items: center; gap: 0.6rem; }
 .icones-equipamento { display: inline-flex; align-items: center; gap: 0.3rem; min-height: 24px; }
 .icone-equip {
@@ -344,8 +421,19 @@ button { font-family: inherit; }
 /* ---------------------------------------------------------------------------
    Gráficos
    ------------------------------------------------------------------------- */
-.graficos-painel { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+.graficos-painel { display: block; }
+.graficos-painel > .grafico-bloco { display: none; }
+.graficos-indices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+}
 .grafico-bloco { background: var(--cor-painel-alt); border: 1px solid var(--cor-borda); border-radius: 8px; padding: 0.9rem 1rem 0.5rem; }
+.grafico-bloco--sem-moldura {
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
 .grafico-titulo { margin: 0 0 0.6rem; font-size: 0.78rem; color: var(--cor-texto-mute); font-family: var(--fonte-mono); }
 /* Altura FIXA e position:relative são obrigatórios aqui: com
    maintainAspectRatio:false, o Chart.js redimensiona o canvas para o
@@ -354,7 +442,7 @@ button { font-family: inherit; }
    canvas cresce -> o pai cresce para acompanhar -> o canvas cresce de novo,
    e o formulário inteiro se alonga indefinidamente na vertical. */
 .grafico-canvas-wrap { position: relative; width: 100%; height: 220px; }
-@media (max-width: 900px) { .graficos-painel { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .graficos-indices { grid-template-columns: 1fr; } }
 
 /* ---------------------------------------------------------------------------
    E-mail simulado (recibo estilo teletipo)
@@ -384,8 +472,17 @@ button { font-family: inherit; }
 /* ---------------------------------------------------------------------------
    Tabela de histórico
    ------------------------------------------------------------------------- */
+.tabela-cabecalho {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 1rem;
+  margin-bottom: 0.7rem;
+}
+.tabela-cabecalho .grafico-titulo { margin: 0; margin-right: auto; }
+.historico-corpo { margin-top: 0.7rem; }
 .tabela-scroll { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; font-family: var(--fonte-mono); font-size: 0.78rem; }
+table { width: 100%; min-width: 780px; border-collapse: collapse; font-family: var(--fonte-mono); font-size: 0.78rem; }
 th, td { text-align: left; padding: 0.5rem 0.7rem; border-bottom: 1px solid var(--cor-borda); white-space: nowrap; }
 th { color: var(--cor-acento); text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.66rem; }
 td.status-conforto { color: var(--status-conforto); }
@@ -393,6 +490,19 @@ td.status-alerta { color: var(--status-alerta); }
 td.status-perigo { color: var(--status-perigo); }
 td.status-emergencia { color: var(--status-emergencia); }
 .tabela-vazia { color: var(--cor-texto-mute); font-size: 0.85rem; margin: 0.5rem 0 0; }
+.historico-paginacao {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 0.85rem;
+  flex-wrap: wrap;
+}
+.historico-pagina-info {
+  color: var(--cor-texto-mute);
+  font-family: var(--fonte-mono);
+  font-size: 0.75rem;
+}
 
 /* ---------------------------------------------------------------------------
    Rodapé

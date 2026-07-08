@@ -18,6 +18,14 @@ const COR_STATUS = {
   "Emergência": "#FF6B5E",
 };
 
+const CORES_CAMPOS_ENTRADA = ["#4F8A93", "#D9A441", "#8FBF9F", "#C1443C", "#9E7BB5"];
+const HISTORICO_LINHAS_POR_PAGINA = 20;
+
+function corCampoEntrada(campo) {
+  const indice = camposDaEspecie().indexOf(campo);
+  return CORES_CAMPOS_ENTRADA[Math.max(0, indice) % CORES_CAMPOS_ENTRADA.length];
+}
+
 // Quantos ícones exibir por equipamento LIGADO, conforme a intensidade
 // informada pelo servidor (Conforto=desligado não entra aqui).
 const CONTAGEM_INTENSIDADE = { baixa: 1, média: 2, máxima: 3 };
@@ -39,9 +47,13 @@ const ICONE_NEBULIZADOR =
 
 const estado = { especie: "frangos", indice: "ITU" };
 
-let graficoIndice = null;
+let graficosPorIndice = new Map();
 let graficoEntradas = null;
 let assinaturaGraficos = "";
+let ultimosResultados = null;
+let ultimosHistoricosGrafico = {};
+let historicoLeiturasAtuais = [];
+let historicoPaginaAtual = 1;
 let autoAtivo = false; // Modo automático ligado/desligado (checado antes de CADA ciclo)
 let autoEmExecucao = false; // true enquanto um ciclo está em andamento (evita sobreposição)
 let autoTimeoutId = null; // id do próximo ciclo agendado (setTimeout), se houver
@@ -82,8 +94,24 @@ function renderSeletorIndice() {
   });
 }
 
+function indicesDaEspecie() {
+  return CONFIG_APP.indicesPorEspecie[estado.especie] || [];
+}
+
+function camposDaEspecie() {
+  const campos = [];
+  indicesDaEspecie().forEach((indice) => {
+    (CONFIG_APP.camposPorIndice[indice] || []).forEach((campo) => {
+      if (!campos.includes(campo)) campos.push(campo);
+    });
+  });
+  return campos;
+}
+
 function selecionarEspecie(especie) {
   estado.especie = especie;
+  ultimosResultados = null;
+  historicoPaginaAtual = 1;
   renderSeletorEspecie();
   renderSeletorIndice();
   renderCamposEntrada();
@@ -94,9 +122,12 @@ function selecionarEspecie(especie) {
 function selecionarIndice(indice) {
   estado.indice = indice;
   renderSeletorIndice();
-  renderCamposEntrada();
-  resetarPainelResultado();
-  carregarHistorico();
+  if (ultimosResultados && ultimosResultados[estado.indice]) {
+    atualizarPainelIndiceSelecionado(ultimosResultados[estado.indice]);
+  } else {
+    resetarPainelResultado();
+  }
+  atualizarGraficos(ultimosHistoricosGrafico);
 }
 
 // ---------------------------------------------------------------------------
@@ -105,7 +136,7 @@ function selecionarIndice(indice) {
 function renderCamposEntrada() {
   const container = document.getElementById("campos-entrada");
   container.innerHTML = "";
-  const campos = CONFIG_APP.camposPorIndice[estado.indice];
+  const campos = camposDaEspecie();
   campos.forEach((campo) => {
     const meta = CONFIG_APP.campoMetadados[campo];
     const wrap = document.createElement("div");
@@ -114,6 +145,7 @@ function renderCamposEntrada() {
     const label = document.createElement("label");
     label.setAttribute("for", "campo-" + campo);
     label.textContent = meta.label + " (" + meta.unidade + ")";
+    label.style.color = corCampoEntrada(campo);
 
     const input = document.createElement("input");
     input.type = "number";
@@ -130,7 +162,7 @@ function renderCamposEntrada() {
 }
 
 function coletarEntradas() {
-  const campos = CONFIG_APP.camposPorIndice[estado.indice];
+  const campos = camposDaEspecie();
   const entradas = {};
   campos.forEach((campo) => {
     const input = document.getElementById("campo-" + campo);
@@ -146,6 +178,20 @@ function preencherEntradas(dados) {
   });
 }
 
+function lerNumeroConfiguracao(id, padrao, minimo) {
+  const input = document.getElementById(id);
+  if (!input) return padrao;
+
+  const valor = Number(input.value);
+  const normalizado = Number.isFinite(valor) ? Math.max(minimo, valor) : padrao;
+  input.value = String(normalizado);
+  return normalizado;
+}
+
+function obterIntervaloLeituraMs() {
+  return lerNumeroConfiguracao("cfg-intervalo-leitura", 1, 1) * 1000;
+}
+
 function coletarConfig() {
   return {
     coletarDados: document.getElementById("cfg-coletar").checked,
@@ -153,6 +199,7 @@ function coletarConfig() {
     enviarEmails: document.getElementById("cfg-emails").checked,
     habilitarEquipamentos: document.getElementById("cfg-equipamentos").checked,
     emailDestino: document.getElementById("email-destino").value,
+    intervaloGravacaoMinutos: lerNumeroConfiguracao("cfg-intervalo-gravacao", 1, 0),
   };
 }
 
@@ -206,12 +253,18 @@ async function calcular() {
 
 async function simularSensor() {
   try {
-    const resposta = await fetch(
-      "/api/sensor?especie=" + encodeURIComponent(estado.especie) +
-      "&indice=" + encodeURIComponent(estado.indice)
+    const respostas = await Promise.all(
+      indicesDaEspecie().map((indice) =>
+        fetch(
+          "/api/sensor?especie=" + encodeURIComponent(estado.especie) +
+          "&indice=" + encodeURIComponent(indice)
+        )
+      )
     );
-    const dados = await resposta.json();
-    if (resposta.ok) preencherEntradas(dados);
+    const leituras = await Promise.all(respostas.map((resposta) => resposta.json()));
+    if (respostas.every((resposta) => resposta.ok)) {
+      preencherEntradas(Object.assign({}, ...leituras));
+    }
   } catch (erro) {
     mostrarErro("Não foi possível simular a leitura do sensor.");
   }
@@ -219,13 +272,14 @@ async function simularSensor() {
 
 async function carregarHistorico() {
   try {
-    const query = "?especie=" + encodeURIComponent(estado.especie) + "&indice=" + encodeURIComponent(estado.indice);
+    const query = "?especie=" + encodeURIComponent(estado.especie);
     const [resposta, respostaGrafico] = await Promise.all([
-      fetch("/api/historico" + query),
-      fetch("/api/historico-grafico" + query),
+      fetch("/api/historico-todos" + query),
+      fetch("/api/historico-grafico-todos" + query),
     ]);
     const historico = await resposta.json();
     const historicoGrafico = respostaGrafico.ok ? await respostaGrafico.json() : historico;
+    ultimosHistoricosGrafico = historicoGrafico;
     atualizarGraficos(historicoGrafico);
     atualizarTabela(historico);
   } catch (erro) {
@@ -238,20 +292,22 @@ async function limparHistorico() {
     await fetch("/api/reset", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ especie: estado.especie, indice: estado.indice }),
+      body: JSON.stringify({ especie: estado.especie }),
     });
   } catch (erro) {
     /* ignora */
   }
   resetarPainelResultado();
-  atualizarGraficos([]);
-  atualizarTabela([]);
+  ultimosHistoricosGrafico = {};
+  atualizarGraficos({});
+  atualizarTabela({});
 }
 
 // ---------------------------------------------------------------------------
 // Atualização da interface
 // ---------------------------------------------------------------------------
 function resetarPainelResultado() {
+  ultimosResultados = null;
   const readoutValor = document.getElementById("readout-valor");
   readoutValor.textContent = "--,--";
   readoutValor.className = "readout-valor";
@@ -269,22 +325,48 @@ function resetarPainelResultado() {
   esconderErro();
 }
 
-function atualizarResultado(dados) {
-  const classe = CLASSE_STATUS[dados.status] || "";
-
-  // 1) Elementos essenciais primeiro — nunca dependem de bibliotecas externas,
-  //    então sempre devem atualizar mesmo se algo mais adiante falhar.
+function atualizarPainelIndiceSelecionado(resultado, avisoGeral) {
+  const classe = CLASSE_STATUS[resultado.status] || "";
   const readoutValor = document.getElementById("readout-valor");
-  readoutValor.textContent = dados.valor.toFixed(2).replace(".", ",");
+  readoutValor.textContent = resultado.valor.toFixed(2).replace(".", ",");
   readoutValor.className = "readout-valor cor-" + classe;
   document.getElementById("readout-indice").textContent = estado.indice;
 
   const faixa = document.getElementById("faixa-status");
   faixa.className = "faixa-status faixa-" + classe;
-  document.getElementById("faixa-status-texto").textContent = dados.status.toUpperCase();
+  document.getElementById("faixa-status-texto").textContent = resultado.status.toUpperCase();
 
   document.getElementById("mensagem-orientacao").innerHTML =
-    "<strong>" + dados.status + ":</strong> " + dados.mensagem +
+    "<strong>" + resultado.status + ":</strong> " + resultado.mensagem +
+    (avisoGeral ? "<br><em>" + avisoGeral + "</em>" : "");
+}
+
+function historicosDosResultados(resultados, tipo) {
+  const historicos = {};
+  Object.entries(resultados || {}).forEach(([indice, resultado]) => {
+    historicos[indice] = resultado[tipo] || resultado.historico || [];
+  });
+  return historicos;
+}
+
+function atualizarResultado(dados) {
+  ultimosResultados = dados.indices || { [estado.indice]: dados };
+  const selecionado = ultimosResultados[estado.indice] || dados;
+  const classe = CLASSE_STATUS[selecionado.status] || "";
+
+  // 1) Elementos essenciais primeiro — nunca dependem de bibliotecas externas,
+  //    então sempre devem atualizar mesmo se algo mais adiante falhar.
+  const readoutValor = document.getElementById("readout-valor");
+  readoutValor.textContent = selecionado.valor.toFixed(2).replace(".", ",");
+  readoutValor.className = "readout-valor cor-" + classe;
+  document.getElementById("readout-indice").textContent = estado.indice;
+
+  const faixa = document.getElementById("faixa-status");
+  faixa.className = "faixa-status faixa-" + classe;
+  document.getElementById("faixa-status-texto").textContent = selecionado.status.toUpperCase();
+
+  document.getElementById("mensagem-orientacao").innerHTML =
+    "<strong>" + selecionado.status + ":</strong> " + selecionado.mensagem +
     (dados.aviso ? "<br><em>" + dados.aviso + "</em>" : "");
 
   atualizarEquipamento(dados.equipamento);
@@ -294,25 +376,26 @@ function atualizarResultado(dados) {
   //    gráficos não carregar por qualquer motivo, o restante do painel acima
   //    já está atualizado e continua funcionando normalmente.
   try {
-    atualizarGraficos(dados.historico_grafico || dados.historico);
+    ultimosHistoricosGrafico = historicosDosResultados(ultimosResultados, "historico_grafico");
+    atualizarGraficos(ultimosHistoricosGrafico);
   } catch (erro) {
     console.error("Erro ao desenhar os gráficos:", erro);
     mostrarErro(
-      "O valor foi calculado normalmente (" + dados.valor.toFixed(2).replace(".", ",") +
-      ", " + dados.status + "), mas os gráficos não puderam ser desenhados. " +
+      "O valor foi calculado normalmente (" + selecionado.valor.toFixed(2).replace(".", ",") +
+      ", " + selecionado.status + "), mas os gráficos não puderam ser desenhados. " +
       "Detalhes no console do navegador (F12 → Console)."
     );
   }
 
   try {
-    atualizarTabela(dados.historico);
+    atualizarTabela(historicosDosResultados(ultimosResultados, "historico"));
   } catch (erro) {
     console.error("Erro ao atualizar a tabela de histórico:", erro);
   }
 
   if (dados.tocarSom) {
     try {
-      tocarSom(dados.status);
+      tocarSom(selecionado.status);
     } catch (erro) {
       console.error("Erro ao tocar som de alerta:", erro);
     }
@@ -400,19 +483,30 @@ function opcoesGrafico(comEixoSecundario) {
   return opcoes;
 }
 
-function assinaturaDoHistorico(historico) {
-  const campos = CONFIG_APP.camposPorIndice[estado.indice] || [];
-  return [
-    estado.especie,
-    estado.indice,
-    campos.join(","),
-    historico.map((h) => [
-      h.criado_em,
-      h.valor,
-      h.status,
-      campos.map((campo) => h.entradas[campo]).join(","),
-    ].join(":")).join("|"),
-  ].join(";");
+function normalizarHistoricosPorIndice(historicos) {
+  if (Array.isArray(historicos)) return { [estado.indice]: historicos };
+
+  const normalizados = {};
+  indicesDaEspecie().forEach((indice) => {
+    normalizados[indice] = (historicos && historicos[indice]) || [];
+  });
+  return normalizados;
+}
+
+function chavesCronologicas(historicosPorIndice) {
+  return [...new Set(
+    Object.values(historicosPorIndice)
+      .flat()
+      .map((leitura) => leitura.criado_em)
+  )].sort();
+}
+
+function assinaturaDoHistorico(historicos) {
+  return JSON.stringify({
+    especie: estado.especie,
+    indices: indicesDaEspecie(),
+    historicos: normalizarHistoricosPorIndice(historicos),
+  });
 }
 
 function criarOuAtualizarGrafico(grafico, canvasId, configuracao) {
@@ -427,11 +521,11 @@ function criarOuAtualizarGrafico(grafico, canvasId, configuracao) {
   return grafico;
 }
 
-function atualizarGraficos(historico) {
+function atualizarGraficosLegado(historico) {
   if (typeof Chart === "undefined") {
     throw new Error(
-      "A biblioteca Chart.js não foi carregada (static/js/vendor/chart.umd.js). " +
-      "Confira se a pasta 'static/js/vendor' foi copiada junto com o projeto."
+      "A biblioteca Chart.js não foi carregada (conforto_termico/static/js/vendor/chart.umd.js). " +
+      "Confira se a pasta 'conforto_termico/static/js/vendor' foi copiada junto com o projeto."
     );
   }
 
@@ -494,7 +588,235 @@ function atualizarGraficos(historico) {
   });
 }
 
-function atualizarTabela(historico) {
+function atualizarGraficosCombinadoLegado(historicos) {
+  if (typeof Chart === "undefined") {
+    throw new Error(
+      "A biblioteca Chart.js não foi carregada (conforto_termico/static/js/vendor/chart.umd.js). " +
+      "Confira se a pasta 'conforto_termico/static/js/vendor' foi copiada junto com o projeto."
+    );
+  }
+
+  const historicosPorIndice = normalizarHistoricosPorIndice(historicos);
+  const novaAssinatura = assinaturaDoHistorico(historicosPorIndice);
+  if (novaAssinatura === assinaturaGraficos && graficoIndice && graficoEntradas) {
+    return;
+  }
+  assinaturaGraficos = novaAssinatura;
+
+  const chaves = chavesCronologicas(historicosPorIndice);
+  const rotulos = chaves.map((chave) => formatarHora(chave));
+  const datasetsAtuaisIndice = new Map(
+    graficoIndice ? graficoIndice.data.datasets.map((dataset) => [dataset.indice, dataset]) : []
+  );
+  const datasetsIndice = indicesDaEspecie().map((indice) => {
+    const leiturasPorChave = new Map((historicosPorIndice[indice] || []).map((h) => [h.criado_em, h]));
+    const dataset = datasetsAtuaisIndice.get(indice) || {};
+    Object.assign(dataset, {
+      indice,
+      label: indice,
+      data: chaves.map((chave) => leiturasPorChave.get(chave)?.valor ?? null),
+      backgroundColor: chaves.map((chave) => COR_STATUS[leiturasPorChave.get(chave)?.status] || "#4F8A93"),
+      borderRadius: 3,
+      maxBarThickness: 24,
+    });
+    return dataset;
+  });
+
+  graficoIndice = criarOuAtualizarGrafico(graficoIndice, "grafico-indice", {
+    type: "bar",
+    data: { labels: rotulos, datasets: datasetsIndice },
+    options: opcoesGrafico(false),
+  });
+
+  const entradasPorChave = new Map();
+  Object.values(historicosPorIndice).flat().forEach((leitura) => {
+    const entradas = entradasPorChave.get(leitura.criado_em) || {};
+    Object.assign(entradas, leitura.entradas);
+    entradasPorChave.set(leitura.criado_em, entradas);
+  });
+
+  const campos = camposDaEspecie();
+  const paleta = ["#4F8A93", "#D9A441", "#8FBF9F", "#C1443C", "#9E7BB5"];
+  const temVelocidade = campos.includes("v");
+  const datasetsAtuaisEntradas = new Map(
+    graficoEntradas ? graficoEntradas.data.datasets.map((dataset) => [dataset.campo, dataset]) : []
+  );
+  const datasetsEntradas = campos.map((campo, i) => {
+    const cor = paleta[i % paleta.length];
+    const dataset = datasetsAtuaisEntradas.get(campo) || {};
+    Object.assign(dataset, {
+      campo,
+      label: CONFIG_APP.campoMetadados[campo].label,
+      data: chaves.map((chave) => entradasPorChave.get(chave)?.[campo] ?? null),
+      borderColor: cor,
+      backgroundColor: cor + "33",
+      tension: 0.35,
+      cubicInterpolationMode: "monotone",
+      pointRadius: 2,
+      pointHoverRadius: 4,
+      fill: campo !== "v",
+      yAxisID: campo === "v" ? "y1" : "y",
+    });
+    return dataset;
+  });
+
+  graficoEntradas = criarOuAtualizarGrafico(graficoEntradas, "grafico-entradas", {
+    type: "line",
+    data: { labels: rotulos, datasets: datasetsEntradas },
+    options: opcoesGrafico(temVelocidade),
+  });
+}
+
+function indicesOrdenadosParaGraficos() {
+  return [
+    estado.indice,
+    ...indicesDaEspecie().filter((indice) => indice !== estado.indice),
+  ];
+}
+
+function idGraficoIndice(indice) {
+  return "grafico-indice-" + indice.toLowerCase();
+}
+
+function entradasPorChaveDosHistoricos(historicosPorIndice) {
+  const entradasPorChave = new Map();
+  Object.values(historicosPorIndice).flat().forEach((leitura) => {
+    const entradas = entradasPorChave.get(leitura.criado_em) || {};
+    Object.assign(entradas, leitura.entradas);
+    entradasPorChave.set(leitura.criado_em, entradas);
+  });
+  return entradasPorChave;
+}
+
+function atualizarGraficoEntradas(historicosPorIndice) {
+  const canvas = document.getElementById("grafico-entradas");
+  if (!canvas) return;
+
+  const chaves = chavesCronologicas(historicosPorIndice);
+  const entradasPorChave = entradasPorChaveDosHistoricos(historicosPorIndice);
+  const campos = camposDaEspecie();
+  const temVelocidade = campos.includes("v");
+  const datasetsAtuais = new Map(
+    graficoEntradas ? graficoEntradas.data.datasets.map((dataset) => [dataset.campo, dataset]) : []
+  );
+  const datasets = campos.map((campo) => {
+    const cor = corCampoEntrada(campo);
+    const dataset = datasetsAtuais.get(campo) || {};
+    Object.assign(dataset, {
+      campo,
+      label: CONFIG_APP.campoMetadados[campo].label,
+      data: chaves.map((chave) => entradasPorChave.get(chave)?.[campo] ?? null),
+      borderColor: cor,
+      backgroundColor: cor + "33",
+      tension: 0.35,
+      cubicInterpolationMode: "monotone",
+      pointRadius: 2,
+      pointHoverRadius: 4,
+      fill: campo !== "v",
+      yAxisID: campo === "v" ? "y1" : "y",
+    });
+    return dataset;
+  });
+
+  const opcoes = opcoesGrafico(temVelocidade);
+  opcoes.plugins.legend.display = false;
+
+  graficoEntradas = criarOuAtualizarGrafico(graficoEntradas, "grafico-entradas", {
+    type: "line",
+    data: {
+      labels: chaves.map((chave) => formatarHora(chave)),
+      datasets,
+    },
+    options: opcoes,
+  });
+}
+
+function garantirBlocosGraficos(indices) {
+  const container = document.getElementById("graficos-indices");
+  if (!container) return;
+
+  const idsAtivos = new Set(indices.map(idGraficoIndice));
+  [...container.querySelectorAll(".grafico-bloco-indice")].forEach((bloco) => {
+    if (!idsAtivos.has(bloco.dataset.canvasId)) bloco.remove();
+  });
+
+  indices.forEach((indice) => {
+    const canvasId = idGraficoIndice(indice);
+    let bloco = container.querySelector(`[data-canvas-id="${canvasId}"]`);
+    if (!bloco) {
+      bloco = document.createElement("div");
+      bloco.className = "grafico-bloco grafico-bloco-indice";
+      bloco.dataset.canvasId = canvasId;
+
+      const titulo = document.createElement("p");
+      titulo.className = "grafico-titulo";
+      titulo.textContent = "Valor do " + indice + " por leitura";
+
+      const wrap = document.createElement("div");
+      wrap.className = "grafico-canvas-wrap";
+
+      const canvas = document.createElement("canvas");
+      canvas.id = canvasId;
+
+      wrap.appendChild(canvas);
+      bloco.append(titulo, wrap);
+    }
+    container.appendChild(bloco);
+  });
+}
+
+function atualizarGraficos(historicos) {
+  if (typeof Chart === "undefined") {
+    throw new Error(
+      "A biblioteca Chart.js não foi carregada (conforto_termico/static/js/vendor/chart.umd.js). " +
+      "Confira se a pasta 'conforto_termico/static/js/vendor' foi copiada junto com o projeto."
+    );
+  }
+
+  const historicosPorIndice = normalizarHistoricosPorIndice(historicos);
+  const indices = indicesOrdenadosParaGraficos();
+  const novaAssinatura = assinaturaDoHistorico(historicosPorIndice) + ";" + estado.indice;
+  if (novaAssinatura === assinaturaGraficos && graficosPorIndice.size) {
+    return;
+  }
+  assinaturaGraficos = novaAssinatura;
+
+  atualizarGraficoEntradas(historicosPorIndice);
+  garantirBlocosGraficos(indices);
+
+  const indicesAtivos = new Set(indices);
+  graficosPorIndice.forEach((grafico, indice) => {
+    if (!indicesAtivos.has(indice)) {
+      grafico.destroy();
+      graficosPorIndice.delete(indice);
+    }
+  });
+
+  indices.forEach((indice) => {
+    const historico = historicosPorIndice[indice] || [];
+    const canvasId = idGraficoIndice(indice);
+    const dataset = graficosPorIndice.get(indice)?.data.datasets[0] || {};
+    Object.assign(dataset, {
+      label: indice,
+      data: historico.map((h) => h.valor),
+      backgroundColor: historico.map((h) => COR_STATUS[h.status] || "#4F8A93"),
+      borderRadius: 3,
+      maxBarThickness: 26,
+    });
+
+    const grafico = criarOuAtualizarGrafico(graficosPorIndice.get(indice), canvasId, {
+      type: "bar",
+      data: {
+        labels: historico.map((h) => formatarHora(h.criado_em)),
+        datasets: [dataset],
+      },
+      options: opcoesGrafico(false),
+    });
+    graficosPorIndice.set(indice, grafico);
+  });
+}
+
+function atualizarTabelaLegado(historico) {
   const tbody = document.querySelector("#tabela-historico tbody");
   const tabela = document.getElementById("tabela-historico");
   const vazio = document.getElementById("tabela-vazia");
@@ -530,6 +852,99 @@ function atualizarTabela(historico) {
   });
 }
 
+function leiturasTabela(historicos) {
+  const historicosPorIndice = normalizarHistoricosPorIndice(historicos);
+  return Object.entries(historicosPorIndice)
+    .flatMap(([indice, leituras]) => leituras.map((leitura) => ({ ...leitura, indice })))
+    .sort((a, b) => {
+      const porData = new Date(b.criado_em) - new Date(a.criado_em);
+      if (porData !== 0) return porData;
+      return a.indice.localeCompare(b.indice);
+    });
+}
+
+function renderizarPaginaHistorico() {
+  const tbody = document.querySelector("#tabela-historico tbody");
+  const tabela = document.getElementById("tabela-historico");
+  const vazio = document.getElementById("tabela-vazia");
+  const paginacao = document.getElementById("historico-paginacao");
+  const paginaInfo = document.getElementById("historico-pagina-info");
+  const btnAnterior = document.getElementById("btn-historico-anterior");
+  const btnProximo = document.getElementById("btn-historico-proximo");
+  tbody.innerHTML = "";
+
+  const totalPaginas = Math.max(1, Math.ceil(historicoLeiturasAtuais.length / HISTORICO_LINHAS_POR_PAGINA));
+  historicoPaginaAtual = Math.min(Math.max(1, historicoPaginaAtual), totalPaginas);
+
+  if (!historicoLeiturasAtuais.length) {
+    tabela.classList.add("oculto");
+    vazio.classList.remove("oculto");
+    if (paginacao) paginacao.classList.add("oculto");
+    return;
+  }
+  tabela.classList.remove("oculto");
+  vazio.classList.add("oculto");
+  if (paginacao) paginacao.classList.toggle("oculto", totalPaginas <= 1);
+  if (paginaInfo) paginaInfo.textContent = `Página ${historicoPaginaAtual} de ${totalPaginas}`;
+  if (btnAnterior) btnAnterior.disabled = historicoPaginaAtual <= 1;
+  if (btnProximo) btnProximo.disabled = historicoPaginaAtual >= totalPaginas;
+
+  const inicio = (historicoPaginaAtual - 1) * HISTORICO_LINHAS_POR_PAGINA;
+  const leituras = historicoLeiturasAtuais.slice(inicio, inicio + HISTORICO_LINHAS_POR_PAGINA);
+
+  leituras.forEach((h) => {
+    const tr = document.createElement("tr");
+    const entradasTexto = Object.entries(h.entradas)
+      .map(([k, v]) => k + "=" + v)
+      .join(", ");
+    const classe = "status-" + (CLASSE_STATUS[h.status] || "");
+
+    const tdHora = document.createElement("td");
+    tdHora.textContent = formatarHora(h.criado_em);
+    const tdIndice = document.createElement("td");
+    tdIndice.textContent = h.indice;
+    const tdEntradas = document.createElement("td");
+    tdEntradas.textContent = entradasTexto;
+    const tdValor = document.createElement("td");
+    tdValor.textContent = h.valor.toFixed(2).replace(".", ",");
+    const tdStatus = document.createElement("td");
+    tdStatus.textContent = h.status;
+    tdStatus.className = classe;
+
+    tr.append(tdHora, tdIndice, tdEntradas, tdValor, tdStatus);
+    tbody.appendChild(tr);
+  });
+}
+
+function atualizarTabela(historicos) {
+  historicoLeiturasAtuais = leiturasTabela(historicos);
+  const totalPaginas = Math.max(1, Math.ceil(historicoLeiturasAtuais.length / HISTORICO_LINHAS_POR_PAGINA));
+  historicoPaginaAtual = Math.min(historicoPaginaAtual, totalPaginas);
+  renderizarPaginaHistorico();
+}
+
+function alternarHistorico() {
+  const corpo = document.getElementById("historico-corpo");
+  const botao = document.getElementById("btn-toggle-historico");
+  if (!corpo || !botao) return;
+
+  const expandido = corpo.classList.toggle("oculto");
+  const aberto = !expandido;
+  botao.textContent = aberto ? "Recolher" : "Expandir";
+  botao.setAttribute("aria-expanded", aberto ? "true" : "false");
+}
+
+function paginaHistorico(delta) {
+  historicoPaginaAtual += delta;
+  renderizarPaginaHistorico();
+}
+
+function inicializarHistorico() {
+  document.getElementById("btn-toggle-historico")?.addEventListener("click", alternarHistorico);
+  document.getElementById("btn-historico-anterior")?.addEventListener("click", () => paginaHistorico(-1));
+  document.getElementById("btn-historico-proximo")?.addEventListener("click", () => paginaHistorico(1));
+}
+
 // ---------------------------------------------------------------------------
 // Som de alerta (Web Audio API - nenhum arquivo de áudio necessário)
 // ---------------------------------------------------------------------------
@@ -563,10 +978,63 @@ function tocarSom(status) {
 }
 
 // ---------------------------------------------------------------------------
-// Relógio e modo automático
+// Abas e organizacao dos cards
+// ---------------------------------------------------------------------------
+function inicializarAbas() {
+  const botoes = document.querySelectorAll("[data-aba]");
+  const conteudos = document.querySelectorAll("[data-aba-conteudo]");
+
+  botoes.forEach((botao) => {
+    botao.addEventListener("click", () => {
+      const aba = botao.dataset.aba;
+
+      botoes.forEach((item) => {
+        const ativo = item.dataset.aba === aba;
+        item.classList.toggle("ativo", ativo);
+        item.setAttribute("aria-selected", ativo ? "true" : "false");
+      });
+
+      conteudos.forEach((conteudo) => {
+        conteudo.classList.toggle("oculto", conteudo.dataset.abaConteudo !== aba);
+      });
+
+      if (aba === "principal") {
+        setTimeout(() => {
+          graficosPorIndice.forEach((grafico) => grafico.resize());
+          if (graficoEntradas) graficoEntradas.resize();
+        }, 0);
+      }
+    });
+  });
+}
+
+function moverControlesParaSettings() {
+  const settingsOpcoes = document.getElementById("settings-opcoes");
+  const settingsEmail = document.getElementById("settings-email");
+  const settingsAutomacao = document.getElementById("settings-automacao");
+  const historicoAcoes = document.getElementById("historico-acoes");
+
+  const opcoes = document.querySelector(".entrada-painel .config-grade");
+  const email = document.getElementById("wrap-email-destino");
+  const automatico = document.querySelector(".check--automatico");
+  const limparHistorico = document.getElementById("btn-limpar");
+
+  if (settingsOpcoes && opcoes) settingsOpcoes.appendChild(opcoes);
+  if (settingsEmail && email) settingsEmail.appendChild(email);
+  if (settingsAutomacao && automatico) settingsAutomacao.appendChild(automatico);
+  if (historicoAcoes && limparHistorico) historicoAcoes.appendChild(limparHistorico);
+
+  document.querySelectorAll(".entrada-painel .acao-linha").forEach((linha) => {
+    if (!linha.querySelector("button, input, label")) linha.remove();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Relogio e modo automatico
 // ---------------------------------------------------------------------------
 function iniciarRelogio() {
   const el = document.getElementById("relogio");
+  if (!el) return;
   const atualizar = () => {
     el.textContent = new Date().toLocaleTimeString("pt-BR");
   };
@@ -609,7 +1077,7 @@ async function cicloAutomatico() {
   // do modo automático "não desligar": ciclos podiam se sobrepor e continuar
   // rodando mesmo depois de desmarcar a caixa).
   if (autoAtivo) {
-    autoTimeoutId = setTimeout(cicloAutomatico, 1000);
+    autoTimeoutId = setTimeout(cicloAutomatico, obterIntervaloLeituraMs());
   }
 }
 
@@ -630,10 +1098,12 @@ function esconderErro() {
 // Inicialização
 // ---------------------------------------------------------------------------
 document.addEventListener("DOMContentLoaded", () => {
+  moverControlesParaSettings();
+  inicializarAbas();
+  inicializarHistorico();
   renderSeletorEspecie();
   renderSeletorIndice();
   renderCamposEntrada();
-  iniciarRelogio();
   carregarHistorico();
 
   document.getElementById("btn-calcular").addEventListener("click", calcular);
@@ -647,7 +1117,16 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("wrap-email-destino").classList.toggle("oculto", !e.target.checked);
   });
   document.getElementById("cfg-auto").addEventListener("change", (e) => {
-    if (e.target.checked) document.getElementById("cfg-coletar").checked = true;
+    if (e.target.checked) {
+      document.getElementById("cfg-coletar").checked = true;
+      document.getElementById("btn-simular").disabled = false;
+    }
     alternarModoAutomatico(e.target.checked);
+  });
+  document.getElementById("cfg-intervalo-leitura").addEventListener("change", () => {
+    if (autoAtivo && autoTimeoutId) {
+      clearTimeout(autoTimeoutId);
+      autoTimeoutId = setTimeout(cicloAutomatico, obterIntervaloLeituraMs());
+    }
   });
 });

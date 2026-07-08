@@ -24,7 +24,7 @@ import os
 import smtplib
 from email.mime.text import MIMEText
 
-import thermal_indices as ti
+from . import thermal_indices as ti
 
 
 class Temperatura:

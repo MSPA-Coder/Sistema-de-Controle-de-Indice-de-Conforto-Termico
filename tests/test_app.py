@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import app as flask_app
-import database as db
+from conforto_termico import database as db
+from conforto_termico import web as flask_app
 
 
 class TestHistoricoGraficoApi(unittest.TestCase):
@@ -15,14 +15,14 @@ class TestHistoricoGraficoApi(unittest.TestCase):
         self.db_path_original = db.DB_PATH
         db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
         db.iniciar_banco()
-        flask_app._historico_graficos.clear()
-        flask_app._estado_sensor.clear()
+        flask_app.historico_grafico_service.limpar()
+        flask_app.sensor_simulado_service.limpar()
         flask_app._resfriador.desativar()
         self.client = flask_app.app.test_client()
 
     def tearDown(self):
-        flask_app._historico_graficos.clear()
-        flask_app._estado_sensor.clear()
+        flask_app.historico_grafico_service.limpar()
+        flask_app.sensor_simulado_service.limpar()
         flask_app._resfriador.desativar()
         db.DB_PATH = self.db_path_original
         self.tempdir.cleanup()
@@ -31,7 +31,7 @@ class TestHistoricoGraficoApi(unittest.TestCase):
         payload = {
             "especie": "frangos",
             "indice": "ITU",
-            "entradas": {"tbs": 25, "tbu": 20},
+            "entradas": {"tbs": 25, "tbu": 20, "v": 1, "tgn": 25, "tpo": 12},
             "config": {},
         }
 
@@ -44,18 +44,48 @@ class TestHistoricoGraficoApi(unittest.TestCase):
         self.assertFalse(segunda.json["leitura_gravada"])
         self.assertEqual(1, len(segunda.json["historico"]))
         self.assertEqual(2, len(segunda.json["historico_grafico"]))
+        self.assertEqual({"ITU", "ITUV", "IGNU"}, set(segunda.json["indices"]))
+        self.assertFalse(segunda.json["indices"]["ITUV"]["leitura_gravada"])
+        self.assertFalse(segunda.json["indices"]["IGNU"]["leitura_gravada"])
 
         resposta_grafico = self.client.get("/api/historico-grafico?especie=frangos&indice=ITU")
         resposta_banco = self.client.get("/api/historico?especie=frangos&indice=ITU")
+        resposta_grafico_todos = self.client.get("/api/historico-grafico-todos?especie=frangos")
+        resposta_banco_todos = self.client.get("/api/historico-todos?especie=frangos")
 
         self.assertEqual(2, len(resposta_grafico.json))
         self.assertEqual(1, len(resposta_banco.json))
+        self.assertEqual(2, len(resposta_grafico_todos.json["ITU"]))
+        self.assertEqual(2, len(resposta_grafico_todos.json["ITUV"]))
+        self.assertEqual(2, len(resposta_grafico_todos.json["IGNU"]))
+        self.assertEqual(1, len(resposta_banco_todos.json["ITU"]))
+        self.assertEqual(1, len(resposta_banco_todos.json["ITUV"]))
+        self.assertEqual(1, len(resposta_banco_todos.json["IGNU"]))
+
+    def test_api_respeita_intervalo_de_gravacao_configurado(self):
+        payload = {
+            "especie": "frangos",
+            "indice": "ITU",
+            "entradas": {"tbs": 25, "tbu": 20, "v": 1, "tgn": 25, "tpo": 12},
+            "config": {"intervaloGravacaoMinutos": 0},
+        }
+
+        primeira = self.client.post("/api/calcular", json=payload)
+        segunda = self.client.post("/api/calcular", json=payload)
+
+        self.assertEqual(200, primeira.status_code)
+        self.assertEqual(200, segunda.status_code)
+        self.assertTrue(primeira.json["leitura_gravada"])
+        self.assertTrue(segunda.json["leitura_gravada"])
+        self.assertEqual(2, len(segunda.json["historico"]))
+        self.assertEqual(2, len(segunda.json["indices"]["ITUV"]["historico"]))
+        self.assertEqual(2, len(segunda.json["indices"]["IGNU"]["historico"]))
 
     def test_sensor_resfria_leituras_ate_voltar_ao_conforto(self):
         payload = {
             "especie": "frangos",
             "indice": "ITU",
-            "entradas": {"tbs": 40, "tbu": 30},
+            "entradas": {"tbs": 40, "tbu": 30, "v": 1, "tgn": 25, "tpo": 12},
             "config": {"habilitarEquipamentos": True},
         }
 
@@ -63,6 +93,7 @@ class TestHistoricoGraficoApi(unittest.TestCase):
         self.assertEqual("Emergência", primeira.json["status"])
         self.assertTrue(primeira.json["equipamento"]["ativo"])
 
+        base_entradas = {"v": 1, "tgn": 25, "tpo": 12}
         leitura = self.client.get("/api/sensor?especie=frangos&indice=ITU").json
         self.assertAlmostEqual(38.0, leitura["tbs"])
         self.assertAlmostEqual(28.5, leitura["tbu"])
@@ -74,7 +105,7 @@ class TestHistoricoGraficoApi(unittest.TestCase):
                 json={
                     "especie": "frangos",
                     "indice": "ITU",
-                    "entradas": leitura,
+                    "entradas": {**base_entradas, **leitura},
                     "config": {"habilitarEquipamentos": True},
                 },
             )
@@ -86,7 +117,7 @@ class TestHistoricoGraficoApi(unittest.TestCase):
         self.assertEqual("Conforto", status)
         self.assertFalse(resposta.json["equipamento"]["ativo"])
 
-        with patch("app.random.uniform", side_effect=[22.0, 18.0]):
+        with patch("conforto_termico.services.random.uniform", side_effect=[22.0, 18.0]):
             leitura_aleatoria = self.client.get("/api/sensor?especie=frangos&indice=ITU").json
         self.assertEqual({"tbs": 22.0, "tbu": 18.0}, leitura_aleatoria)
 
@@ -94,7 +125,7 @@ class TestHistoricoGraficoApi(unittest.TestCase):
         payload = {
             "especie": "frangos",
             "indice": "ITUV",
-            "entradas": {"tbs": 35, "tbu": 30, "v": 1},
+            "entradas": {"tbs": 35, "tbu": 30, "v": 1, "tgn": 25, "tpo": 12},
             "config": {"habilitarEquipamentos": True},
         }
 

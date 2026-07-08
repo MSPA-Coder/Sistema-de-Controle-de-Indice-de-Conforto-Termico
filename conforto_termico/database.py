@@ -2,19 +2,19 @@
 """
 database.py
 ============
-Persistencia simples em SQLite (biblioteca padrao do Python, sem
-dependencias extras) do historico de leituras, para alimentar os graficos
-de "ultimos 20 indices calculados" descritos na secao 3.4.1 (Area 04) da
-dissertacao.
+Persistência simples em SQLite (biblioteca padrão do Python, sem
+dependências extras) do histórico de leituras, para alimentar os gráficos
+de "últimos 20 índices calculados" descritos na seção 3.4.1 (Área 04) da
+dissertação.
 
-NOTA DE CORRECAO: a versao anterior deste modulo usava
-`with _lock, sqlite3.connect(...) as conn:` para cada operacao. O
-`sqlite3.Connection` como context manager apenas comita/desfaz a transacao
-ao sair do bloco -- ele NAO fecha a conexao sozinho (isso e documentado no
-proprio modulo sqlite3 da biblioteca padrao). Como resultado, cada chamada
-abria uma conexao nova que nunca era fechada, vazando conexoes/descritores
-de arquivo ao longo do tempo (principalmente com o "modo automatico", que
-calcula a cada 5s). Agora todas as operacoes passam pelo gerenciador de
+NOTA DE CORREÇÃO: a versão anterior deste módulo usava
+`with _lock, sqlite3.connect(...) as conn:` para cada operação. O
+`sqlite3.Connection` como context manager apenas comita/desfaz a transação
+ao sair do bloco -- ele NÃO fecha a conexão sozinho (isso é documentado no
+próprio módulo sqlite3 da biblioteca padrão). Como resultado, cada chamada
+abria uma conexão nova que nunca era fechada, vazando conexões/descritores
+de arquivo ao longo do tempo (principalmente com o modo automático, que
+calcula a cada 1s). Agora todas as operações passam pelo gerenciador de
 contexto `_conexao()` abaixo, que garante `close()` mesmo se ocorrer erro.
 """
 
@@ -28,7 +28,8 @@ import threading
 from contextlib import contextmanager
 from typing import Iterator
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "historico.db")
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DB_PATH = os.path.join(PROJECT_ROOT, "historico.db")
 
 _lock = threading.Lock()
 INTERVALO_MINIMO_LEITURAS = datetime.timedelta(minutes=1)
@@ -36,8 +37,8 @@ INTERVALO_MINIMO_LEITURAS = datetime.timedelta(minutes=1)
 
 @contextmanager
 def _conexao() -> Iterator[sqlite3.Connection]:
-    """Abre uma conexao SQLite, garante commit em caso de sucesso (ou
-    rollback em caso de excecao) e SEMPRE fecha a conexao ao final."""
+    """Abre uma conexão SQLite, garante commit em caso de sucesso (ou
+    rollback em caso de exceção) e SEMPRE fecha a conexão ao final."""
     with _lock:
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
@@ -68,8 +69,28 @@ def iniciar_banco() -> None:
         )
 
 
-def salvar_leitura(especie: str, indice: str, valor: float, status: str, entradas: dict) -> bool:
+def _intervalo_minimo_leituras(intervalo_minutos: float | int | str | None) -> datetime.timedelta:
+    if intervalo_minutos is None:
+        return INTERVALO_MINIMO_LEITURAS
+
+    try:
+        minutos = float(intervalo_minutos)
+    except (TypeError, ValueError):
+        return INTERVALO_MINIMO_LEITURAS
+
+    return datetime.timedelta(minutes=max(0, minutos))
+
+
+def salvar_leitura(
+    especie: str,
+    indice: str,
+    valor: float,
+    status: str,
+    entradas: dict,
+    intervalo_minutos: float | int | str | None = None,
+) -> bool:
     agora = datetime.datetime.now().replace(microsecond=0)
+    intervalo_minimo = _intervalo_minimo_leituras(intervalo_minutos)
     with _conexao() as conn:
         ultima = conn.execute(
             "SELECT criado_em FROM leituras WHERE especie = ? AND indice = ? "
@@ -78,7 +99,7 @@ def salvar_leitura(especie: str, indice: str, valor: float, status: str, entrada
         ).fetchone()
         if ultima:
             ultima_data = datetime.datetime.fromisoformat(ultima["criado_em"])
-            if agora - ultima_data < INTERVALO_MINIMO_LEITURAS:
+            if agora - ultima_data < intervalo_minimo:
                 return False
 
         conn.execute(
@@ -104,7 +125,7 @@ def obter_historico(especie: str, indice: str, limite: int = 20) -> list[dict]:
             (especie, indice, limite),
         ).fetchall()
     dados = [dict(linha) for linha in linhas]
-    dados.reverse()  # ordem cronologica (mais antigo -> mais recente) para os graficos
+    dados.reverse()  # ordem cronológica (mais antigo -> mais recente) para os gráficos
     for item in dados:
         item["entradas"] = json.loads(item["entradas"])
     return dados
@@ -116,12 +137,14 @@ def limpar_historico(especie: str | None = None, indice: str | None = None) -> N
             conn.execute(
                 "DELETE FROM leituras WHERE especie = ? AND indice = ?", (especie, indice)
             )
+        elif especie:
+            conn.execute("DELETE FROM leituras WHERE especie = ?", (especie,))
         else:
             conn.execute("DELETE FROM leituras")
 
 
 def contar_leituras() -> int:
-    """Utilitario de diagnostico: total de linhas gravadas na tabela."""
+    """Utilitário de diagnóstico: total de linhas gravadas na tabela."""
     with _conexao() as conn:
         (total,) = conn.execute("SELECT COUNT(*) FROM leituras").fetchone()
     return total

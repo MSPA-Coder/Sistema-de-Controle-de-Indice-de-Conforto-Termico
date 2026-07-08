@@ -7,12 +7,12 @@ Testes de validação: reproduz os exemplos numéricos publicados nas Tabelas
 na seção 4.2 ("Validação dos Resultados Obtidos").
 
 Rodar com:
-    python -m unittest test_thermal_indices.py -v
+    python -m unittest tests.test_thermal_indices -v
 """
 
 import unittest
 
-from thermal_indices import (
+from conforto_termico.thermal_indices import (
     calcular_ignu,
     calcular_itu,
     calcular_ituv,

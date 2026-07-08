@@ -38,26 +38,50 @@ funcionalidades como uma aplicação web local.
 
 ```
 sistema_conforto_termico/
-├── app.py                     # rotas Flask (API + página)
-├── models.py                  # classes Temperatura / Resfriamento / Email
-│                               #   (inspiradas na Figura 14 da dissertação)
-├── thermal_indices.py         # equações, Tabela 4 e validação de entradas
-├── database.py                # persistência SQLite do histórico
-├── test_thermal_indices.py    # testes que conferem os exemplos numéricos
-│                               #   publicados na própria dissertação
-├── templates/index.html
-├── static/css/style.css
-├── static/js/app.js
-├── static/js/vendor/chart.umd.js  # Chart.js empacotado localmente (sem CDN)
+├── app.py                     # lançador compatível: python app.py
+├── conforto_termico/
+│   ├── web.py                 # rotas Flask (API + página)
+│   ├── models.py              # classes Temperatura / Resfriamento / Email
+│   │                           #   (inspiradas na Figura 14 da dissertação)
+│   ├── services.py            # serviços de aplicação: histórico visual,
+│   │                           #   sensor simulado e estratégia de resfriamento
+│   ├── thermal_indices.py     # equações, Tabela 4 e validação de entradas
+│   ├── database.py            # persistência SQLite do histórico
+│   ├── templates/index.html
+│   └── static/
+│       ├── css/style.css
+│       ├── js/app.js
+│       └── js/vendor/chart.umd.js  # Chart.js empacotado localmente (sem CDN)
+├── tests/
+│   ├── test_app.py            # testes de API e fluxos integrados
+│   ├── test_database.py       # testes da persistência e intervalo mínimo
+│   ├── test_services.py       # testes da camada de serviços
+│   └── test_thermal_indices.py
+│                               # testes dos exemplos numéricos da dissertação
+├── historico.db               # banco SQLite local, preservado na raiz
 └── requirements.txt
 ```
+
+## Arquitetura
+
+- `app.py` é apenas o lançador compatível para `python app.py`.
+- `conforto_termico/web.py` contém a camada HTTP: rotas, validação de status
+  HTTP e montagem das respostas JSON.
+- `conforto_termico/services.py` contém a camada de serviços da aplicação. O histórico visual
+  dos gráficos fica separado do histórico persistido, e o sensor simulado usa
+  o padrão **Strategy** para alternar entre geração aleatória e resfriamento
+  progressivo quando os equipamentos estão ligados.
+- `conforto_termico/database.py` concentra a persistência SQLite e expõe uma API pequena para
+  salvar, consultar e limpar leituras.
+- `conforto_termico/thermal_indices.py` permanece como núcleo puro de domínio: fórmulas,
+  validação de entradas e classificação por faixa.
 
 ## Equações implementadas
 
 A dissertação cita várias equações na revisão bibliográfica, mas a Tabela 3
 ("Algoritmos para determinação dos Índices de Conforto Térmico") define quais
 delas foram **de fato codificadas no programa** — e são essas que estão
-implementadas aqui, em `thermal_indices.py`:
+implementadas aqui, em `conforto_termico/thermal_indices.py`:
 
 | Índice | Equação                                          | Fonte                    |
 |--------|---------------------------------------------------|--------------------------|
@@ -68,7 +92,7 @@ implementadas aqui, em `thermal_indices.py`:
 As três fórmulas foram conferidas manualmente contra os exemplos numéricos
 publicados nas Tabelas 5, 6 e 7 e na seção 4.3 do Capítulo IV — por exemplo,
 tbs=27, tbu=19 → ITU=73,72; Tgn=42, Tpo=8 → IGNU=69,58; tbs=22, tbu=1, V=4 →
-ITUV=17,39 — e batem exatamente. Veja `test_thermal_indices.py`.
+ITUV=17,39 — e batem exatamente. Veja `tests/test_thermal_indices.py`.
 
 ## ⚠️ Duas premissas assumidas na Tabela 4
 
@@ -87,7 +111,7 @@ Todas as demais linhas (ITU para frangos e bovinos; ITUV para frangos; IGNU
 para frangos e bovinos) foram conferidas com sucesso contra os exemplos
 numéricos do Capítulo IV e não têm essa incerteza. Se você tiver os valores
 exatos de Sales et al. (2006) e Ferreira (2001), é só ajustar o dicionário
-`LIMITES` em `thermal_indices.py` — o restante do sistema não precisa mudar.
+`LIMITES` em `conforto_termico/thermal_indices.py` — o restante do sistema não precisa mudar.
 
 ## Correções desta revisão
 
@@ -98,9 +122,9 @@ Depois do primeiro uso, três problemas foram identificados e corrigidos:
    bloqueie esse domínio (firewall corporativo, bloqueador de anúncios, rede
    de fazenda sem internet), o carregamento falhava silenciosamente e a
    biblioteca `Chart` ficava indefinida no navegador. Agora o Chart.js vem
-   empacotado localmente em `static/js/vendor/chart.umd.js` e é servido pelo
+   empacotado localmente em `conforto_termico/static/js/vendor/chart.umd.js` e é servido pelo
    próprio Flask — nenhuma dependência externa em tempo de execução.
-2. **O tratamento de erros no front-end (`static/js/app.js`) misturava dois
+2. **O tratamento de erros no front-end (`conforto_termico/static/js/app.js`) misturava dois
    problemas diferentes sob a mesma mensagem.** Um `try/catch` único
    envolvia tanto a chamada de rede quanto a atualização da tela (inclusive
    os gráficos); se a biblioteca de gráficos falhasse ao desenhar por
@@ -110,7 +134,7 @@ Depois do primeiro uso, três problemas foram identificados e corrigidos:
    falha de rede mostra uma mensagem sobre o servidor; falha ao desenhar os
    gráficos mostra o valor já calculado e avisa especificamente sobre os
    gráficos, sem esconder o resultado.
-3. **Vazamento de conexões SQLite em `database.py`.** O código usava
+3. **Vazamento de conexões SQLite em `conforto_termico/database.py`.** O código usava
    `with sqlite3.connect(...) as conn:`, que comita a transação mas **não
    fecha a conexão** (comportamento documentado do módulo `sqlite3`). Cada
    cálculo abria uma conexão que nunca era liberada. Corrigido com um
@@ -170,7 +194,7 @@ navegador real (Playwright + Chromium), não só por leitura de código:
    `app.py`, se preferir usá-la.
 5. Acesse **http://127.0.0.1:5000** no navegador.
 
-Na primeira execução, `database.py` cria automaticamente o arquivo
+Na primeira execução, `conforto_termico/database.py` cria automaticamente o arquivo
 `historico.db` (SQLite) na pasta do projeto — não é preciso nenhuma
 configuração adicional de banco de dados.
 
@@ -193,11 +217,12 @@ SMTP_PASS=sua-senha-ou-senha-de-app
 ## Rodando os testes
 
 ```
-python -m unittest test_thermal_indices.py -v
+python -m unittest -v
 ```
 
-Esses testes reproduzem os próprios exemplos numéricos da dissertação
-(mesmo espírito da seção 4.2, "Validação dos Resultados Obtidos").
+Os testes reproduzem os próprios exemplos numéricos da dissertação
+(mesmo espírito da seção 4.2, "Validação dos Resultados Obtidos") e cobrem
+os fluxos de API, persistência e serviços de simulação.
 
 ## Simplificações em relação ao programa original
 

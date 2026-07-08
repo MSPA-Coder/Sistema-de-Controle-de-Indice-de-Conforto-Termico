@@ -5,7 +5,7 @@ import os
 import tempfile
 import unittest
 
-import database as db
+from conforto_termico import database as db
 
 
 class TestIntervaloMinimoLeituras(unittest.TestCase):
@@ -52,6 +52,35 @@ class TestIntervaloMinimoLeituras(unittest.TestCase):
         self.assertTrue(db.salvar_leitura("frangos", "ITU", 70.0, "Conforto", entradas))
         self.assertTrue(db.salvar_leitura("bovinos", "ITU", 70.0, "Conforto", entradas))
         self.assertTrue(db.salvar_leitura("frangos", "IGNU", 70.0, "Conforto", entradas))
+
+    def test_intervalo_zero_salva_todas_as_leituras(self):
+        entradas = {"tbs": 25, "tbu": 20}
+
+        self.assertTrue(
+            db.salvar_leitura(
+                "frangos", "ITU", 70.0, "Conforto", entradas, intervalo_minutos=0
+            )
+        )
+        self.assertTrue(
+            db.salvar_leitura(
+                "frangos", "ITU", 71.0, "Conforto", entradas, intervalo_minutos=0
+            )
+        )
+
+        self.assertEqual(2, len(db.obter_historico("frangos", "ITU")))
+
+    def test_limpa_historico_por_especie(self):
+        entradas = {"tbs": 25, "tbu": 20}
+
+        db.salvar_leitura("frangos", "ITU", 70.0, "Conforto", entradas)
+        db.salvar_leitura("frangos", "IGNU", 70.0, "Conforto", entradas)
+        db.salvar_leitura("bovinos", "ITU", 70.0, "Conforto", entradas)
+
+        db.limpar_historico("frangos")
+
+        self.assertEqual([], db.obter_historico("frangos", "ITU"))
+        self.assertEqual([], db.obter_historico("frangos", "IGNU"))
+        self.assertEqual(1, len(db.obter_historico("bovinos", "ITU")))
 
 
 if __name__ == "__main__":
