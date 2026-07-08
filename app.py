@@ -17,9 +17,12 @@ Depois abra http://127.0.0.1:5000 no navegador.
 
 from __future__ import annotations
 
+import datetime
 import random
+import threading
 
 from flask import Flask, jsonify, render_template, request
+from werkzeug.exceptions import HTTPException
 
 import database as db
 import thermal_indices as ti
@@ -33,6 +36,117 @@ db.iniciar_banco()
 # único objeto "global" em memória é suficiente aqui - assim como o programa
 # original era uma aplicação desktop de um único usuário.
 _resfriador = Resfriamento()
+_historico_graficos = {}
+_historico_graficos_lock = threading.Lock()
+_estado_sensor = {}
+_estado_sensor_lock = threading.Lock()
+LIMITE_HISTORICO_GRAFICOS = 20
+FATOR_RESFRIAMENTO = 0.95
+FATOR_VENTILACAO = 1.05
+
+
+def _copiar_leitura(leitura):
+    copia = dict(leitura)
+    copia["entradas"] = dict(leitura["entradas"])
+    return copia
+
+
+def _historico_visual(especie, indice):
+    chave = (especie, indice)
+    with _historico_graficos_lock:
+        if chave in _historico_graficos:
+            return [_copiar_leitura(leitura) for leitura in _historico_graficos[chave]]
+
+    return db.obter_historico(especie, indice, limite=LIMITE_HISTORICO_GRAFICOS)
+
+
+def _registrar_leitura_visual(especie, indice, valor, status, entradas):
+    chave = (especie, indice)
+    leitura = {
+        "criado_em": datetime.datetime.now().isoformat(timespec="seconds"),
+        "valor": valor,
+        "status": status,
+        "entradas": dict(entradas),
+    }
+
+    with _historico_graficos_lock:
+        if chave not in _historico_graficos:
+            _historico_graficos[chave] = db.obter_historico(
+                especie, indice, limite=LIMITE_HISTORICO_GRAFICOS - 1
+            )
+        _historico_graficos[chave].append(leitura)
+        _historico_graficos[chave] = _historico_graficos[chave][-LIMITE_HISTORICO_GRAFICOS:]
+        return [_copiar_leitura(item) for item in _historico_graficos[chave]]
+
+
+def _limpar_historico_visual(especie, indice):
+    with _historico_graficos_lock:
+        if especie and indice:
+            _historico_graficos.pop((especie, indice), None)
+        else:
+            _historico_graficos.clear()
+
+
+def _leitura_aleatoria(indice):
+    if indice == "ITU":
+        return {"tbs": round(random.uniform(18, 40), 1), "tbu": round(random.uniform(12, 30), 1)}
+    if indice == "ITUV":
+        return {
+            "tbs": round(random.uniform(18, 40), 1),
+            "tbu": round(random.uniform(12, 30), 1),
+            "v": round(random.uniform(0.1, 5.0), 2),
+        }
+    if indice == "IGNU":
+        return {"tgn": round(random.uniform(18, 45), 1), "tpo": round(random.uniform(5, 30), 1)}
+    raise ti.EntradaInvalidaError("Índice inválido.")
+
+
+def _registrar_estado_sensor(especie, indice, entradas, valor, status):
+    with _estado_sensor_lock:
+        _estado_sensor[(especie, indice)] = {
+            "entradas": dict(entradas),
+            "valor": valor,
+            "status": status,
+        }
+
+
+def _limpar_estado_sensor(especie, indice):
+    with _estado_sensor_lock:
+        if especie and indice:
+            _estado_sensor.pop((especie, indice), None)
+        else:
+            _estado_sensor.clear()
+
+
+def _valor_ajustado(campo, valor):
+    minimo, maximo = ti.RANGE_VALIDACAO[campo]
+    if campo == "v":
+        ajustado = valor * FATOR_VENTILACAO
+    elif valor >= 0:
+        ajustado = valor * FATOR_RESFRIAMENTO
+    else:
+        ajustado = valor / FATOR_RESFRIAMENTO
+    return max(minimo, min(maximo, ajustado))
+
+
+def _leitura_com_resfriamento(especie, indice):
+    with _estado_sensor_lock:
+        estado = _estado_sensor.get((especie, indice))
+
+    if not estado or estado["status"] == "Conforto":
+        if estado and estado["status"] == "Conforto":
+            _resfriador.desativar()
+        return None
+
+    entradas = dict(estado["entradas"])
+    campos_ajustados = ti.CAMPOS_POR_INDICE[indice]
+    ajustada = {
+        campo: round(_valor_ajustado(campo, entradas[campo]), 2 if campo == "v" else 1)
+        for campo in campos_ajustados
+    }
+    valor, status = ti.calcular_e_classificar(especie, indice, ajustada)
+    _registrar_estado_sensor(especie, indice, ajustada, valor, status)
+    return ajustada
 
 
 @app.errorhandler(Exception)
@@ -42,6 +156,11 @@ def tratar_erro_inesperado(erro):
     Isso evita que o front-end, que sempre espera JSON de /api/*, quebre ao
     tentar interpretar uma página de erro como se fosse dado — o que antes
     aparecia disfarçado de "falha de comunicação com o servidor"."""
+    if isinstance(erro, HTTPException):
+        if request.path.startswith("/api/"):
+            return jsonify({"erro": erro.description}), erro.code or 500
+        return erro
+
     app.logger.exception("Erro não tratado em %s", request.path)
     if request.path.startswith("/api/"):
         return jsonify({"erro": f"Erro interno inesperado: {erro}"}), 500
@@ -61,6 +180,11 @@ def index():
     )
 
 
+@app.route("/favicon.ico")
+def favicon():
+    return "", 204
+
+
 @app.route("/api/calcular", methods=["POST"])
 def calcular():
     dados = request.get_json(force=True, silent=True) or {}
@@ -77,13 +201,22 @@ def calcular():
     except ti.EntradaInvalidaError as erro:
         return jsonify({"erro": str(erro)}), 400
 
+    _registrar_estado_sensor(especie, indice, temperatura.entradas, valor, status)
+
+    try:
+        historico_grafico = _registrar_leitura_visual(especie, indice, valor, status, temperatura.entradas)
+    except Exception:
+        app.logger.exception("Falha ao atualizar histórico visual dos gráficos")
+        historico_grafico = []
+
     # 2) A partir daqui o cálculo já está pronto. Cada efeito colateral abaixo
     #    (gravar no banco, acionar equipamentos, montar e-mail) é isolado em
     #    seu próprio try/except: uma falha em qualquer um deles não deve
     #    derrubar a resposta inteira nem esconder o valor já calculado.
     aviso = None
+    leitura_gravada = False
     try:
-        db.salvar_leitura(especie, indice, valor, status, temperatura.entradas)
+        leitura_gravada = db.salvar_leitura(especie, indice, valor, status, temperatura.entradas)
     except Exception:
         app.logger.exception("Falha ao gravar leitura no banco de dados")
         aviso = "O valor foi calculado, mas não foi possível salvar no histórico (veja o log do Flask)."
@@ -126,10 +259,12 @@ def calcular():
         "status": status,
         "cor": ti.CORES_STATUS[status],
         "mensagem": ti.MENSAGENS_STATUS[status],
+        "leitura_gravada": leitura_gravada,
         "equipamento": equipamento_info,
         "email": email_info,
         "tocarSom": bool(config.get("habilitarSons")),
         "historico": historico,
+        "historico_grafico": historico_grafico,
     }
     if aviso:
         resposta["aviso"] = aviso
@@ -141,19 +276,16 @@ def sensor_simulado():
     """Simula a leitura de um sensor remoto (Área 02 - opção 'Coletar
     Dados' da dissertação, seção 3.4.3). Gera valores plausíveis dentro da
     faixa validada no Capítulo IV (0-45°C / 0,01-5,00 m/s)."""
+    especie = request.args.get("especie", "frangos")
     indice = request.args.get("indice", "")
-    if indice == "ITU":
-        leitura = {"tbs": round(random.uniform(18, 40), 1), "tbu": round(random.uniform(12, 30), 1)}
-    elif indice == "ITUV":
-        leitura = {
-            "tbs": round(random.uniform(18, 40), 1),
-            "tbu": round(random.uniform(12, 30), 1),
-            "v": round(random.uniform(0.1, 5.0), 2),
-        }
-    elif indice == "IGNU":
-        leitura = {"tgn": round(random.uniform(18, 45), 1), "tpo": round(random.uniform(5, 30), 1)}
-    else:
-        return jsonify({"erro": "Índice inválido."}), 400
+    if not ti.indice_disponivel(especie, indice):
+        return jsonify({"erro": "Índice inválido para a espécie selecionada."}), 400
+
+    leitura = None
+    if _resfriador.estado()["ativo"]:
+        leitura = _leitura_com_resfriamento(especie, indice)
+    if leitura is None:
+        leitura = _leitura_aleatoria(indice)
     return jsonify(leitura)
 
 
@@ -162,6 +294,13 @@ def historico():
     especie = request.args.get("especie", "")
     indice = request.args.get("indice", "")
     return jsonify(db.obter_historico(especie, indice, limite=20))
+
+
+@app.route("/api/historico-grafico")
+def historico_grafico():
+    especie = request.args.get("especie", "")
+    indice = request.args.get("indice", "")
+    return jsonify(_historico_visual(especie, indice))
 
 
 @app.route("/api/diagnostico")
@@ -180,6 +319,8 @@ def diagnostico():
 def reset():
     dados = request.get_json(force=True, silent=True) or {}
     db.limpar_historico(dados.get("especie"), dados.get("indice"))
+    _limpar_historico_visual(dados.get("especie"), dados.get("indice"))
+    _limpar_estado_sensor(dados.get("especie"), dados.get("indice"))
     _resfriador.desativar()
     return jsonify({"ok": True})
 

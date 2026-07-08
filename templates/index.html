@@ -31,7 +31,6 @@
 
     <!-- Seletor de espécie e índice -------------------------------------------------->
     <section class="painel seletor-painel">
-      <div class="rotulo-secao">01 — Seleção</div>
       <div class="seletor-linha">
         <span class="seletor-etiqueta">Espécie</span>
         <div id="seletor-especie" class="rocker-grupo" role="tablist"></div>
@@ -44,8 +43,6 @@
 
     <!-- Entrada de dados --------------------------------------------------------------->
     <section class="painel entrada-painel">
-      <div class="rotulo-secao">02 — Entrada de Dados</div>
-
       <div id="campos-entrada" class="campos-entrada"></div>
 
       <div class="acao-linha">
@@ -76,7 +73,7 @@
       <div class="acao-linha">
         <label class="check check--automatico">
           <input type="checkbox" id="cfg-auto">
-          <span>Modo automático (simula monitoramento contínuo a cada 5s)</span>
+          <span>Modo automático (simula monitoramento contínuo a cada 1s)</span>
         </label>
         <button id="btn-limpar" class="botao botao--texto" type="button">Limpar histórico</button>
       </div>
@@ -86,8 +83,6 @@
 
     <!-- Leitura / readout ---------------------------------------------------------------->
     <section class="painel leitura-painel">
-      <div class="rotulo-secao">03 — Leitura</div>
-
       <div class="readout">
         <span id="readout-indice" class="readout-etiqueta">ITU</span>
         <span id="readout-valor" class="readout-valor">--,--</span>
@@ -119,7 +114,6 @@
 
     <!-- Gráficos --------------------------------------------------------------------------->
     <section class="painel graficos-painel">
-      <div class="rotulo-secao">04 — Histórico (últimas 20 leituras)</div>
       <div class="grafico-bloco">
         <p class="grafico-titulo">Valor do índice por leitura</p>
         <div class="grafico-canvas-wrap"><canvas id="grafico-indice"></canvas></div>
@@ -132,14 +126,12 @@
 
     <!-- E-mail simulado -------------------------------------------------------------------->
     <section id="secao-email" class="painel email-painel oculto">
-      <div class="rotulo-secao">05 — Notificação por E-mail</div>
       <div id="email-status" class="email-status"></div>
       <pre id="email-conteudo" class="email-recibo"></pre>
     </section>
 
     <!-- Histórico em tabela ------------------------------------------------------------------>
     <section class="painel tabela-painel">
-      <div class="rotulo-secao">06 — Registro de Leituras</div>
       <div class="tabela-scroll">
         <table id="tabela-historico">
           <thead>

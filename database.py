@@ -31,6 +31,7 @@ from typing import Iterator
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "historico.db")
 
 _lock = threading.Lock()
+INTERVALO_MINIMO_LEITURAS = datetime.timedelta(minutes=1)
 
 
 @contextmanager
@@ -67,8 +68,19 @@ def iniciar_banco() -> None:
         )
 
 
-def salvar_leitura(especie: str, indice: str, valor: float, status: str, entradas: dict) -> None:
+def salvar_leitura(especie: str, indice: str, valor: float, status: str, entradas: dict) -> bool:
+    agora = datetime.datetime.now().replace(microsecond=0)
     with _conexao() as conn:
+        ultima = conn.execute(
+            "SELECT criado_em FROM leituras WHERE especie = ? AND indice = ? "
+            "ORDER BY id DESC LIMIT 1",
+            (especie, indice),
+        ).fetchone()
+        if ultima:
+            ultima_data = datetime.datetime.fromisoformat(ultima["criado_em"])
+            if agora - ultima_data < INTERVALO_MINIMO_LEITURAS:
+                return False
+
         conn.execute(
             "INSERT INTO leituras (especie, indice, valor, status, entradas, criado_em) "
             "VALUES (?, ?, ?, ?, ?, ?)",
@@ -78,9 +90,10 @@ def salvar_leitura(especie: str, indice: str, valor: float, status: str, entrada
                 valor,
                 status,
                 json.dumps(entradas),
-                datetime.datetime.now().isoformat(timespec="seconds"),
+                agora.isoformat(timespec="seconds"),
             ),
         )
+    return True
 
 
 def obter_historico(especie: str, indice: str, limite: int = 20) -> list[dict]:

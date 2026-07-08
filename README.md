@@ -27,7 +27,10 @@ funcionalidades como uma aplicação web local.
   Figuras 20/22/25/28.
 - Toca um **som de alerta** (Web Audio API, sem precisar de arquivo de áudio).
 - Permite **simular a leitura de sensores remotos** (opção "Coletar Dados")
-  e um **modo automático** que simula o monitoramento contínuo a cada 5 s.
+  e um **modo automático** que simula o monitoramento contínuo a cada 1 s.
+  Quando os equipamentos remotos estão ligados, o sensor simulado deixa de
+  sortear novos valores e reduz a carga térmica em 5% por ciclo até o índice
+  voltar à faixa de Conforto; depois disso, retorna à geração aleatória.
 - Mantém um **histórico das últimas 20 leituras** (SQLite) e o exibe em dois
   gráficos (valor do índice / variáveis de entrada) e em uma tabela.
 
@@ -129,7 +132,7 @@ navegador real (Playwright + Chromium), não só por leitura de código:
 
 4. **"Modo automático" não parava ao desmarcar a caixa.** A causa era o uso
    de `setInterval` disparando um ciclo assíncrono (leitura simulada +
-   cálculo) a cada 5s: se um ciclo demorasse mais que 5s para terminar (rede
+   cálculo) a cada 1s: se um ciclo demorasse mais que 1s para terminar (rede
    lenta, redesenho dos gráficos, etc.), o próximo já disparava por cima,
    empilhando execuções sobrepostas. `clearInterval` só impede *novos*
    disparos — não cancela chamadas assíncronas que já estavam em andamento,
@@ -138,7 +141,7 @@ navegador real (Playwright + Chromium), não só por leitura de código:
    ciclo depois que o anterior terminou por completo, checando uma flag
    antes de cada etapa — agora nunca há sobreposição, e desmarcar interrompe
    em no máximo a duração de um ciclo já em andamento. Testado com um
-   navegador real: 3 ciclos rodaram com a caixa marcada (a cada ~5s) e
+   navegador real: 3 ciclos rodaram com a caixa marcada (a cada ~1s) e
    **zero** requisições novas nos 16s seguintes a desmarcar.
 5. **A altura dos gráficos crescia a cada atualização, alongando a página.**
    Bug clássico do Chart.js: com `maintainAspectRatio:false`, o gráfico
@@ -203,11 +206,13 @@ Esses testes reproduzem os próprios exemplos numéricos da dissertação
   versão web, isso é naturalmente resolvido pelas chamadas assíncronas
   (`fetch`) do navegador — não foi necessário replicar threads no servidor.
 - A "coleta de dados de sensores remotos" é **simulada** (gera valores
-  plausíveis dentro da faixa validada no Capítulo IV). Para integrar
-  sensores de verdade, o ponto de entrada é a rota `/api/sensor` em
-  `app.py` — troque a geração aleatória pela chamada ao driver do
-  fabricante do sensor (seção 3.4.3 da dissertação já descreve essa
-  interface).
+  plausíveis dentro da faixa validada no Capítulo IV). Quando o resfriamento
+  está ativo, a simulação reduz temperaturas/umidade em 5% por ciclo e,
+  no ITUV, aumenta a velocidade do ar em 5%, até o índice voltar a
+  "Conforto". Para integrar sensores de verdade, o ponto de entrada é a rota
+  `/api/sensor` em `app.py` — troque a geração aleatória pela chamada ao
+  driver do fabricante do sensor (seção 3.4.3 da dissertação já descreve
+  essa interface).
 - O histórico fica em SQLite local (um único "posto de controle"), como no
   programa original (aplicação desktop de estação única).
 

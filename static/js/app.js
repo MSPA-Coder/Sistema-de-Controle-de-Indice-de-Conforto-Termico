@@ -41,6 +41,7 @@ const estado = { especie: "frangos", indice: "ITU" };
 
 let graficoIndice = null;
 let graficoEntradas = null;
+let assinaturaGraficos = "";
 let autoAtivo = false; // Modo automático ligado/desligado (checado antes de CADA ciclo)
 let autoEmExecucao = false; // true enquanto um ciclo está em andamento (evita sobreposição)
 let autoTimeoutId = null; // id do próximo ciclo agendado (setTimeout), se houver
@@ -205,7 +206,10 @@ async function calcular() {
 
 async function simularSensor() {
   try {
-    const resposta = await fetch("/api/sensor?indice=" + encodeURIComponent(estado.indice));
+    const resposta = await fetch(
+      "/api/sensor?especie=" + encodeURIComponent(estado.especie) +
+      "&indice=" + encodeURIComponent(estado.indice)
+    );
     const dados = await resposta.json();
     if (resposta.ok) preencherEntradas(dados);
   } catch (erro) {
@@ -215,11 +219,14 @@ async function simularSensor() {
 
 async function carregarHistorico() {
   try {
-    const resposta = await fetch(
-      "/api/historico?especie=" + encodeURIComponent(estado.especie) + "&indice=" + encodeURIComponent(estado.indice)
-    );
+    const query = "?especie=" + encodeURIComponent(estado.especie) + "&indice=" + encodeURIComponent(estado.indice);
+    const [resposta, respostaGrafico] = await Promise.all([
+      fetch("/api/historico" + query),
+      fetch("/api/historico-grafico" + query),
+    ]);
     const historico = await resposta.json();
-    atualizarGraficos(historico);
+    const historicoGrafico = respostaGrafico.ok ? await respostaGrafico.json() : historico;
+    atualizarGraficos(historicoGrafico);
     atualizarTabela(historico);
   } catch (erro) {
     /* não crítico */
@@ -287,7 +294,7 @@ function atualizarResultado(dados) {
   //    gráficos não carregar por qualquer motivo, o restante do painel acima
   //    já está atualizado e continua funcionando normalmente.
   try {
-    atualizarGraficos(dados.historico);
+    atualizarGraficos(dados.historico_grafico || dados.historico);
   } catch (erro) {
     console.error("Erro ao desenhar os gráficos:", erro);
     mostrarErro(
@@ -369,7 +376,7 @@ function opcoesGrafico(comEixoSecundario) {
   const opcoes = {
     responsive: true,
     maintainAspectRatio: false,
-    animation: { duration: 350 },
+    animation: false,
     plugins: {
       legend: { labels: { color: "#F2ECE1", font: { family: "IBM Plex Mono", size: 11 } } },
     },
@@ -393,6 +400,33 @@ function opcoesGrafico(comEixoSecundario) {
   return opcoes;
 }
 
+function assinaturaDoHistorico(historico) {
+  const campos = CONFIG_APP.camposPorIndice[estado.indice] || [];
+  return [
+    estado.especie,
+    estado.indice,
+    campos.join(","),
+    historico.map((h) => [
+      h.criado_em,
+      h.valor,
+      h.status,
+      campos.map((campo) => h.entradas[campo]).join(","),
+    ].join(":")).join("|"),
+  ].join(";");
+}
+
+function criarOuAtualizarGrafico(grafico, canvasId, configuracao) {
+  if (!grafico) {
+    return new Chart(document.getElementById(canvasId).getContext("2d"), configuracao);
+  }
+
+  grafico.data.labels = configuracao.data.labels;
+  grafico.data.datasets = configuracao.data.datasets;
+  grafico.options = configuracao.options;
+  grafico.update("none");
+  return grafico;
+}
+
 function atualizarGraficos(historico) {
   if (typeof Chart === "undefined") {
     throw new Error(
@@ -401,16 +435,29 @@ function atualizarGraficos(historico) {
     );
   }
 
+  const novaAssinatura = assinaturaDoHistorico(historico);
+  if (novaAssinatura === assinaturaGraficos && graficoIndice && graficoEntradas) {
+    return;
+  }
+  assinaturaGraficos = novaAssinatura;
+
   const rotulos = historico.map((h) => formatarHora(h.criado_em));
   const valores = historico.map((h) => h.valor);
   const cores = historico.map((h) => COR_STATUS[h.status] || "#4F8A93");
+  const datasetIndice = graficoIndice ? graficoIndice.data.datasets[0] : {};
+  Object.assign(datasetIndice, {
+    label: estado.indice,
+    data: valores,
+    backgroundColor: cores,
+    borderRadius: 3,
+    maxBarThickness: 26,
+  });
 
-  if (graficoIndice) graficoIndice.destroy();
-  graficoIndice = new Chart(document.getElementById("grafico-indice").getContext("2d"), {
+  graficoIndice = criarOuAtualizarGrafico(graficoIndice, "grafico-indice", {
     type: "bar",
     data: {
       labels: rotulos,
-      datasets: [{ label: estado.indice, data: valores, backgroundColor: cores, borderRadius: 3, maxBarThickness: 26 }],
+      datasets: [datasetIndice],
     },
     options: opcoesGrafico(false),
   });
@@ -418,19 +465,29 @@ function atualizarGraficos(historico) {
   const campos = CONFIG_APP.camposPorIndice[estado.indice];
   const paleta = ["#4F8A93", "#D9A441", "#8FBF9F"];
   const temVelocidade = campos.includes("v");
-  const datasetsEntradas = campos.map((campo, i) => ({
-    label: CONFIG_APP.campoMetadados[campo].label,
-    data: historico.map((h) => h.entradas[campo]),
-    borderColor: paleta[i % paleta.length],
-    backgroundColor: paleta[i % paleta.length] + "33",
-    tension: 0.3,
-    pointRadius: 2,
-    fill: campo !== "v",
-    yAxisID: campo === "v" ? "y1" : "y",
-  }));
+  const datasetsAtuaisEntradas = new Map(
+    graficoEntradas ? graficoEntradas.data.datasets.map((dataset) => [dataset.campo, dataset]) : []
+  );
+  const datasetsEntradas = campos.map((campo, i) => {
+    const cor = paleta[i % paleta.length];
+    const dataset = datasetsAtuaisEntradas.get(campo) || {};
+    Object.assign(dataset, {
+      campo,
+      label: CONFIG_APP.campoMetadados[campo].label,
+      data: historico.map((h) => h.entradas[campo]),
+      borderColor: cor,
+      backgroundColor: cor + "33",
+      tension: 0.35,
+      cubicInterpolationMode: "monotone",
+      pointRadius: 2,
+      pointHoverRadius: 4,
+      fill: campo !== "v",
+      yAxisID: campo === "v" ? "y1" : "y",
+    });
+    return dataset;
+  });
 
-  if (graficoEntradas) graficoEntradas.destroy();
-  graficoEntradas = new Chart(document.getElementById("grafico-entradas").getContext("2d"), {
+  graficoEntradas = criarOuAtualizarGrafico(graficoEntradas, "grafico-entradas", {
     type: "line",
     data: { labels: rotulos, datasets: datasetsEntradas },
     options: opcoesGrafico(temVelocidade),
@@ -552,7 +609,7 @@ async function cicloAutomatico() {
   // do modo automático "não desligar": ciclos podiam se sobrepor e continuar
   // rodando mesmo depois de desmarcar a caixa).
   if (autoAtivo) {
-    autoTimeoutId = setTimeout(cicloAutomatico, 5000);
+    autoTimeoutId = setTimeout(cicloAutomatico, 1000);
   }
 }
 

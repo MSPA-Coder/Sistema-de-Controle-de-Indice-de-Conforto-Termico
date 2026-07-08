@@ -140,17 +140,6 @@ button { font-family: inherit; }
     11px calc(100% - 11px), calc(100% - 11px) calc(100% - 11px);
 }
 
-.rotulo-secao {
-  font-family: var(--fonte-mono);
-  font-size: 0.68rem;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--cor-acento);
-  margin-bottom: 1rem;
-  padding-bottom: 0.55rem;
-  border-bottom: 1px solid var(--cor-borda);
-}
-
 /* ---------------------------------------------------------------------------
    Seletor de espécie / índice ("interruptores")
    ------------------------------------------------------------------------- */
@@ -356,7 +345,6 @@ button { font-family: inherit; }
    Gráficos
    ------------------------------------------------------------------------- */
 .graficos-painel { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
-.graficos-painel > .rotulo-secao { grid-column: 1 / -1; }
 .grafico-bloco { background: var(--cor-painel-alt); border: 1px solid var(--cor-borda); border-radius: 8px; padding: 0.9rem 1rem 0.5rem; }
 .grafico-titulo { margin: 0 0 0.6rem; font-size: 0.78rem; color: var(--cor-texto-mute); font-family: var(--fonte-mono); }
 /* Altura FIXA e position:relative são obrigatórios aqui: com
