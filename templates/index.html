@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sistema de Controle dos Índices de Conforto Térmico</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+<div class="app-shell">
+
+  <header class="rail">
+    <div class="rail-esquerda">
+      <span class="rail-logo" aria-hidden="true">◉</span>
+      <div class="rail-titulos">
+        <h1>Sistema de Controle dos Índices de Conforto Térmico</h1>
+        <p>ITU &middot; ITUV &middot; IGNU — produção industrial de frangos, bovinos de leite e suínos</p>
+      </div>
+    </div>
+    <div class="rail-direita">
+      <span class="chip-origem">Baseado na dissertação de Mariano S. P. de Angelo — UNIP, 2013</span>
+      <span id="relogio" class="relogio">--:--:--</span>
+    </div>
+  </header>
+
+  <main class="grade">
+
+    <!-- Seletor de espécie e índice -------------------------------------------------->
+    <section class="painel seletor-painel">
+      <div class="rotulo-secao">01 — Seleção</div>
+      <div class="seletor-linha">
+        <span class="seletor-etiqueta">Espécie</span>
+        <div id="seletor-especie" class="rocker-grupo" role="tablist"></div>
+      </div>
+      <div class="seletor-linha">
+        <span class="seletor-etiqueta">Índice</span>
+        <div id="seletor-indice" class="rocker-grupo rocker-grupo--pequeno" role="tablist"></div>
+      </div>
+    </section>
+
+    <!-- Entrada de dados --------------------------------------------------------------->
+    <section class="painel entrada-painel">
+      <div class="rotulo-secao">02 — Entrada de Dados</div>
+
+      <div id="campos-entrada" class="campos-entrada"></div>
+
+      <div class="acao-linha">
+        <button id="btn-simular" class="botao botao--fantasma" type="button" disabled>
+          Simular leitura de sensor
+        </button>
+        <button id="btn-calcular" class="botao botao--primario" type="button">
+          Calcular
+        </button>
+      </div>
+
+      <div class="divisor"></div>
+
+      <div class="config-grade">
+        <label class="check"><input type="checkbox" id="cfg-coletar"><span>Coletar dados de sensores remotos</span></label>
+        <label class="check"><input type="checkbox" id="cfg-sons"><span>Habilitar sons de alerta</span></label>
+        <label class="check"><input type="checkbox" id="cfg-emails"><span>Enviar e-mails de aviso</span></label>
+        <label class="check"><input type="checkbox" id="cfg-equipamentos"><span>Habilitar equipamentos remotos</span></label>
+      </div>
+
+      <div id="wrap-email-destino" class="campo-email-destino oculto">
+        <label for="email-destino">Enviar avisos para</label>
+        <input type="email" id="email-destino" placeholder="produtor@fazenda.com.br" value="produtor@fazenda.com.br">
+      </div>
+
+      <div class="divisor"></div>
+
+      <div class="acao-linha">
+        <label class="check check--automatico">
+          <input type="checkbox" id="cfg-auto">
+          <span>Modo automático (simula monitoramento contínuo a cada 5s)</span>
+        </label>
+        <button id="btn-limpar" class="botao botao--texto" type="button">Limpar histórico</button>
+      </div>
+
+      <p id="mensagem-erro" class="mensagem-erro oculto" role="alert"></p>
+    </section>
+
+    <!-- Leitura / readout ---------------------------------------------------------------->
+    <section class="painel leitura-painel">
+      <div class="rotulo-secao">03 — Leitura</div>
+
+      <div class="readout">
+        <span id="readout-indice" class="readout-etiqueta">ITU</span>
+        <span id="readout-valor" class="readout-valor">--,--</span>
+      </div>
+
+      <div id="faixa-status" class="faixa-status faixa-status--vazio">
+        <span id="faixa-status-texto">AGUARDANDO CÁLCULO</span>
+      </div>
+
+      <p id="mensagem-orientacao" class="mensagem-orientacao">
+        Preencha os dados e clique em <strong>Calcular</strong> para ver o status do lote.
+      </p>
+
+      <div class="equipamentos">
+        <div class="lampada-grupo">
+          <div id="icones-ventilador" class="icones-equipamento" role="img" aria-label="Ventilador desligado"></div>
+          <span class="lampada-legenda">Ventilador</span>
+        </div>
+        <div class="lampada-grupo">
+          <div id="icones-nebulizador" class="icones-equipamento" role="img" aria-label="Nebulizador desligado"></div>
+          <span class="lampada-legenda">Nebulizador</span>
+        </div>
+        <div class="intensidade-info">
+          <span class="intensidade-etiqueta">Intensidade</span>
+          <span id="intensidade-valor">desligado</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Gráficos --------------------------------------------------------------------------->
+    <section class="painel graficos-painel">
+      <div class="rotulo-secao">04 — Histórico (últimas 20 leituras)</div>
+      <div class="grafico-bloco">
+        <p class="grafico-titulo">Valor do índice por leitura</p>
+        <div class="grafico-canvas-wrap"><canvas id="grafico-indice"></canvas></div>
+      </div>
+      <div class="grafico-bloco">
+        <p class="grafico-titulo">Variáveis de entrada por leitura</p>
+        <div class="grafico-canvas-wrap"><canvas id="grafico-entradas"></canvas></div>
+      </div>
+    </section>
+
+    <!-- E-mail simulado -------------------------------------------------------------------->
+    <section id="secao-email" class="painel email-painel oculto">
+      <div class="rotulo-secao">05 — Notificação por E-mail</div>
+      <div id="email-status" class="email-status"></div>
+      <pre id="email-conteudo" class="email-recibo"></pre>
+    </section>
+
+    <!-- Histórico em tabela ------------------------------------------------------------------>
+    <section class="painel tabela-painel">
+      <div class="rotulo-secao">06 — Registro de Leituras</div>
+      <div class="tabela-scroll">
+        <table id="tabela-historico">
+          <thead>
+            <tr><th>Hora</th><th>Entradas</th><th>Valor</th><th>Status</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p id="tabela-vazia" class="tabela-vazia">Nenhuma leitura registrada ainda para esta combinação de espécie e índice.</p>
+    </section>
+
+  </main>
+
+  <footer class="rodape">
+    Equações e faixas de Conforto/Alerta/Perigo/Emergência conforme a dissertação
+    "Programa Computacional para o Cálculo de Índices de Conforto Térmico na Produção
+    Industrial de Animais para Carne e Leite" (M. S. P. de Angelo, UNIP, 2013).
+  </footer>
+
+</div>
+
+<script>
+  window.CONFIG_APP = {
+    indicesPorEspecie: {{ indices_por_especie | tojson }},
+    nomeEspecie: {{ nome_especie | tojson }},
+    nomeIndice: {{ nome_indice | tojson }},
+    camposPorIndice: {{ campos_por_indice | tojson }},
+    campoMetadados: {{ campo_metadados | tojson }}
+  };
+</script>
+<script src="{{ url_for('static', filename='js/vendor/chart.umd.js') }}"></script>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

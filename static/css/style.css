@@ -1,0 +1,420 @@
+/* =============================================================================
+   Sistema de Controle dos Índices de Conforto Térmico
+   Identidade visual: painel de instrumentação de campo (o mesmo espírito do
+   "Protótipo - Cálculo de Índices de Conforto Térmico" descrito na Figura 15
+   da dissertação), repaginado como um console de monitoramento industrial:
+   grafite quente, acento azul-esverdeado de telhado galvanizado, ocre de
+   pasto seco, e uma tipografia técnica (IBM Plex) — nada de tons pastel de
+   "dashboard SaaS genérico".
+   ========================================================================== */
+
+:root {
+  --cor-fundo: #1E1B18;
+  --cor-painel: #29241E;
+  --cor-painel-alt: #332C24;
+  --cor-borda: #4A4038;
+  --cor-texto: #F2ECE1;
+  --cor-texto-mute: #A79C8C;
+  --cor-acento: #4F8A93;
+  --cor-acento-escuro: #345a60;
+  --cor-acento-2: #D9A441;
+
+  --status-conforto: #3E8E5B;
+  --status-alerta: #E3A73E;
+  --status-perigo: #C1443C;
+  --status-emergencia: #FF6B5E;
+
+  --fonte-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  --fonte-sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  --raio: 10px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background:
+    radial-gradient(ellipse at 50% -10%, rgba(79, 138, 147, 0.10), transparent 55%),
+    var(--cor-fundo);
+  color: var(--cor-texto);
+  font-family: var(--fonte-sans);
+  min-height: 100vh;
+}
+
+:focus-visible {
+  outline: 2px solid var(--cor-acento-2);
+  outline-offset: 2px;
+}
+
+button { font-family: inherit; }
+
+/* ---------------------------------------------------------------------------
+   Estrutura geral
+   ------------------------------------------------------------------------- */
+.app-shell { min-height: 100vh; display: flex; flex-direction: column; }
+
+.rail {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 1.75rem;
+  background: linear-gradient(180deg, #262019, #201c17);
+  border-bottom: 2px solid var(--cor-acento);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  flex-wrap: wrap;
+}
+.rail-esquerda { display: flex; align-items: center; gap: 0.85rem; }
+.rail-logo {
+  font-size: 1.6rem;
+  color: var(--cor-acento-2);
+  text-shadow: 0 0 14px rgba(217, 164, 65, 0.6);
+}
+.rail-titulos h1 {
+  font-size: 1.05rem;
+  margin: 0;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.rail-titulos p {
+  margin: 0.15rem 0 0;
+  font-size: 0.78rem;
+  color: var(--cor-texto-mute);
+  font-family: var(--fonte-mono);
+}
+.rail-direita { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.chip-origem {
+  font-size: 0.68rem;
+  color: var(--cor-texto-mute);
+  border: 1px solid var(--cor-borda);
+  border-radius: 999px;
+  padding: 0.3rem 0.75rem;
+}
+.relogio {
+  font-family: var(--fonte-mono);
+  color: var(--cor-acento-2);
+  font-size: 0.95rem;
+  letter-spacing: 0.05em;
+}
+
+.grade {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+  gap: 1.25rem;
+  padding: 1.5rem 1.75rem 2.5rem;
+  max-width: 1360px;
+  width: 100%;
+  margin: 0 auto;
+  flex: 1;
+}
+.seletor-painel, .graficos-painel, .email-painel, .tabela-painel { grid-column: 1 / -1; }
+
+@media (max-width: 900px) {
+  .grade { grid-template-columns: 1fr; padding: 1rem; }
+  .rail { padding: 0.8rem 1rem; }
+}
+
+/* ---------------------------------------------------------------------------
+   Painéis (com "rebites" nos quatro cantos via background-image)
+   ------------------------------------------------------------------------- */
+.painel {
+  background-color: var(--cor-painel);
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio);
+  padding: 1.25rem 1.4rem 1.5rem;
+  position: relative;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
+  background-image:
+    radial-gradient(circle, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.55) 38%, transparent 40%),
+    radial-gradient(circle, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.55) 38%, transparent 40%),
+    radial-gradient(circle, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.55) 38%, transparent 40%),
+    radial-gradient(circle, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.55) 38%, transparent 40%);
+  background-size: 6px 6px;
+  background-repeat: no-repeat;
+  background-position:
+    11px 11px, calc(100% - 11px) 11px,
+    11px calc(100% - 11px), calc(100% - 11px) calc(100% - 11px);
+}
+
+.rotulo-secao {
+  font-family: var(--fonte-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--cor-acento);
+  margin-bottom: 1rem;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid var(--cor-borda);
+}
+
+/* ---------------------------------------------------------------------------
+   Seletor de espécie / índice ("interruptores")
+   ------------------------------------------------------------------------- */
+.seletor-linha { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
+.seletor-linha:last-child { margin-bottom: 0; }
+.seletor-etiqueta {
+  font-family: var(--fonte-mono);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--cor-texto-mute);
+  min-width: 4.5rem;
+}
+.rocker-grupo { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.rocker-botao {
+  font-family: var(--fonte-sans);
+  font-weight: 600;
+  font-size: 0.85rem;
+  padding: 0.6rem 1.15rem;
+  border-radius: 6px;
+  border: 1px solid var(--cor-borda);
+  background: linear-gradient(180deg, #241f19, #1c1814);
+  color: var(--cor-texto-mute);
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 2px 0 rgba(0,0,0,0.4);
+  transition: filter 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.05s ease;
+}
+.rocker-botao:hover { color: var(--cor-texto); border-color: var(--cor-acento); }
+.rocker-botao.ativo {
+  background: linear-gradient(180deg, var(--cor-acento), var(--cor-acento-escuro));
+  color: #0d1a1c;
+  border-color: var(--cor-acento);
+  box-shadow: 0 0 0 2px rgba(79,138,147,0.32), inset 0 1px 0 rgba(255,255,255,0.25);
+}
+.rocker-grupo--pequeno .rocker-botao { padding: 0.45rem 0.9rem; font-size: 0.78rem; }
+
+/* ---------------------------------------------------------------------------
+   Entrada de dados
+   ------------------------------------------------------------------------- */
+.campos-entrada { display: grid; grid-template-columns: 1fr 1fr; gap: 0.9rem 1rem; margin-bottom: 1rem; }
+.campo-entrada { display: flex; flex-direction: column; gap: 0.35rem; }
+.campo-entrada label {
+  font-family: var(--fonte-mono);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--cor-texto-mute);
+}
+.campo-entrada input {
+  font-family: var(--fonte-mono);
+  font-size: 1.05rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 6px;
+  border: 1px solid var(--cor-borda);
+  background: var(--cor-painel-alt);
+  color: var(--cor-texto);
+  width: 100%;
+}
+.campo-entrada input:focus { border-color: var(--cor-acento); }
+
+.acao-linha { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
+
+.botao {
+  font-weight: 600;
+  font-size: 0.85rem;
+  padding: 0.65rem 1.3rem;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: filter 0.15s ease, transform 0.05s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.botao--primario {
+  background: var(--cor-acento);
+  color: #0d1a1c;
+  box-shadow: 0 2px 0 var(--cor-acento-escuro);
+}
+.botao--primario:hover { filter: brightness(1.08); }
+.botao--primario:active { transform: translateY(2px); box-shadow: none; }
+.botao--fantasma { background: transparent; border-color: var(--cor-borda); color: var(--cor-texto-mute); }
+.botao--fantasma:hover:not(:disabled) { border-color: var(--cor-acento); color: var(--cor-texto); }
+.botao--fantasma:disabled { opacity: 0.4; cursor: not-allowed; }
+.botao--texto { background: transparent; border: none; color: var(--cor-texto-mute); text-decoration: underline; padding: 0.4rem 0; font-size: 0.8rem; }
+.botao--texto:hover { color: var(--status-perigo); }
+
+.divisor { height: 1px; background: var(--cor-borda); margin: 1rem 0; }
+
+.config-grade { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem 1rem; }
+.check { display: flex; align-items: center; gap: 0.55rem; font-size: 0.83rem; color: var(--cor-texto-mute); cursor: pointer; }
+.check input[type="checkbox"] { accent-color: var(--cor-acento); width: 16px; height: 16px; flex-shrink: 0; }
+.check--automatico { flex: 1; }
+
+.campo-email-destino { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.9rem; flex-wrap: wrap; }
+.campo-email-destino label { font-size: 0.78rem; color: var(--cor-texto-mute); }
+.campo-email-destino input {
+  flex: 1;
+  min-width: 200px;
+  font-family: var(--fonte-mono);
+  font-size: 0.85rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid var(--cor-borda);
+  background: var(--cor-painel-alt);
+  color: var(--cor-texto);
+}
+
+.mensagem-erro {
+  margin-top: 0.9rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: 6px;
+  background: rgba(193, 68, 60, 0.15);
+  border: 1px solid var(--status-perigo);
+  color: #ffcdc8;
+  font-size: 0.82rem;
+}
+
+.oculto { display: none !important; }
+
+/* ---------------------------------------------------------------------------
+   Leitura / mostrador digital (elemento assinatura)
+   ------------------------------------------------------------------------- */
+.readout {
+  background: #14110E;
+  border: 1px solid var(--cor-borda);
+  border-radius: 8px;
+  padding: 1.3rem 1.2rem;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.65rem;
+  box-shadow: inset 0 2px 14px rgba(0, 0, 0, 0.65);
+}
+.readout-etiqueta {
+  font-family: var(--fonte-mono);
+  color: var(--cor-acento-2);
+  font-size: 1rem;
+  letter-spacing: 0.12em;
+}
+.readout-valor {
+  font-family: var(--fonte-mono);
+  font-weight: 700;
+  font-size: 3rem;
+  line-height: 1;
+  color: #cfd6d2;
+  transition: color 0.3s ease, text-shadow 0.3s ease;
+}
+.readout-valor.cor-conforto { color: var(--status-conforto); text-shadow: 0 0 20px rgba(62,142,91,0.55); }
+.readout-valor.cor-alerta { color: var(--status-alerta); text-shadow: 0 0 20px rgba(227,167,62,0.55); }
+.readout-valor.cor-perigo { color: var(--status-perigo); text-shadow: 0 0 20px rgba(193,68,60,0.55); }
+.readout-valor.cor-emergencia { color: var(--status-emergencia); text-shadow: 0 0 24px rgba(255,107,94,0.6); }
+
+.faixa-status {
+  margin-top: 1rem;
+  border-radius: 999px;
+  padding: 0.55rem 1rem;
+  text-align: center;
+  font-family: var(--fonte-mono);
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  font-size: 0.82rem;
+  transition: background-color 0.3s ease, box-shadow 0.3s ease, color 0.3s ease;
+}
+.faixa-status--vazio { background: var(--cor-painel-alt); color: var(--cor-texto-mute); letter-spacing: 0.08em; }
+.faixa-conforto { background: var(--status-conforto); color: #0c1f13; box-shadow: 0 0 22px rgba(62,142,91,0.5); }
+.faixa-alerta { background: var(--status-alerta); color: #241a02; box-shadow: 0 0 22px rgba(227,167,62,0.5); }
+.faixa-perigo { background: var(--status-perigo); color: #fbeceb; box-shadow: 0 0 26px rgba(193,68,60,0.55); animation: pulso 1.6s ease-in-out infinite; }
+.faixa-emergencia { background: #171512; color: var(--status-emergencia); border: 1px solid var(--status-emergencia); box-shadow: 0 0 28px rgba(255,107,94,0.5); animation: pulso 0.9s ease-in-out infinite; }
+
+@keyframes pulso { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.3); } }
+@media (prefers-reduced-motion: reduce) { .faixa-status { animation: none !important; } }
+
+.mensagem-orientacao { font-size: 0.88rem; line-height: 1.5; color: var(--cor-texto); margin: 1rem 0; }
+
+.equipamentos { display: flex; align-items: center; gap: 1.75rem; flex-wrap: wrap; padding-top: 0.5rem; border-top: 1px solid var(--cor-borda); }
+.lampada-grupo { display: flex; align-items: center; gap: 0.6rem; }
+.icones-equipamento { display: inline-flex; align-items: center; gap: 0.3rem; min-height: 24px; }
+.icone-equip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #3a3530, #17140f);
+  border: 1px solid var(--cor-borda);
+  color: #55493d;
+  box-shadow: inset 0 0 4px rgba(0,0,0,0.6);
+  transition: all 0.3s ease;
+}
+.icone-equip svg { width: 13px; height: 13px; }
+.icone-equip.ativo {
+  background: radial-gradient(circle at 35% 30%, #ffe9a8, var(--cor-acento-2));
+  color: #241a02;
+  box-shadow: 0 0 12px rgba(217,164,65,0.85), inset 0 0 4px rgba(255,255,255,0.4);
+  border-color: var(--cor-acento-2);
+}
+.lampada-legenda { font-size: 0.78rem; color: var(--cor-texto-mute); }
+.intensidade-info { display: flex; align-items: center; gap: 0.5rem; margin-left: auto; }
+.intensidade-etiqueta { font-family: var(--fonte-mono); font-size: 0.68rem; text-transform: uppercase; color: var(--cor-texto-mute); }
+#intensidade-valor { font-family: var(--fonte-mono); font-size: 0.85rem; color: var(--cor-texto); text-transform: capitalize; }
+
+/* ---------------------------------------------------------------------------
+   Gráficos
+   ------------------------------------------------------------------------- */
+.graficos-painel { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+.graficos-painel > .rotulo-secao { grid-column: 1 / -1; }
+.grafico-bloco { background: var(--cor-painel-alt); border: 1px solid var(--cor-borda); border-radius: 8px; padding: 0.9rem 1rem 0.5rem; }
+.grafico-titulo { margin: 0 0 0.6rem; font-size: 0.78rem; color: var(--cor-texto-mute); font-family: var(--fonte-mono); }
+/* Altura FIXA e position:relative são obrigatórios aqui: com
+   maintainAspectRatio:false, o Chart.js redimensiona o canvas para o
+   tamanho do elemento-pai. Se o pai não tiver uma altura própria (ex.:
+   "altura automática", só encolhendo/esticando para caber o conteúdo), o
+   canvas cresce -> o pai cresce para acompanhar -> o canvas cresce de novo,
+   e o formulário inteiro se alonga indefinidamente na vertical. */
+.grafico-canvas-wrap { position: relative; width: 100%; height: 220px; }
+@media (max-width: 900px) { .graficos-painel { grid-template-columns: 1fr; } }
+
+/* ---------------------------------------------------------------------------
+   E-mail simulado (recibo estilo teletipo)
+   ------------------------------------------------------------------------- */
+.email-status { font-size: 0.82rem; color: var(--cor-texto-mute); margin-bottom: 0.7rem; }
+.email-recibo {
+  font-family: var(--fonte-mono);
+  font-size: 0.8rem;
+  line-height: 1.55;
+  background: #F2ECE1;
+  color: #1E1B18;
+  margin: 0;
+  padding: 1.1rem 1.3rem 2rem;
+  border-radius: 2px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+  clip-path: polygon(
+    0% 0%, 100% 0%, 100% 95%,
+    97% 100%, 93% 95%, 89% 100%, 85% 95%, 81% 100%, 77% 95%, 73% 100%,
+    69% 95%, 65% 100%, 61% 95%, 57% 100%, 53% 95%, 49% 100%, 45% 95%,
+    41% 100%, 37% 95%, 33% 100%, 29% 95%, 25% 100%, 21% 95%, 17% 100%,
+    13% 95%, 9% 100%, 5% 95%, 1% 100%, 0% 95%
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   Tabela de histórico
+   ------------------------------------------------------------------------- */
+.tabela-scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-family: var(--fonte-mono); font-size: 0.78rem; }
+th, td { text-align: left; padding: 0.5rem 0.7rem; border-bottom: 1px solid var(--cor-borda); white-space: nowrap; }
+th { color: var(--cor-acento); text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.66rem; }
+td.status-conforto { color: var(--status-conforto); }
+td.status-alerta { color: var(--status-alerta); }
+td.status-perigo { color: var(--status-perigo); }
+td.status-emergencia { color: var(--status-emergencia); }
+.tabela-vazia { color: var(--cor-texto-mute); font-size: 0.85rem; margin: 0.5rem 0 0; }
+
+/* ---------------------------------------------------------------------------
+   Rodapé
+   ------------------------------------------------------------------------- */
+.rodape {
+  text-align: center;
+  font-size: 0.72rem;
+  color: var(--cor-texto-mute);
+  padding: 1.25rem 1.5rem 2rem;
+  max-width: 900px;
+  margin: 0 auto;
+  line-height: 1.6;
+}
