@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Lançador compatível para executar a aplicação com `python app.py`."""
+"""Lancador compativel para executar a aplicacao com `python app.py`."""
 
 from conforto_termico.web import (
     _resfriador,

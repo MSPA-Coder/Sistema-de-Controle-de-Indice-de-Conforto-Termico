@@ -2,10 +2,10 @@
 """
 services.py
 ===========
-Serviços de aplicação usados pelas rotas Flask.
+Servicos de aplicacao usados pelas rotas Flask.
 
-As rotas ficam responsáveis por HTTP; este módulo concentra estado em memória
-e regras de negócio que não pertencem diretamente à camada web.
+As rotas ficam responsaveis por HTTP; este modulo concentra estado em memoria
+e regras de negocio que nao pertencem diretamente a camada web.
 """
 
 from __future__ import annotations
@@ -28,10 +28,10 @@ class EstadoSensor:
 
 
 class HistoricoGraficoService:
-    """Mantém o histórico visual em memória, separado do histórico persistido.
+    """Mantem o historico visual em memoria, separado do historico persistido.
 
-    Padrão aplicado: Service Layer. A rota não precisa conhecer detalhes de
-    cache, cópia defensiva ou limite de pontos exibidos nos gráficos.
+    Padrao aplicado: Service Layer. A rota nao precisa conhecer detalhes de
+    cache, copia defensiva ou limite de pontos exibidos nos graficos.
     """
 
     def __init__(self, obter_historico: Callable, limite: int = 20):
@@ -85,7 +85,7 @@ class HistoricoGraficoService:
 
 
 class GeradorLeituraAleatoria:
-    """Estratégia de geração aleatória para o sensor simulado."""
+    """Estrategia de geracao aleatoria para o sensor simulado."""
 
     def gerar(self, indice: str) -> dict[str, float]:
         if indice == "ITU":
@@ -108,7 +108,7 @@ class GeradorLeituraAleatoria:
 
 
 class EstrategiaResfriamento:
-    """Estratégia de leitura quando ventilador/nebulizador estão ligados."""
+    """Estrategia de leitura quando ventilador/nebulizador estao ligados."""
 
     def __init__(
         self,
@@ -144,8 +144,8 @@ class EstrategiaResfriamento:
 class SensorSimuladoService:
     """Controla o estado do sensor simulado.
 
-    Padrão aplicado: Strategy. O serviço escolhe entre geração aleatória e
-    estratégia de resfriamento sem expor essa decisão às rotas.
+    Padrao aplicado: Strategy. O servico escolhe entre geracao aleatoria e
+    estrategia de resfriamento sem expor essa decisao as rotas.
     """
 
     def __init__(
@@ -222,7 +222,7 @@ class SensorSimuladoService:
 
 
 class CalculoIctService:
-    """Orquestra o caso de uso de cálculo do índice de conforto térmico."""
+    """Orquestra o caso de uso de calculo do indice de conforto termico."""
 
     def __init__(
         self,
@@ -250,7 +250,7 @@ class CalculoIctService:
     ) -> dict:
         if not ti.indice_disponivel(especie, indice):
             raise ti.EntradaInvalidaError(
-                f"O Ã­ndice {indice} nÃ£o estÃ¡ disponÃ­vel para {ti.NOME_ESPECIE.get(especie, especie)}."
+                f"O índice {indice} não está disponível para {ti.NOME_ESPECIE.get(especie, especie)}."
             )
 
         resultados = {}
@@ -308,8 +308,8 @@ class CalculoIctService:
             "indice": indice,
             "valor": valor,
             "status": status,
-            "cor": ti.CORES_STATUS[status],
-            "mensagem": ti.MENSAGENS_STATUS[status],
+            "cor": ti.cor_do_status(status),
+            "mensagem": ti.mensagem_do_status(status),
             "leitura_gravada": leitura_gravada,
             "entradas": temperatura.entradas,
             "historico": self._buscar_historico(especie, indice, logger),
@@ -332,7 +332,7 @@ class CalculoIctService:
             return self._historico_grafico.registrar(especie, indice, valor, status, entradas)
         except Exception:
             if logger:
-                logger.exception("Falha ao atualizar histórico visual dos gráficos")
+                logger.exception("Falha ao atualizar historico visual dos graficos")
             return []
 
     def _salvar_historico(
@@ -371,7 +371,7 @@ class CalculoIctService:
             return equipamento_info
 
         try:
-            intensidade = ti.INTENSIDADE_EQUIPAMENTO[status]
+            intensidade = ti.intensidade_do_status(status)
             if intensidade:
                 self._resfriador.ativar(intensidade)
             else:
@@ -413,5 +413,5 @@ class CalculoIctService:
             return self._obter_historico(especie, indice, limite=20)
         except Exception:
             if logger:
-                logger.exception("Falha ao consultar histórico")
+                logger.exception("Falha ao consultar historico")
             return []

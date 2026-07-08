@@ -1,11 +1,11 @@
 /* =============================================================================
-   Sistema de Controle dos Índices de Conforto Térmico
-   Identidade visual: painel de instrumentação de campo (o mesmo espírito do
-   "Protótipo - Cálculo de Índices de Conforto Térmico" descrito na Figura 15
-   da dissertação), repaginado como um console de monitoramento industrial:
+   Sistema de Controle dos Indices de Conforto Termico
+   Identidade visual: painel de instrumentacao de campo (o mesmo espirito do
+   "Prototipo - Calculo de Indices de Conforto Termico" descrito na Figura 15
+   da dissertacao), repaginado como um console de monitoramento industrial:
    grafite quente, acento azul-esverdeado de telhado galvanizado, ocre de
-   pasto seco, e uma tipografia técnica (IBM Plex) — nada de tons pastel de
-   "dashboard SaaS genérico".
+   pasto seco, e uma tipografia tecnica (IBM Plex) - nada de tons pastel de
+   "dashboard SaaS generico".
    ========================================================================== */
 
 :root {
@@ -155,7 +155,7 @@ button { font-family: inherit; }
 }
 
 /* ---------------------------------------------------------------------------
-   Painéis (com "rebites" nos quatro cantos via background-image)
+   Paineis (com "rebites" nos quatro cantos via background-image)
    ------------------------------------------------------------------------- */
 .painel {
   background-color: var(--cor-painel);
@@ -183,7 +183,7 @@ button { font-family: inherit; }
 }
 
 /* ---------------------------------------------------------------------------
-   Seletor de espécie / índice ("interruptores")
+   Seletor de especie / indice ("interruptores")
    ------------------------------------------------------------------------- */
 .seletor-linha { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
 .seletor-linha:last-child { margin-bottom: 0; }
@@ -524,7 +524,7 @@ button { font-family: inherit; }
 #intensidade-valor { font-family: var(--fonte-mono); font-size: 0.85rem; color: var(--cor-texto); text-transform: capitalize; }
 
 /* ---------------------------------------------------------------------------
-   Gráficos
+   Graficos
    ------------------------------------------------------------------------- */
 .graficos-painel { display: block; }
 .graficos-painel > .grafico-bloco { display: none; }
@@ -540,12 +540,12 @@ button { font-family: inherit; }
   padding: 0;
 }
 .grafico-titulo { margin: 0 0 0.6rem; font-size: 0.78rem; color: var(--cor-texto-mute); font-family: var(--fonte-mono); }
-/* Altura FIXA e position:relative são obrigatórios aqui: com
+/* Altura FIXA e position:relative sao obrigatorios aqui: com
    maintainAspectRatio:false, o Chart.js redimensiona o canvas para o
-   tamanho do elemento-pai. Se o pai não tiver uma altura própria (ex.:
-   "altura automática", só encolhendo/esticando para caber o conteúdo), o
+   tamanho do elemento-pai. Se o pai nao tiver uma altura propria (ex.:
+   "altura automatica", so encolhendo/esticando para caber o conteudo), o
    canvas cresce -> o pai cresce para acompanhar -> o canvas cresce de novo,
-   e o formulário inteiro se alonga indefinidamente na vertical. */
+   e o formulario inteiro se alonga indefinidamente na vertical. */
 .grafico-canvas-wrap { position: relative; width: 100%; height: 220px; }
 @media (max-width: 900px) { .graficos-indices { grid-template-columns: 1fr; } }
 
@@ -575,7 +575,7 @@ button { font-family: inherit; }
 }
 
 /* ---------------------------------------------------------------------------
-   Tabela de histórico
+   Tabela de historico
    ------------------------------------------------------------------------- */
 .tabela-cabecalho {
   display: flex;
@@ -643,7 +643,7 @@ td.status-emergencia { color: var(--status-emergencia); }
 }
 
 /* ---------------------------------------------------------------------------
-   Rodapé
+   Rodape
    ------------------------------------------------------------------------- */
 .rodape {
   text-align: center;

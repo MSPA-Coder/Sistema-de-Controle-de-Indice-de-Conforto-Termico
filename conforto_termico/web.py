@@ -2,10 +2,10 @@
 """
 app.py
 ======
-Sistema de Controle dos Índices de Conforto Térmico - aplicação Flask.
+Sistema de Controle dos Indices de Conforto Termico - aplicacao Flask.
 
-Baseado na dissertação de mestrado "Programa Computacional para o Cálculo de
-Índices de Conforto Térmico na Produção Industrial de Animais para Carne e
+Baseado na dissertacao de mestrado "Programa Computacional para o Calculo de
+Indices de Conforto Termico na Producao Industrial de Animais para Carne e
 Leite" (Mariano Sergio Pacheco de Angelo, UNIP, 2013), reimplementado em
 Python/Flask a pedido do autor.
 
@@ -28,10 +28,10 @@ from .services import CalculoIctService, HistoricoGraficoService, SensorSimulado
 app = Flask(__name__)
 db.iniciar_banco()
 
-# Estado do equipamento remoto (ventilador/nebulizador). A dissertação
-# descreve um único posto de controle (estação de produção), por isso um
-# único objeto "global" em memória é suficiente aqui - assim como o programa
-# original era uma aplicação desktop de um único usuário.
+# Estado do equipamento remoto (ventilador/nebulizador). A dissertacao
+# descreve um unico posto de controle (estacao de producao), por isso um
+# unico objeto "global" em memoria e suficiente aqui - assim como o programa
+# original era uma aplicacao desktop de um unico usuario.
 _resfriador = Resfriamento()
 historico_grafico_service = HistoricoGraficoService(db.obter_historico)
 sensor_simulado_service = SensorSimuladoService()
@@ -46,17 +46,17 @@ calculo_ict_service = CalculoIctService(
 
 @app.errorhandler(Exception)
 def tratar_erro_inesperado(erro):
-    """Rede de segurança: qualquer exceção não tratada em uma rota /api/*
-    ainda assim retorna JSON (nunca a página HTML padrão de erro do Flask).
+    """Rede de seguranca: qualquer excecao nao tratada em uma rota /api/*
+    ainda assim retorna JSON (nunca a pagina HTML padrao de erro do Flask).
     Isso evita que o front-end, que sempre espera JSON de /api/*, quebre ao
-    tentar interpretar uma página de erro como se fosse dado — o que antes
-    aparecia disfarçado de "falha de comunicação com o servidor"."""
+    tentar interpretar uma pagina de erro como se fosse dado — o que antes
+    aparecia disfarcado de "falha de comunicacao com o servidor"."""
     if isinstance(erro, HTTPException):
         if request.path.startswith("/api/"):
             return jsonify({"erro": erro.description}), erro.code or 500
         return erro
 
-    app.logger.exception("Erro não tratado em %s", request.path)
+    app.logger.exception("Erro nao tratado em %s", request.path)
     if request.path.startswith("/api/"):
         return jsonify({"erro": f"Erro interno inesperado: {erro}"}), 500
     raise erro
@@ -99,9 +99,9 @@ def calcular():
 
 @app.route("/api/sensor")
 def sensor_simulado():
-    """Simula a leitura de um sensor remoto (Área 02 - opção 'Coletar
-    Dados' da dissertação, seção 3.4.3). Gera valores plausíveis dentro da
-    faixa validada no Capítulo IV (0-45°C / 0,01-5,00 m/s)."""
+    """Simula a leitura de um sensor remoto (Area 02 - opcao 'Coletar
+    Dados' da dissertacao, secao 3.4.3). Gera valores plausiveis dentro da
+    faixa validada no Capitulo IV (0-45°C / 0,01-5,00 m/s)."""
     especie = request.args.get("especie", "frangos")
     indice = request.args.get("indice", "")
     if not ti.indice_disponivel(especie, indice):
@@ -154,9 +154,9 @@ def historico_grafico_todos():
 
 @app.route("/api/diagnostico")
 def diagnostico():
-    """Rota utilitária de diagnóstico: confirma se o banco está acessível e
-    quantos registros já foram gravados ao todo (útil para conferir se as
-    leituras estão mesmo sendo persistidas)."""
+    """Rota utilitaria de diagnostico: confirma se o banco esta acessivel e
+    quantos registros ja foram gravados ao todo (util para conferir se as
+    leituras estao mesmo sendo persistidas)."""
     try:
         total = db.contar_leituras()
         return jsonify(

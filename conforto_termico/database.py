@@ -2,19 +2,19 @@
 """
 database.py
 ============
-Persistência simples em SQLite (biblioteca padrão do Python, sem
-dependências extras) do histórico de leituras, para alimentar os gráficos
-de "últimos 20 índices calculados" descritos na seção 3.4.1 (Área 04) da
-dissertação.
+Persistencia simples em SQLite (biblioteca padrao do Python, sem
+dependencias extras) do historico de leituras, para alimentar os graficos
+de "ultimos 20 indices calculados" descritos na secao 3.4.1 (Area 04) da
+dissertacao.
 
-NOTA DE CORREÇÃO: a versão anterior deste módulo usava
-`with _lock, sqlite3.connect(...) as conn:` para cada operação. O
-`sqlite3.Connection` como context manager apenas comita/desfaz a transação
-ao sair do bloco -- ele NÃO fecha a conexão sozinho (isso é documentado no
-próprio módulo sqlite3 da biblioteca padrão). Como resultado, cada chamada
-abria uma conexão nova que nunca era fechada, vazando conexões/descritores
-de arquivo ao longo do tempo (principalmente com o modo automático, que
-calcula a cada 1s). Agora todas as operações passam pelo gerenciador de
+NOTA DE CORRECAO: a versao anterior deste modulo usava
+`with _lock, sqlite3.connect(...) as conn:` para cada operacao. O
+`sqlite3.Connection` como context manager apenas comita/desfaz a transacao
+ao sair do bloco -- ele NAO fecha a conexao sozinho (isso e documentado no
+proprio modulo sqlite3 da biblioteca padrao). Como resultado, cada chamada
+abria uma conexao nova que nunca era fechada, vazando conexoes/descritores
+de arquivo ao longo do tempo (principalmente com o modo automatico, que
+calcula a cada 1s). Agora todas as operacoes passam pelo gerenciador de
 contexto `_conexao()` abaixo, que garante `close()` mesmo se ocorrer erro.
 """
 
@@ -37,8 +37,8 @@ INTERVALO_MINIMO_LEITURAS = datetime.timedelta(minutes=1)
 
 @contextmanager
 def _conexao() -> Iterator[sqlite3.Connection]:
-    """Abre uma conexão SQLite, garante commit em caso de sucesso (ou
-    rollback em caso de exceção) e SEMPRE fecha a conexão ao final."""
+    """Abre uma conexao SQLite, garante commit em caso de sucesso (ou
+    rollback em caso de excecao) e SEMPRE fecha a conexao ao final."""
     with _lock:
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
@@ -125,7 +125,7 @@ def obter_historico(especie: str, indice: str, limite: int = 20) -> list[dict]:
             (especie, indice, limite),
         ).fetchall()
     dados = [dict(linha) for linha in linhas]
-    dados.reverse()  # ordem cronológica (mais antigo -> mais recente) para os gráficos
+    dados.reverse()  # ordem cronologica (mais antigo -> mais recente) para os graficos
     for item in dados:
         item["entradas"] = json.loads(item["entradas"])
     return dados
@@ -144,7 +144,7 @@ def limpar_historico(especie: str | None = None, indice: str | None = None) -> N
 
 
 def contar_leituras() -> int:
-    """Utilitário de diagnóstico: total de linhas gravadas na tabela."""
+    """Utilitario de diagnostico: total de linhas gravadas na tabela."""
     with _conexao() as conn:
         (total,) = conn.execute("SELECT COUNT(*) FROM leituras").fetchone()
     return total

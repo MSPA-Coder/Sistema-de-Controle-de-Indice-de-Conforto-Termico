@@ -2,8 +2,8 @@
 """
 models.py
 =========
-Classes de domínio inspiradas literalmente no Diagrama de Classes da
-dissertação (Figura 14, seção 3.3.3): Temperatura, Resfriamento e Email.
+Classes de dominio inspiradas literalmente no Diagrama de Classes da
+dissertacao (Figura 14, secao 3.3.3): Temperatura, Resfriamento e Email.
 
 No documento original, o diagrama descreve:
     Temperatura     -Temperatura: double        +VerificarTemperatura(): void
@@ -13,7 +13,7 @@ No documento original, o diagrama descreve:
     Email           -Destino: char               +Enviar(): void
                     -Conteudo: char               +InformarEnvio(): void
 
-As três classes abaixo implementam esses mesmos métodos, adaptados para
+As tres classes abaixo implementam esses mesmos metodos, adaptados para
 Python/Flask.
 """
 
@@ -28,9 +28,9 @@ from . import thermal_indices as ti
 
 
 class Temperatura:
-    """Corresponde à classe 'Temperatura' da Figura 14: recebe leituras
-    (manuais ou de sensores simulados) e calcula o Índice de Conforto
-    Térmico (ICT) apropriado para a espécie selecionada."""
+    """Corresponde a classe 'Temperatura' da Figura 14: recebe leituras
+    (manuais ou de sensores simulados) e calcula o Indice de Conforto
+    Termico (ICT) apropriado para a especie selecionada."""
 
     def __init__(self, especie: str, indice: str):
         if especie not in ti.ESPECIES_VALIDAS:
@@ -41,15 +41,15 @@ class Temperatura:
             )
         self.especie = especie
         self.indice = indice
-        self.temperatura: float | None = None  # último valor calculado (ICT)
-        self.entradas: dict = {}  # últimas entradas validadas (para persistir o histórico)
+        self.temperatura: float | None = None  # ultimo valor calculado (ICT)
+        self.entradas: dict = {}  # ultimas entradas validadas (para persistir o historico)
 
     def verificar_temperatura(self, entradas: dict) -> dict:
         """Valida os dados recebidos (digitados ou de sensores remotos)."""
         return ti.validar_entradas(self.indice, entradas)
 
     def calcular_ict(self, entradas: dict) -> tuple[float, str]:
-        """Calcula o Índice de Conforto Térmico e devolve (valor, status)."""
+        """Calcula o Indice de Conforto Termico e devolve (valor, status)."""
         entradas_validas = self.verificar_temperatura(entradas)
         valor = round(ti.CALCULADORAS[self.indice](**entradas_validas), 2)
         status = ti.classificar_status(valor, self.especie, self.indice)
@@ -59,9 +59,9 @@ class Temperatura:
 
 
 class Resfriamento:
-    """Corresponde à classe 'Resfriamento' da Figura 14: representa o estado
+    """Corresponde a classe 'Resfriamento' da Figura 14: representa o estado
     dos equipamentos remotos (ventiladores e nebulizadores) descritos na
-    seção 4.3 da dissertação."""
+    secao 4.3 da dissertacao."""
 
     # tipo_de_resfriador: 0=nenhum, 1=ventilador, 2=nebulizador, 3=ambos
     def __init__(self):
@@ -72,7 +72,7 @@ class Resfriamento:
     def ativar(self, intensidade: str) -> None:
         self.ativo = True
         self.intensidade = intensidade
-        self.tipo_de_resfriador = 3  # a dissertação liga ventilador + nebulizador juntos
+        self.tipo_de_resfriador = 3  # a dissertacao liga ventilador + nebulizador juntos
 
     def desativar(self) -> None:
         self.ativo = False
@@ -89,13 +89,13 @@ class Resfriamento:
 
 
 class Email:
-    """Corresponde à classe 'Email' da Figura 14: monta e (opcionalmente)
-    envia a notificação, no mesmo formato mostrado nas Figuras 20/22/25/28
-    da dissertação.
+    """Corresponde a classe 'Email' da Figura 14: monta e (opcionalmente)
+    envia a notificacao, no mesmo formato mostrado nas Figuras 20/22/25/28
+    da dissertacao.
 
-    Sem variáveis de ambiente de SMTP configuradas, opera em modo simulado:
-    o conteúdo é montado normalmente para exibição na tela, mas nenhum
-    e-mail real é disparado."""
+    Sem variaveis de ambiente de SMTP configuradas, opera em modo simulado:
+    o conteudo e montado normalmente para exibicao na tela, mas nenhum
+    e-mail real e disparado."""
 
     def __init__(self, destino: str, conteudo: str):
         self.destino = destino
@@ -135,7 +135,7 @@ class Email:
             f"Status: {status}\n"
             f"Data: {agora}\n"
             f"Valor do {indice}: {valor}\n"
-            f"Mensagem: {ti.MENSAGENS_STATUS[status]}\n"
+            f"Mensagem: {ti.mensagem_do_status(status)}\n"
             + "*" * 75
             + "\n"
             "Você está recebendo esse e-mail por estar cadastrado na lista de "

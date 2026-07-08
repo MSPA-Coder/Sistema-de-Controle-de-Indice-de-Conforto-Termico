@@ -2,33 +2,40 @@
 """
 thermal_indices.py
 ===================
-Núcleo de cálculo do Sistema de Controle dos Índices de Conforto Térmico.
+Nucleo de calculo do Sistema de Controle dos Indices de Conforto Termico.
 
-Implementa fielmente as três equações que a dissertação define como as
-REALMENTE utilizadas no software (Capítulo III, Tabela 3 - "Algoritmos para
-determinação dos Índices de Conforto Térmico"), e não as equações alternativas
-apenas citadas na revisão bibliográfica (Eq. 2, 3 e 4, não implementadas):
+Implementa fielmente as tres equacoes que a dissertacao define como as
+REALMENTE utilizadas no software (Capitulo III, Tabela 3 - "Algoritmos para
+determinacao dos Indices de Conforto Termico"), e nao as equacoes alternativas
+apenas citadas na revisao bibliografica (Eq. 2, 3 e 4, nao implementadas):
 
     ITU  = 0,72 . (tbs + tbu) + 40,6                  Eq. 1 (KELLY; BOND, 1971)
     ITUV = (0,85.Tbs + 0,15.Tbu) . V^(-0,058)         Eq. 5 (TAO; XIN, 2003)
     IGNU = 0,6.Tgn + 0,36.Tpo + 41,5                  Eq. 6 (BUFFINGTON et al., 1981)
 
-Todas as três fórmulas foram conferidas manualmente contra os exemplos
-numéricos do Capítulo IV da própria dissertação (Tabelas 5, 6 e 7 e seção 4.3)
+Todas as tres formulas foram conferidas manualmente contra os exemplos
+numericos do Capitulo IV da propria dissertacao (Tabelas 5, 6 e 7 e secao 4.3)
 e reproduzem os valores publicados (ex.: tbs=27, tbu=19 -> ITU=73,72;
 Tgn=42, Tpo=8 -> IGNU=69,58; tbs=22, tbu=1, V=4 -> ITUV=17,39) -- ver
 test_thermal_indices.py.
 
-Origem: dissertação de mestrado "Programa Computacional para o Cálculo de
-Índices de Conforto Térmico na Produção Industrial de Animais para Carne e
+Origem: dissertacao de mestrado "Programa Computacional para o Calculo de
+Indices de Conforto Termico na Producao Industrial de Animais para Carne e
 Leite", Mariano Sergio Pacheco de Angelo, UNIP, 2013 (orientador: Prof. Dr.
 Oduvaldo Vendrametto).
 """
 
 from __future__ import annotations
 
+import unicodedata
+
+
+def normalizar_chave_texto(valor: str) -> str:
+    return unicodedata.normalize("NFD", str(valor)).encode("ascii", "ignore").decode("ascii")
+
+
 # ---------------------------------------------------------------------------
-# Espécies e índices disponíveis (seção 4.3: "ITU: Avicultura, bovinocultura e
+# Especies e indices disponiveis (secao 4.3: "ITU: Avicultura, bovinocultura e
 # suinocultura; ITUV: Avicultura; IGNU: Avicultura, bovinocultura e
 # suinocultura.")
 # ---------------------------------------------------------------------------
@@ -52,7 +59,7 @@ NOME_INDICE = {
     "IGNU": "Índice de Globo Negro e Umidade",
 }
 
-# Campos de entrada exigidos por índice (nomes conforme a própria dissertação)
+# Campos de entrada exigidos por indice (nomes conforme a propria dissertacao)
 CAMPOS_POR_INDICE: dict[str, tuple[str, ...]] = {
     "ITU": ("tbs", "tbu"),
     "ITUV": ("tbs", "tbu", "v"),
@@ -68,10 +75,10 @@ CAMPO_METADADOS: dict[str, dict] = {
 }
 
 RANGE_VALIDACAO = {
-    # (mínimo, máximo) - a dissertação valida o programa gerando dados
-    # aleatórios entre 0 e 45°C para temperaturas e 0,01 a 5,00 m/s para
-    # velocidade do ar (seção 4.2). Aqui aceitamos uma folga adicional para
-    # não travar leituras de campo ligeiramente fora da faixa validada.
+    # (minimo, maximo) - a dissertacao valida o programa gerando dados
+    # aleatorios entre 0 e 45°C para temperaturas e 0,01 a 5,00 m/s para
+    # velocidade do ar (secao 4.2). Aqui aceitamos uma folga adicional para
+    # nao travar leituras de campo ligeiramente fora da faixa validada.
     "tbs": (-10.0, 55.0),
     "tbu": (-10.0, 55.0),
     "tgn": (-10.0, 65.0),
@@ -81,20 +88,20 @@ RANGE_VALIDACAO = {
 
 
 class EntradaInvalidaError(ValueError):
-    """Erro de validação de uma variável de entrada fora da faixa aceitável."""
+    """Erro de validacao de uma variavel de entrada fora da faixa aceitavel."""
 
 
 # ---------------------------------------------------------------------------
-# Equações (Tabela 3 da dissertação)
+# Equacoes (Tabela 3 da dissertacao)
 # ---------------------------------------------------------------------------
 def calcular_itu(tbs: float, tbu: float) -> float:
-    """ITU - Eq. 1 (Kelly & Bond, 1971). Usado para frangos, bovinos e suínos."""
+    """ITU - Eq. 1 (Kelly & Bond, 1971). Usado para frangos, bovinos e suinos."""
     return 0.72 * (tbs + tbu) + 40.6
 
 
 def calcular_ituv(tbs: float, tbu: float, v: float) -> float:
     """ITUV - Eq. 5 (Tao & Xin, 2003). Usado apenas para frangos (aves de corte)."""
-    v = v if v > 0 else 0.01  # base da potência não pode ser <= 0
+    v = v if v > 0 else 0.01  # base da potencia nao pode ser <= 0
     return (0.85 * tbs + 0.15 * tbu) * (v ** -0.058)
 
 
@@ -111,9 +118,9 @@ CALCULADORAS = {
 
 
 def validar_entradas(indice: str, entradas: dict) -> dict:
-    """Confere se todos os campos exigidos estão presentes e dentro da faixa
-    aceitável, lançando EntradaInvalidaError com mensagem em português caso
-    contrário. Retorna o dicionário de entradas já convertido para float."""
+    """Confere se todos os campos exigidos estao presentes e dentro da faixa
+    aceitavel, lancando EntradaInvalidaError com mensagem em portugues caso
+    contrario. Retorna o dicionario de entradas ja convertido para float."""
     campos = CAMPOS_POR_INDICE[indice]
     faltando = [c for c in campos if c not in entradas or entradas[c] in (None, "")]
     if faltando:
@@ -140,20 +147,20 @@ def validar_entradas(indice: str, entradas: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Tabela 4 da dissertação - "Valores limites de ITU, ITUV e IGNU"
+# Tabela 4 da dissertacao - "Valores limites de ITU, ITUV e IGNU"
 # ---------------------------------------------------------------------------
 # Cada entrada guarda o limite SUPERIOR de "conforto", "alerta" e "perigo";
-# qualquer valor acima do limite de "perigo" cai em "emergência". Os números
+# qualquer valor acima do limite de "perigo" cai em "emergencia". Os numeros
 # abaixo foram lidos diretamente da Tabela 4 e conferidos contra os exemplos
-# numéricos do Capítulo IV (ver test_thermal_indices.py).
+# numericos do Capitulo IV (ver test_thermal_indices.py).
 #
-# (*) IMPORTANTE: as linhas "suínos" de ITU (Sales et al., 2006) e de IGNU
+# (*) IMPORTANTE: as linhas "suinos" de ITU (Sales et al., 2006) e de IGNU
 # (Ferreira, 2001) vieram incompletas na tabela de origem (e essas duas
-# referências, note-se, também não aparecem na lista de Referências
-# Bibliográficas da própria dissertação). Para essas duas células, foi feita
-# uma interpretação monotônica razoável, seguindo o mesmo padrão das demais
-# linhas da tabela. Se você tiver os valores exatos de Sales et al. (2006) e
-# Ferreira (2001), é só ajustar os números abaixo.
+# referencias, note-se, tambem nao aparecem na lista de Referencias
+# Bibliograficas da propria dissertacao). Para essas duas celulas, foi feita
+# uma interpretacao monotonica razoavel, seguindo o mesmo padrao das demais
+# linhas da tabela. Se voce tiver os valores exatos de Sales et al. (2006) e
+# Ferreira (2001), e so ajustar os numeros abaixo.
 LIMITES = {
     "ITU": {
         "frangos": {"conforto": 74, "alerta": 79, "perigo": 84},  # Thom, 1959
@@ -164,11 +171,11 @@ LIMITES = {
         "frangos": {"conforto": 24, "alerta": 34, "perigo": 39},  # Xiao & Xin, 2003
     },
     "IGNU": {
-        # Teixeira (1983): a tabela original só define "conforto" (<=76) e
-        # ">76"; por isso alerta/perigo repetem o mesmo limite (o índice pula
-        # direto para "Emergência" acima de 76 - confirmado pela Tabela 7).
+        # Teixeira (1983): a tabela original so define "conforto" (<=76) e
+        # ">76"; por isso alerta/perigo repetem o mesmo limite (o indice pula
+        # direto para "Emergencia" acima de 76 - confirmado pela Tabela 7).
         "frangos": {"conforto": 76, "alerta": 76, "perigo": 76},  # Teixeira, 1983
-        "bovinos": {"conforto": 74, "alerta": 78, "perigo": 84},  # Baêta, 1985
+        "bovinos": {"conforto": 74, "alerta": 78, "perigo": 84},  # Baeta, 1985
         "suinos": {"conforto": 69.6, "alerta": 82.6, "perigo": 82.6},  # Ferreira, 2001 (*)
     },
 }
@@ -179,11 +186,11 @@ CORES_STATUS = {
     "Conforto": "#3E8E5B",
     "Alerta": "#E3A73E",
     "Perigo": "#C1443C",
-    "Emergência": "#171512",
+    "Emergencia": "#171512",
 }
 
-# Mensagens de orientação - reproduzidas das telas do próprio programa
-# descrito na dissertação (Figuras 17/19, 20/22, 16/25 e 18).
+# Mensagens de orientacao - reproduzidas das telas do proprio programa
+# descrito na dissertacao (Figuras 17/19, 20/22, 16/25 e 18).
 MENSAGENS_STATUS = {
     "Conforto": "As condições de temperatura são adequadas.",
     "Alerta": "São necessárias medidas para a diminuição da temperatura.",
@@ -191,22 +198,41 @@ MENSAGENS_STATUS = {
         "As condições de temperatura exigem atenção imediata. "
         "Caso seja possível, ligue ventiladores ou nebulizadores."
     ),
-    "Emergência": (
+    "Emergencia": (
         "Condições extremas. Abaixe a temperatura imediatamente. "
         "Ligue ventiladores e nebulizadores e considere a retirada dos animais."
     ),
 }
 
-# Intensidade de acionamento dos equipamentos remotos (seção 4.3): em
+# Intensidade de acionamento dos equipamentos remotos (secao 4.3): em
 # "Conforto" os equipamentos ficam desligados; a intensidade cresce com a
-# gravidade, chegando ao nível máximo (com todos os equipamentos disponíveis)
-# em "Emergência".
+# gravidade, chegando ao nivel maximo (com todos os equipamentos disponiveis)
+# em "Emergencia".
 INTENSIDADE_EQUIPAMENTO = {
     "Conforto": None,
     "Alerta": "baixa",
-    "Perigo": "média",
-    "Emergência": "máxima",
+    "Perigo": "media",
+    "Emergencia": "maxima",
 }
+
+INTENSIDADE_LABEL = {
+    None: None,
+    "baixa": "baixa",
+    "media": "média",
+    "maxima": "máxima",
+}
+
+
+def cor_do_status(status: str) -> str:
+    return CORES_STATUS[normalizar_chave_texto(status)]
+
+
+def mensagem_do_status(status: str) -> str:
+    return MENSAGENS_STATUS[normalizar_chave_texto(status)]
+
+
+def intensidade_do_status(status: str) -> str | None:
+    return INTENSIDADE_LABEL[INTENSIDADE_EQUIPAMENTO[normalizar_chave_texto(status)]]
 
 
 def indice_disponivel(especie: str, indice: str) -> bool:
@@ -214,8 +240,8 @@ def indice_disponivel(especie: str, indice: str) -> bool:
 
 
 def classificar_status(valor: float, especie: str, indice: str) -> str:
-    """Classifica um valor de índice em Conforto / Alerta / Perigo / Emergência
-    conforme a Tabela 4 da dissertação, para a espécie e índice informados."""
+    """Classifica um valor de indice em Conforto / Alerta / Perigo / Emergencia
+    conforme a Tabela 4 da dissertacao, para a especie e indice informados."""
     if not indice_disponivel(especie, indice):
         raise EntradaInvalidaError(
             f"O índice {indice} não é aplicável à espécie '{especie}'."
@@ -231,7 +257,7 @@ def classificar_status(valor: float, especie: str, indice: str) -> str:
 
 
 def calcular_e_classificar(especie: str, indice: str, entradas: dict) -> tuple[float, str]:
-    """Função de conveniência: valida, calcula e classifica em um só passo."""
+    """Funcao de conveniencia: valida, calcula e classifica em um so passo."""
     if not indice_disponivel(especie, indice):
         raise EntradaInvalidaError(
             f"O índice {indice} não é aplicável à espécie '{especie}'."

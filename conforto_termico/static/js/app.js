@@ -1,5 +1,5 @@
 // =============================================================================
-// Sistema de Controle dos Índices de Conforto Térmico — front-end
+// Front-end do sistema de conforto termico
 // =============================================================================
 
 const CONFIG_APP = window.CONFIG_APP;
@@ -8,29 +8,46 @@ const CLASSE_STATUS = {
   "Conforto": "conforto",
   "Alerta": "alerta",
   "Perigo": "perigo",
-  "Emergência": "emergencia",
+  "Emergencia": "emergencia",
 };
 
 const COR_STATUS = {
   "Conforto": "#3E8E5B",
   "Alerta": "#E3A73E",
   "Perigo": "#C1443C",
-  "Emergência": "#FF6B5E",
+  "Emergencia": "#FF6B5E",
 };
 
-const STATUS_HISTORICO = Object.keys(CLASSE_STATUS);
+const STATUS_HISTORICO = ["Conforto", "Alerta", "Perigo", "Emerg\u00eancia"];
 const CORES_CAMPOS_ENTRADA = ["#4F8A93", "#D9A441", "#8FBF9F", "#C1443C", "#9E7BB5"];
 const HISTORICO_LINHAS_POR_PAGINA = 20;
+
+function normalizarChaveTexto(valor) {
+  return String(valor || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+function classeStatus(status) {
+  return CLASSE_STATUS[normalizarChaveTexto(status)] || "";
+}
+
+function corStatus(status, fallback = "#4F8A93") {
+  return COR_STATUS[normalizarChaveTexto(status)] || fallback;
+}
 
 function corCampoEntrada(campo) {
   const indice = camposDaEspecie().indexOf(campo);
   return CORES_CAMPOS_ENTRADA[Math.max(0, indice) % CORES_CAMPOS_ENTRADA.length];
 }
 
-// Quantos ícones acender por equipamento LIGADO, conforme a intensidade
-// informada pelo servidor. Cada nível ocupa duas posições no conjunto fixo.
+// Quantos icones acender por equipamento ligado, conforme a intensidade
+// informada pelo servidor. Cada nivel ocupa duas posicoes no conjunto fixo.
 const TOTAL_ICONES_EQUIPAMENTO = 6;
-const CONTAGEM_INTENSIDADE = { baixa: 2, média: 4, máxima: 6 };
+const CONTAGEM_INTENSIDADE = { baixa: 2, media: 4, maxima: 6 };
+
+function quantidadePorIntensidade(intensidade) {
+  const chave = normalizarChaveTexto(intensidade).toLowerCase();
+  return CONTAGEM_INTENSIDADE[chave] || 2;
+}
 
 // Glifos SVG proprios, inspirados em equipamentos agropecuarios reais: exaustor
 // axial em moldura/grade e bico nebulizador em linha pressurizada.
@@ -85,13 +102,13 @@ let historicoLeiturasAtuais = [];
 let historicoPaginaAtual = 1;
 let filtroHistoricoIndice = "";
 let filtroHistoricoStatus = "";
-let autoAtivo = false; // Modo automático ligado/desligado (checado antes de CADA ciclo)
-let autoEmExecucao = false; // true enquanto um ciclo está em andamento (evita sobreposição)
-let autoTimeoutId = null; // id do próximo ciclo agendado (setTimeout), se houver
+let autoAtivo = false; // Modo automatico ligado/desligado (checado antes de CADA ciclo)
+let autoEmExecucao = false; // true enquanto um ciclo esta em andamento (evita sobreposicao)
+let autoTimeoutId = null; // id do proximo ciclo agendado (setTimeout), se houver
 let audioCtx = null;
 
 // ---------------------------------------------------------------------------
-// Seletores de espécie / índice
+// Seletores de especie / indice
 // ---------------------------------------------------------------------------
 function renderSeletorEspecie() {
   const container = document.getElementById("seletor-especie");
@@ -162,7 +179,7 @@ function selecionarIndice(indice) {
 }
 
 // ---------------------------------------------------------------------------
-// Campos de entrada dinâmicos
+// Campos de entrada dinamicos
 // ---------------------------------------------------------------------------
 function renderCamposEntrada() {
   const container = document.getElementById("campos-entrada");
@@ -235,7 +252,7 @@ function coletarConfig() {
 }
 
 // ---------------------------------------------------------------------------
-// Chamadas à API
+// Chamadas a API
 // ---------------------------------------------------------------------------
 async function calcular() {
   esconderErro();
@@ -264,10 +281,10 @@ async function calcular() {
     }
     dados = corpo;
   } catch (erro) {
-    // Esta captura é exclusivamente para falhas de REDE (fetch não completou,
-    // ou a resposta não era JSON válido) — nunca para erros ocorridos depois,
+    // Esta captura e exclusivamente para falhas de rede (fetch nao completou,
+    // ou a resposta nao era JSON valido) - nunca para erros ocorridos depois,
     // ao atualizar a tela.
-    console.error("Erro de comunicação com /api/calcular:", erro);
+    console.error("Erro de comunicacao com /api/calcular:", erro);
     mostrarErro(
       erro && erro.message && erro.message.includes("Flask")
         ? erro.message
@@ -276,8 +293,8 @@ async function calcular() {
     return;
   }
 
-  // A requisição foi concluída com sucesso. Qualquer erro a partir daqui é de
-  // ATUALIZAÇÃO DA TELA (ex.: gráficos), não de comunicação — tratado à parte
+  // A requisicao foi concluida com sucesso. Qualquer erro a partir daqui e de
+  // atualizacao da tela (ex.: graficos), nao de comunicacao - tratado a parte
   // dentro de atualizarResultado(), para nunca ser confundido com o caso acima.
   atualizarResultado(dados);
 }
@@ -314,7 +331,7 @@ async function carregarHistorico() {
     atualizarGraficos(historicoGrafico);
     atualizarTabela(historico);
   } catch (erro) {
-    /* não crítico */
+    /* nao critico */
   }
 }
 
@@ -335,7 +352,7 @@ async function limparHistorico() {
 }
 
 // ---------------------------------------------------------------------------
-// Atualização da interface
+// Atualizacao da interface
 // ---------------------------------------------------------------------------
 function resetarPainelResultado() {
   ultimosResultados = null;
@@ -357,7 +374,7 @@ function resetarPainelResultado() {
 }
 
 function atualizarPainelIndiceSelecionado(resultado, avisoGeral) {
-  const classe = CLASSE_STATUS[resultado.status] || "";
+  const classe = classeStatus(resultado.status);
   const readoutValor = document.getElementById("readout-valor");
   readoutValor.textContent = resultado.valor.toFixed(2).replace(".", ",");
   readoutValor.className = "readout-valor cor-" + classe;
@@ -383,10 +400,10 @@ function historicosDosResultados(resultados, tipo) {
 function atualizarResultado(dados) {
   ultimosResultados = dados.indices || { [estado.indice]: dados };
   const selecionado = ultimosResultados[estado.indice] || dados;
-  const classe = CLASSE_STATUS[selecionado.status] || "";
+  const classe = classeStatus(selecionado.status);
 
-  // 1) Elementos essenciais primeiro — nunca dependem de bibliotecas externas,
-  //    então sempre devem atualizar mesmo se algo mais adiante falhar.
+  // 1) Elementos essenciais primeiro - nunca dependem de bibliotecas externas,
+  //    entao sempre devem atualizar mesmo se algo mais adiante falhar.
   const readoutValor = document.getElementById("readout-valor");
   readoutValor.textContent = selecionado.valor.toFixed(2).replace(".", ",");
   readoutValor.className = "readout-valor cor-" + classe;
@@ -403,14 +420,14 @@ function atualizarResultado(dados) {
   atualizarEquipamento(dados.equipamento);
   atualizarEmail(dados.email);
 
-  // 2) Gráficos e tabela: isolados em try/catch próprios. Se a biblioteca de
-  //    gráficos não carregar por qualquer motivo, o restante do painel acima
-  //    já está atualizado e continua funcionando normalmente.
+  // 2) Graficos e tabela: isolados em try/catch proprios. Se a biblioteca de
+  //    graficos nao carregar por qualquer motivo, o restante do painel acima
+  //    ja esta atualizado e continua funcionando normalmente.
   try {
     ultimosHistoricosGrafico = historicosDosResultados(ultimosResultados, "historico_grafico");
     atualizarGraficos(ultimosHistoricosGrafico);
   } catch (erro) {
-    console.error("Erro ao desenhar os gráficos:", erro);
+    console.error("Erro ao desenhar os graficos:", erro);
     mostrarErro(
       "O valor foi calculado normalmente (" + selecionado.valor.toFixed(2).replace(".", ",") +
       ", " + selecionado.status + "), mas os gráficos não puderam ser desenhados. " +
@@ -421,7 +438,7 @@ function atualizarResultado(dados) {
   try {
     atualizarTabela(historicosDosResultados(ultimosResultados, "historico"));
   } catch (erro) {
-    console.error("Erro ao atualizar a tabela de histórico:", erro);
+    console.error("Erro ao atualizar a tabela de historico:", erro);
   }
 
   if (dados.tocarSom && selecionado.status !== "Conforto") {
@@ -439,7 +456,7 @@ function renderizarIconesEquipamento(containerId, svgIcone, nomeEquipamento, lig
 
   const quantidadeBase = Number.isFinite(quantidadeForcada)
     ? quantidadeForcada
-    : CONTAGEM_INTENSIDADE[intensidade] || 2;
+    : quantidadePorIntensidade(intensidade);
   const quantidadeAtiva = ligado ? Math.min(TOTAL_ICONES_EQUIPAMENTO, quantidadeBase) : 0;
 
   for (let i = 0; i < TOTAL_ICONES_EQUIPAMENTO; i++) {
@@ -584,7 +601,7 @@ function atualizarGraficosLegado(historico) {
 
   const rotulos = historico.map((h) => formatarHora(h.criado_em));
   const valores = historico.map((h) => h.valor);
-  const cores = historico.map((h) => COR_STATUS[h.status] || "#4F8A93");
+  const cores = historico.map((h) => corStatus(h.status));
   const datasetIndice = graficoIndice ? graficoIndice.data.datasets[0] : {};
   Object.assign(datasetIndice, {
     label: estado.indice,
@@ -662,7 +679,7 @@ function atualizarGraficosCombinadoLegado(historicos) {
       indice,
       label: indice,
       data: chaves.map((chave) => leiturasPorChave.get(chave)?.valor ?? null),
-      backgroundColor: chaves.map((chave) => COR_STATUS[leiturasPorChave.get(chave)?.status] || "#4F8A93"),
+      backgroundColor: chaves.map((chave) => corStatus(leiturasPorChave.get(chave)?.status)),
       borderRadius: 3,
       maxBarThickness: 24,
     });
@@ -846,7 +863,7 @@ function atualizarGraficos(historicos) {
     Object.assign(dataset, {
       label: indice,
       data: historico.map((h) => h.valor),
-      backgroundColor: historico.map((h) => COR_STATUS[h.status] || "#4F8A93"),
+      backgroundColor: historico.map((h) => corStatus(h.status)),
       borderRadius: 3,
       maxBarThickness: 26,
     });
@@ -882,7 +899,7 @@ function atualizarTabelaLegado(historico) {
     const entradasTexto = Object.entries(h.entradas)
       .map(([k, v]) => k + "=" + v)
       .join(", ");
-    const classe = "status-" + (CLASSE_STATUS[h.status] || "");
+    const classe = "status-" + classeStatus(h.status);
 
     const tdHora = document.createElement("td");
     tdHora.textContent = formatarHora(h.criado_em);
@@ -1004,7 +1021,7 @@ function renderizarPaginaHistorico() {
     const entradasTexto = Object.entries(h.entradas)
       .map(([k, v]) => k + "=" + v)
       .join(", ");
-    const classe = "status-" + (CLASSE_STATUS[h.status] || "");
+    const classe = "status-" + classeStatus(h.status);
 
     const tdHora = document.createElement("td");
     tdHora.textContent = formatarHora(h.criado_em);
@@ -1055,7 +1072,7 @@ function inicializarHistorico() {
 }
 
 // ---------------------------------------------------------------------------
-// Som de alerta (Web Audio API - nenhum arquivo de áudio necessário)
+// Som de alerta (Web Audio API - nenhum arquivo de audio necessario)
 // ---------------------------------------------------------------------------
 function tocarSom(status) {
   try {
@@ -1064,9 +1081,9 @@ function tocarSom(status) {
       Conforto: [660],
       Alerta: [520, 520],
       Perigo: [420, 420, 420],
-      "Emergência": [300, 300, 300, 300],
+      "Emergencia": [300, 300, 300, 300],
     };
-    const seq = sequencias[status] || [440];
+    const seq = sequencias[normalizarChaveTexto(status)] || [440];
     let tempo = audioCtx.currentTime;
     seq.forEach((freq) => {
       const osc = audioCtx.createOscillator();
@@ -1082,7 +1099,7 @@ function tocarSom(status) {
       tempo += 0.22;
     });
   } catch (erro) {
-    /* Web Audio indisponível neste navegador - ignora silenciosamente */
+    /* Web Audio indisponivel neste navegador - ignora silenciosamente */
   }
 }
 
@@ -1157,11 +1174,11 @@ function iniciarRelogio() {
 function alternarModoAutomatico(ativo) {
   autoAtivo = ativo;
 
-  // Cancela qualquer próximo ciclo já agendado. Se um ciclo já estiver EM
-  // EXECUÇÃO neste exato momento (aguardando resposta do servidor), ele vai
-  // terminar sozinho — mas por causa da checagem de `autoAtivo` dentro de
-  // `cicloAutomatico()`, ele não vai agendar um próximo. Ou seja, desmarcar
-  // sempre para o monitoramento em, no máximo, a duração de UM ciclo (nunca
+  // Cancela qualquer proximo ciclo ja agendado. Se um ciclo ja estiver em
+  // execucao neste exato momento (aguardando resposta do servidor), ele vai
+  // terminar sozinho - mas por causa da checagem de `autoAtivo` dentro de
+  // `cicloAutomatico()`, ele nao vai agendar um proximo. Ou seja, desmarcar
+  // sempre para o monitoramento em, no maximo, a duracao de um ciclo (nunca
   // fica "gerando dados" indefinidamente).
   if (autoTimeoutId) {
     clearTimeout(autoTimeoutId);
@@ -1180,13 +1197,13 @@ async function cicloAutomatico() {
     await simularSensor();
     await calcular();
   } catch (erro) {
-    console.error("Erro no ciclo do modo automático:", erro);
+    console.error("Erro no ciclo do modo automatico:", erro);
   } finally {
     autoEmExecucao = false;
   }
-  // Só agenda o PRÓXIMO ciclo depois que este terminou por completo — nunca
-  // dispara um novo ciclo antes do anterior ter concluído (o que era a causa
-  // do modo automático "não desligar": ciclos podiam se sobrepor e continuar
+  // So agenda o proximo ciclo depois que este terminou por completo - nunca
+  // dispara um novo ciclo antes do anterior ter concluido (o que era a causa
+  // do modo automatico "nao desligar": ciclos podiam se sobrepor e continuar
   // rodando mesmo depois de desmarcar a caixa).
   if (autoAtivo) {
     autoTimeoutId = setTimeout(cicloAutomatico, obterIntervaloLeituraMs());
@@ -1207,7 +1224,7 @@ function esconderErro() {
 }
 
 // ---------------------------------------------------------------------------
-// Inicialização
+// Inicializacao
 // ---------------------------------------------------------------------------
 document.addEventListener("DOMContentLoaded", () => {
   moverControlesParaSettings();
