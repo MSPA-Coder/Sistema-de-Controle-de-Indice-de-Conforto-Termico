@@ -277,7 +277,7 @@ class CalculoIctService:
                 "indices": resultados,
                 "equipamento": equipamento_info,
                 "email": email_info,
-                "tocarSom": bool(config.get("habilitarSons")),
+                "tocarSom": bool(config.get("habilitarSons")) and selecionado["status"] != "Conforto",
             }
         )
         if avisos:

@@ -72,6 +72,14 @@
       <p id="mensagem-erro" class="mensagem-erro oculto" role="alert"></p>
     </section>
 
+    <!-- GrÃ¡ficos --------------------------------------------------------------------------->
+    <section class="painel entradas-grafico-painel">
+      <div class="grafico-bloco grafico-bloco--sem-moldura">
+        <p class="grafico-titulo">Valores de entrada por leitura</p>
+        <div class="grafico-canvas-wrap"><canvas id="grafico-entradas"></canvas></div>
+      </div>
+    </section>
+
     <!-- Leitura / readout ---------------------------------------------------------------->
     <section class="painel leitura-painel">
       <div class="readout">
@@ -91,31 +99,28 @@
     <!-- Equipamentos remotos ------------------------------------------------------------->
     <section class="painel equipamentos-painel">
       <h2 class="painel-titulo">Equipamentos remotos</h2>
+      <div class="intensidade-info">
+        <span class="intensidade-etiqueta">Intensidade</span>
+        <span id="intensidade-valor">desligado</span>
+      </div>
       <div class="equipamentos">
         <div class="lampada-grupo">
-          <div id="icones-ventilador" class="icones-equipamento" role="img" aria-label="Ventilador desligado"></div>
           <span class="lampada-legenda">Ventilador</span>
+          <div id="icones-ventilador" class="icones-equipamento" role="img" aria-label="Ventilador desligado"></div>
         </div>
         <div class="lampada-grupo">
-          <div id="icones-nebulizador" class="icones-equipamento" role="img" aria-label="Nebulizador desligado"></div>
           <span class="lampada-legenda">Nebulizador</span>
+          <div id="icones-nebulizador" class="icones-equipamento" role="img" aria-label="Nebulizador desligado"></div>
         </div>
-        <div class="intensidade-info">
-          <span class="intensidade-etiqueta">Intensidade</span>
-          <span id="intensidade-valor">desligado</span>
+        <div class="lampada-grupo">
+          <span class="lampada-legenda">Sensor</span>
+          <div id="icones-sensor" class="icones-equipamento" role="img" aria-label="Sensor desligado"></div>
         </div>
       </div>
     </section>
 
     <!-- Gráficos --------------------------------------------------------------------------->
-    <section class="painel entradas-grafico-painel">
-      <div class="grafico-bloco grafico-bloco--sem-moldura">
-        <p class="grafico-titulo">Valores de entrada por leitura</p>
-        <div class="grafico-canvas-wrap"><canvas id="grafico-entradas"></canvas></div>
-      </div>
-    </section>
-
-    <section class="painel graficos-painel">
+    <section class="graficos-painel">
       <div id="graficos-indices" class="graficos-indices"></div>
     </section>
 
@@ -129,6 +134,24 @@
     <section class="painel tabela-painel">
       <div id="historico-acoes" class="tabela-cabecalho">
         <p class="grafico-titulo">Histórico de leituras</p>
+        <div class="historico-filtros" aria-label="Filtros do historico">
+          <label class="historico-filtro" for="filtro-historico-indice">
+            <span>Indice</span>
+            <select id="filtro-historico-indice">
+              <option value="">Todos</option>
+            </select>
+          </label>
+          <label class="historico-filtro" for="filtro-historico-status">
+            <span>Status</span>
+            <select id="filtro-historico-status">
+              <option value="">Todos</option>
+              <option value="Conforto">Conforto</option>
+              <option value="Alerta">Alerta</option>
+              <option value="Perigo">Perigo</option>
+              <option value="Emergência">Emergencia</option>
+            </select>
+          </label>
+        </div>
         <button id="btn-toggle-historico" class="botao botao--fantasma botao--compacto" type="button" aria-expanded="false">Expandir</button>
       </div>
       <div id="historico-corpo" class="historico-corpo oculto">
@@ -172,6 +195,7 @@
           <input type="number" id="cfg-intervalo-gravacao" min="0" step="1" value="1">
         </div>
       </div>
+      <div id="settings-historico" class="settings-bloco settings-bloco--acoes"></div>
     </section>
   </section>
 

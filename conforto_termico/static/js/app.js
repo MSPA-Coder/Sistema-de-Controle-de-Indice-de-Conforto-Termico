@@ -18,6 +18,7 @@ const COR_STATUS = {
   "Emergência": "#FF6B5E",
 };
 
+const STATUS_HISTORICO = Object.keys(CLASSE_STATUS);
 const CORES_CAMPOS_ENTRADA = ["#4F8A93", "#D9A441", "#8FBF9F", "#C1443C", "#9E7BB5"];
 const HISTORICO_LINHAS_POR_PAGINA = 20;
 
@@ -26,23 +27,50 @@ function corCampoEntrada(campo) {
   return CORES_CAMPOS_ENTRADA[Math.max(0, indice) % CORES_CAMPOS_ENTRADA.length];
 }
 
-// Quantos ícones exibir por equipamento LIGADO, conforme a intensidade
-// informada pelo servidor (Conforto=desligado não entra aqui).
-const CONTAGEM_INTENSIDADE = { baixa: 1, média: 2, máxima: 3 };
+// Quantos ícones acender por equipamento LIGADO, conforme a intensidade
+// informada pelo servidor. Cada nível ocupa duas posições no conjunto fixo.
+const TOTAL_ICONES_EQUIPAMENTO = 6;
+const CONTAGEM_INTENSIDADE = { baixa: 2, média: 4, máxima: 6 };
 
-// Glifos simples (SVG, herdam a cor via currentColor) usados no bloco de
-// equipamentos — desenhados à mão para não depender de nenhum ícone externo.
+// Glifos SVG proprios, inspirados em equipamentos agropecuarios reais: exaustor
+// axial em moldura/grade e bico nebulizador em linha pressurizada.
 const ICONE_VENTILADOR =
-  '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
-  '<circle cx="12" cy="12" r="2.1"/>' +
-  '<path d="M12.6 10.3c-.2-3.1 1.2-6.5 4.1-7.4 2-.6 3.9.9 3.4 3-.7 3-3.9 4.9-7 4.9-.3 0-.5-.2-.5-.5z"/>' +
-  '<path d="M13.7 12.6c3.1-.2 6.5 1.2 7.4 4.1.6 2-.9 3.9-3 3.4-3-.7-4.9-3.9-4.9-7 0-.3.2-.5.5-.5z"/>' +
-  '<path d="M10.3 11.4c-3.1.2-6.5-1.2-7.4-4.1-.6-2 .9-3.9 3-3.4 3 .7 4.9 3.9 4.9 7 0 .3-.2.5-.5.5z"/>' +
+  '<svg class="equip-svg fan-svg" viewBox="0 0 32 32" aria-hidden="true">' +
+  '<rect class="fan-frame" x="3.5" y="3.5" width="25" height="25" rx="2.3"/>' +
+  '<circle class="fan-ring" cx="16" cy="16" r="10.4"/>' +
+  '<circle class="fan-ring fan-ring--inner" cx="16" cy="16" r="6.8"/>' +
+  '<path class="fan-grill" d="M16 5.7v20.6M5.7 16h20.6M8.7 8.7l14.6 14.6M23.3 8.7L8.7 23.3"/>' +
+  '<g class="fan-rotor">' +
+  '<path d="M16.8 14.9c1.3-4 4.4-6.2 6.7-5.2 1.7.8 1.6 3.2-.1 4.8-1.5 1.4-3.9 2.1-6.6.4z"/>' +
+  '<path d="M17.1 16.8c4 1.3 6.2 4.4 5.2 6.7-.8 1.7-3.2 1.6-4.8-.1-1.4-1.5-2.1-3.9-.4-6.6z"/>' +
+  '<path d="M15.2 17.1c-1.3 4-4.4 6.2-6.7 5.2-1.7-.8-1.6-3.2.1-4.8 1.5-1.4 3.9-2.1 6.6-.4z"/>' +
+  '<path d="M14.9 15.2c-4-1.3-6.2-4.4-5.2-6.7.8-1.7 3.2-1.6 4.8.1 1.4 1.5 2.1 3.9.4 6.6z"/>' +
+  "</g>" +
+  '<circle class="fan-hub" cx="16" cy="16" r="2.2"/>' +
   "</svg>";
 
 const ICONE_NEBULIZADOR =
-  '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
-  '<path d="M12 2.2c-3.3 4.8-6.2 8.9-6.2 12.2 0 3.6 2.9 6.6 6.2 6.6s6.2-3 6.2-6.6c0-3.3-2.9-7.4-6.2-12.2z"/>' +
+  '<svg class="equip-svg mist-svg" viewBox="0 0 32 32" aria-hidden="true">' +
+  '<path class="mist-pipe" d="M4.5 7.2h15.2"/>' +
+  '<rect class="mist-body" x="18.2" y="5.2" width="6.1" height="4.1" rx="0.8"/>' +
+  '<path class="mist-nozzle" d="M20.2 9.1h4.5l-1.2 3.5h-2.1z"/>' +
+  '<path class="mist-jet mist-jet--top" d="M21.8 13.1C18.7 14.7 15.1 16.4 10 18.5"/>' +
+  '<path class="mist-jet mist-jet--mid" d="M22.5 13.1C19.5 16.1 16.1 19.2 11.8 23.2"/>' +
+  '<path class="mist-jet mist-jet--low" d="M23.2 13.1c-.1 3.9-.5 7.4-1.3 11.6"/>' +
+  '<circle class="mist-drop mist-drop--one" cx="14.8" cy="17.8" r="1"/>' +
+  '<circle class="mist-drop mist-drop--two" cx="17.6" cy="21.5" r="0.9"/>' +
+  '<circle class="mist-drop mist-drop--three" cx="22.8" cy="23.5" r="0.8"/>' +
+  "</svg>";
+
+const ICONE_SENSOR =
+  '<svg class="equip-svg sensor-svg" viewBox="0 0 32 32" aria-hidden="true">' +
+  '<path class="sensor-wave sensor-wave--left" d="M10.2 8.9c-1.4 1.3-2.2 3-2.2 5"/>' +
+  '<path class="sensor-wave sensor-wave--right" d="M21.8 8.9c1.4 1.3 2.2 3 2.2 5"/>' +
+  '<path class="sensor-stem" d="M16 12.4V8.6"/>' +
+  '<circle class="sensor-tip" cx="16" cy="7" r="1.4"/>' +
+  '<rect class="sensor-body" x="9.5" y="12.3" width="13" height="11.4" rx="2.2"/>' +
+  '<circle class="sensor-led" cx="16" cy="18" r="2.1"/>' +
+  '<path class="sensor-base" d="M12.2 25h7.6"/>' +
   "</svg>";
 
 const estado = { especie: "frangos", indice: "ITU" };
@@ -52,8 +80,11 @@ let graficoEntradas = null;
 let assinaturaGraficos = "";
 let ultimosResultados = null;
 let ultimosHistoricosGrafico = {};
+let historicoLeiturasBase = [];
 let historicoLeiturasAtuais = [];
 let historicoPaginaAtual = 1;
+let filtroHistoricoIndice = "";
+let filtroHistoricoStatus = "";
 let autoAtivo = false; // Modo automático ligado/desligado (checado antes de CADA ciclo)
 let autoEmExecucao = false; // true enquanto um ciclo está em andamento (evita sobreposição)
 let autoTimeoutId = null; // id do próximo ciclo agendado (setTimeout), se houver
@@ -393,7 +424,7 @@ function atualizarResultado(dados) {
     console.error("Erro ao atualizar a tabela de histórico:", erro);
   }
 
-  if (dados.tocarSom) {
+  if (dados.tocarSom && selecionado.status !== "Conforto") {
     try {
       tocarSom(selecionado.status);
     } catch (erro) {
@@ -402,25 +433,27 @@ function atualizarResultado(dados) {
   }
 }
 
-function renderizarIconesEquipamento(containerId, svgIcone, nomeEquipamento, ligado, intensidade) {
+function renderizarIconesEquipamento(containerId, svgIcone, nomeEquipamento, ligado, intensidade, quantidadeForcada) {
   const container = document.getElementById(containerId);
   container.innerHTML = "";
 
-  // Desligado (ou o outro equipamento é que está ligado): mostra 1 ícone
-  // apagado, só para manter o rótulo com uma âncora visual. Ligado: mostra
-  // 1/2/3 ícones acesos, conforme a intensidade — nunca os dois ao mesmo
-  // tempo, então se só um equipamento vier ligado no estado, os ícones
-  // múltiplos/acesos aparecem apenas naquele.
-  const quantidade = ligado ? CONTAGEM_INTENSIDADE[intensidade] || 1 : 1;
+  const quantidadeBase = Number.isFinite(quantidadeForcada)
+    ? quantidadeForcada
+    : CONTAGEM_INTENSIDADE[intensidade] || 2;
+  const quantidadeAtiva = ligado ? Math.min(TOTAL_ICONES_EQUIPAMENTO, quantidadeBase) : 0;
 
-  for (let i = 0; i < quantidade; i++) {
+  for (let i = 0; i < TOTAL_ICONES_EQUIPAMENTO; i++) {
     const badge = document.createElement("span");
-    badge.className = "icone-equip" + (ligado ? " ativo" : "");
+    badge.className = "icone-equip" + (i < quantidadeAtiva ? " ativo" : "");
     badge.innerHTML = svgIcone;
     container.appendChild(badge);
   }
 
-  const estadoTexto = ligado ? `ligado (intensidade ${intensidade || "baixa"})` : "desligado";
+  const estadoTexto = ligado
+    ? intensidade
+      ? `ligado (intensidade ${intensidade}, ${quantidadeAtiva} de ${TOTAL_ICONES_EQUIPAMENTO} ativos)`
+      : `ligado (${quantidadeAtiva} de ${TOTAL_ICONES_EQUIPAMENTO} ativos)`
+    : `desligado, 0 de ${TOTAL_ICONES_EQUIPAMENTO} ativos`;
   container.setAttribute("aria-label", `${nomeEquipamento} ${estadoTexto}`);
 }
 
@@ -433,6 +466,20 @@ function atualizarEquipamento(equip) {
   renderizarIconesEquipamento("icones-nebulizador", ICONE_NEBULIZADOR, "Nebulizador", nebulizadorLigado, intensidade);
 
   document.getElementById("intensidade-valor").textContent = intensidade || "desligado";
+}
+
+function atualizarSensorRemoto() {
+  const checkboxColeta = document.getElementById("cfg-coletar");
+  const sensorLigado = !!(checkboxColeta && checkboxColeta.checked);
+
+  renderizarIconesEquipamento(
+    "icones-sensor",
+    ICONE_SENSOR,
+    "Sensor",
+    sensorLigado,
+    null,
+    TOTAL_ICONES_EQUIPAMENTO
+  );
 }
 
 function atualizarEmail(emailInfo) {
@@ -863,6 +910,63 @@ function leiturasTabela(historicos) {
     });
 }
 
+function preencherSelectHistorico(select, opcoes, valorAtual) {
+  if (!select) return;
+
+  select.innerHTML = "";
+  const todos = document.createElement("option");
+  todos.value = "";
+  todos.textContent = "Todos";
+  select.appendChild(todos);
+
+  opcoes.forEach((opcao) => {
+    const option = document.createElement("option");
+    option.value = opcao;
+    option.textContent = opcao;
+    select.appendChild(option);
+  });
+
+  select.value = valorAtual;
+}
+
+function renderizarFiltrosHistorico() {
+  const indices = indicesDaEspecie();
+  if (filtroHistoricoIndice && !indices.includes(filtroHistoricoIndice)) {
+    filtroHistoricoIndice = "";
+  }
+  if (filtroHistoricoStatus && !STATUS_HISTORICO.includes(filtroHistoricoStatus)) {
+    filtroHistoricoStatus = "";
+  }
+
+  preencherSelectHistorico(
+    document.getElementById("filtro-historico-indice"),
+    indices,
+    filtroHistoricoIndice
+  );
+  preencherSelectHistorico(
+    document.getElementById("filtro-historico-status"),
+    STATUS_HISTORICO,
+    filtroHistoricoStatus
+  );
+}
+
+function aplicarFiltrosHistorico(resetarPagina) {
+  historicoLeiturasAtuais = historicoLeiturasBase.filter((leitura) => {
+    const indiceOk = !filtroHistoricoIndice || leitura.indice === filtroHistoricoIndice;
+    const statusOk = !filtroHistoricoStatus || leitura.status === filtroHistoricoStatus;
+    return indiceOk && statusOk;
+  });
+
+  if (resetarPagina) historicoPaginaAtual = 1;
+  renderizarPaginaHistorico();
+}
+
+function atualizarFiltroHistorico() {
+  filtroHistoricoIndice = document.getElementById("filtro-historico-indice")?.value || "";
+  filtroHistoricoStatus = document.getElementById("filtro-historico-status")?.value || "";
+  aplicarFiltrosHistorico(true);
+}
+
 function renderizarPaginaHistorico() {
   const tbody = document.querySelector("#tabela-historico tbody");
   const tabela = document.getElementById("tabela-historico");
@@ -878,6 +982,9 @@ function renderizarPaginaHistorico() {
 
   if (!historicoLeiturasAtuais.length) {
     tabela.classList.add("oculto");
+    vazio.textContent = historicoLeiturasBase.length
+      ? "Nenhuma leitura encontrada para os filtros selecionados."
+      : "Nenhuma leitura registrada ainda para esta espécie.";
     vazio.classList.remove("oculto");
     if (paginacao) paginacao.classList.add("oculto");
     return;
@@ -917,10 +1024,9 @@ function renderizarPaginaHistorico() {
 }
 
 function atualizarTabela(historicos) {
-  historicoLeiturasAtuais = leiturasTabela(historicos);
-  const totalPaginas = Math.max(1, Math.ceil(historicoLeiturasAtuais.length / HISTORICO_LINHAS_POR_PAGINA));
-  historicoPaginaAtual = Math.min(historicoPaginaAtual, totalPaginas);
-  renderizarPaginaHistorico();
+  historicoLeiturasBase = leiturasTabela(historicos);
+  renderizarFiltrosHistorico();
+  aplicarFiltrosHistorico(false);
 }
 
 function alternarHistorico() {
@@ -940,9 +1046,12 @@ function paginaHistorico(delta) {
 }
 
 function inicializarHistorico() {
+  renderizarFiltrosHistorico();
   document.getElementById("btn-toggle-historico")?.addEventListener("click", alternarHistorico);
   document.getElementById("btn-historico-anterior")?.addEventListener("click", () => paginaHistorico(-1));
   document.getElementById("btn-historico-proximo")?.addEventListener("click", () => paginaHistorico(1));
+  document.getElementById("filtro-historico-indice")?.addEventListener("change", atualizarFiltroHistorico);
+  document.getElementById("filtro-historico-status")?.addEventListener("change", atualizarFiltroHistorico);
 }
 
 // ---------------------------------------------------------------------------
@@ -1012,7 +1121,9 @@ function moverControlesParaSettings() {
   const settingsOpcoes = document.getElementById("settings-opcoes");
   const settingsEmail = document.getElementById("settings-email");
   const settingsAutomacao = document.getElementById("settings-automacao");
+  const settingsHistorico = document.getElementById("settings-historico");
   const historicoAcoes = document.getElementById("historico-acoes");
+  const historicoPaginacao = document.getElementById("historico-paginacao");
 
   const opcoes = document.querySelector(".entrada-painel .config-grade");
   const email = document.getElementById("wrap-email-destino");
@@ -1022,7 +1133,8 @@ function moverControlesParaSettings() {
   if (settingsOpcoes && opcoes) settingsOpcoes.appendChild(opcoes);
   if (settingsEmail && email) settingsEmail.appendChild(email);
   if (settingsAutomacao && automatico) settingsAutomacao.appendChild(automatico);
-  if (historicoAcoes && limparHistorico) historicoAcoes.appendChild(limparHistorico);
+  if (historicoAcoes && historicoPaginacao) historicoAcoes.appendChild(historicoPaginacao);
+  if (settingsHistorico && limparHistorico) settingsHistorico.appendChild(limparHistorico);
 
   document.querySelectorAll(".entrada-painel .acao-linha").forEach((linha) => {
     if (!linha.querySelector("button, input, label")) linha.remove();
@@ -1105,6 +1217,8 @@ document.addEventListener("DOMContentLoaded", () => {
   renderSeletorIndice();
   renderCamposEntrada();
   carregarHistorico();
+  atualizarEquipamento(null);
+  atualizarSensorRemoto();
 
   document.getElementById("btn-calcular").addEventListener("click", calcular);
   document.getElementById("btn-simular").addEventListener("click", simularSensor);
@@ -1112,6 +1226,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   document.getElementById("cfg-coletar").addEventListener("change", (e) => {
     document.getElementById("btn-simular").disabled = !e.target.checked;
+    atualizarSensorRemoto();
   });
   document.getElementById("cfg-emails").addEventListener("change", (e) => {
     document.getElementById("wrap-email-destino").classList.toggle("oculto", !e.target.checked);
@@ -1120,6 +1235,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (e.target.checked) {
       document.getElementById("cfg-coletar").checked = true;
       document.getElementById("btn-simular").disabled = false;
+      atualizarSensorRemoto();
     }
     alternarModoAutomatico(e.target.checked);
   });

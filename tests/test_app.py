@@ -81,6 +81,21 @@ class TestHistoricoGraficoApi(unittest.TestCase):
         self.assertEqual(2, len(segunda.json["indices"]["ITUV"]["historico"]))
         self.assertEqual(2, len(segunda.json["indices"]["IGNU"]["historico"]))
 
+    def test_nao_toca_som_quando_indice_selecionado_esta_em_conforto(self):
+        resposta = self.client.post(
+            "/api/calcular",
+            json={
+                "especie": "frangos",
+                "indice": "ITU",
+                "entradas": {"tbs": 25, "tbu": 20, "v": 1, "tgn": 25, "tpo": 12},
+                "config": {"habilitarSons": True},
+            },
+        )
+
+        self.assertEqual(200, resposta.status_code)
+        self.assertEqual("Conforto", resposta.json["status"])
+        self.assertFalse(resposta.json["tocarSom"])
+
     def test_sensor_resfria_leituras_ate_voltar_ao_conforto(self):
         payload = {
             "especie": "frangos",
