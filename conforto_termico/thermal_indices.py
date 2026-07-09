@@ -215,13 +215,6 @@ INTENSIDADE_EQUIPAMENTO = {
     "Emergencia": "maxima",
 }
 
-INTENSIDADE_LABEL = {
-    None: None,
-    "baixa": "baixa",
-    "media": "média",
-    "maxima": "máxima",
-}
-
 
 def cor_do_status(status: str) -> str:
     return CORES_STATUS[normalizar_chave_texto(status)]
@@ -232,7 +225,7 @@ def mensagem_do_status(status: str) -> str:
 
 
 def intensidade_do_status(status: str) -> str | None:
-    return INTENSIDADE_LABEL[INTENSIDADE_EQUIPAMENTO[normalizar_chave_texto(status)]]
+    return INTENSIDADE_EQUIPAMENTO[normalizar_chave_texto(status)]
 
 
 def indice_disponivel(especie: str, indice: str) -> bool:

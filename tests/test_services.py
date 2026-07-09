@@ -2,6 +2,8 @@
 
 import unittest
 
+from conforto_termico import thermal_indices as ti
+from conforto_termico.models import Resfriamento
 from conforto_termico.services import EstadoSensor, EstrategiaResfriamento, HistoricoGraficoService
 
 
@@ -40,7 +42,7 @@ class TestEstrategiaResfriamento(unittest.TestCase):
         self.assertEqual(28.5, novo_estado.entradas["tbu"])
         self.assertEqual(1.05, novo_estado.entradas["v"])
 
-    def test_conforto_nao_aplica_resfriamento(self):
+    def test_conforto_ainda_aplica_resfriamento_enquanto_equipamento_ativo(self):
         estrategia = EstrategiaResfriamento()
         estado = EstadoSensor(
             entradas={"tbs": 25.0, "tbu": 20.0},
@@ -48,7 +50,85 @@ class TestEstrategiaResfriamento(unittest.TestCase):
             status="Conforto",
         )
 
-        self.assertIsNone(estrategia.aplicar("frangos", "ITU", estado))
+        novo_estado = estrategia.aplicar("frangos", "ITU", estado)
+
+        self.assertEqual(23.8, novo_estado.entradas["tbs"])
+        self.assertEqual(19.0, novo_estado.entradas["tbu"])
+        self.assertEqual("Conforto", novo_estado.status)
+
+
+class TestResfriamento(unittest.TestCase):
+    def test_aumenta_intensidade_imediatamente(self):
+        resfriamento = Resfriamento()
+
+        resfriamento.registrar_leitura("Alerta")
+        self.assertEqual(ti.intensidade_do_status("Alerta"), resfriamento.estado()["intensidade"])
+
+        resfriamento.registrar_leitura("Emergencia")
+        self.assertEqual(ti.intensidade_do_status("Emergencia"), resfriamento.estado()["intensidade"])
+
+    def test_reduz_intensidade_apos_tres_leituras_consecutivas(self):
+        resfriamento = Resfriamento()
+        resfriamento.registrar_leitura("Emergencia")
+
+        resfriamento.registrar_leitura("Perigo")
+        self.assertEqual(ti.intensidade_do_status("Emergencia"), resfriamento.estado()["intensidade"])
+        self.assertEqual(ti.intensidade_do_status("Perigo"), resfriamento.estado()["intensidade_reducao_pendente"])
+        self.assertEqual(1, resfriamento.estado()["leituras_reducao_consecutivas"])
+
+        resfriamento.registrar_leitura("Perigo")
+        self.assertEqual(ti.intensidade_do_status("Emergencia"), resfriamento.estado()["intensidade"])
+        self.assertEqual(2, resfriamento.estado()["leituras_reducao_consecutivas"])
+
+        resfriamento.registrar_leitura("Perigo")
+        self.assertEqual(ti.intensidade_do_status("Perigo"), resfriamento.estado()["intensidade"])
+        self.assertEqual(0, resfriamento.estado()["leituras_reducao_consecutivas"])
+
+    def test_mudanca_para_estado_mais_baixo_conta_para_proximo_degrau(self):
+        resfriamento = Resfriamento()
+        resfriamento.registrar_leitura("Emergencia")
+        resfriamento.registrar_leitura("Perigo")
+
+        resfriamento.registrar_leitura("Alerta")
+        self.assertEqual(ti.intensidade_do_status("Emergencia"), resfriamento.estado()["intensidade"])
+        self.assertEqual(ti.intensidade_do_status("Perigo"), resfriamento.estado()["intensidade_reducao_pendente"])
+        self.assertEqual(2, resfriamento.estado()["leituras_reducao_consecutivas"])
+
+    def test_reducao_nao_pula_degraus_mesmo_com_conforto(self):
+        resfriamento = Resfriamento()
+        resfriamento.registrar_leitura("Emergencia")
+
+        for _ in range(3):
+            resfriamento.registrar_leitura("Conforto")
+
+        self.assertTrue(resfriamento.estado()["ativo"])
+        self.assertEqual(ti.intensidade_do_status("Perigo"), resfriamento.estado()["intensidade"])
+
+        for _ in range(3):
+            resfriamento.registrar_leitura("Conforto")
+
+        self.assertTrue(resfriamento.estado()["ativo"])
+        self.assertEqual(ti.intensidade_do_status("Alerta"), resfriamento.estado()["intensidade"])
+
+        for _ in range(3):
+            resfriamento.registrar_leitura("Conforto")
+
+        self.assertFalse(resfriamento.estado()["ativo"])
+
+    def test_desliga_apos_tres_leituras_em_conforto(self):
+        resfriamento = Resfriamento()
+        resfriamento.registrar_leitura("Alerta")
+
+        resfriamento.registrar_leitura("Conforto")
+        self.assertTrue(resfriamento.estado()["ativo"])
+        self.assertEqual(1, resfriamento.estado()["leituras_conforto_consecutivas"])
+
+        resfriamento.registrar_leitura("Conforto")
+        self.assertTrue(resfriamento.estado()["ativo"])
+        self.assertEqual(2, resfriamento.estado()["leituras_conforto_consecutivas"])
+
+        resfriamento.registrar_leitura("Conforto")
+        self.assertFalse(resfriamento.estado()["ativo"])
 
 
 if __name__ == "__main__":

@@ -62,6 +62,22 @@ sistema_conforto_termico/
 └── requirements.txt
 ```
 
+## Diretrizes para agentes e manutencao
+
+Este repositorio inclui `agents.md` com regras para futuros agentes e
+mantenedores. Em resumo:
+
+- preserve a separacao entre dominio, servicos, rotas HTTP, persistencia e UI;
+- use padroes ja presentes no codigo, como Service Layer, Strategy e funcoes
+  puras para formulas;
+- adicione testes para alteracoes em formulas, sensores, modo automatico,
+  equipamentos remotos, persistencia ou API;
+- mantenha identificadores tecnicos sem acentos: nomes de arquivos, modulos,
+  classes, metodos, funcoes, variaveis, campos JSON, ids HTML, classes CSS,
+  abas, controles e valores internos de estado;
+- use acentos apenas em textos exibidos ao usuario final, como labels,
+  mensagens, e-mails e status visiveis.
+
 ## Arquitetura
 
 - `app.py` é apenas o lançador compatível para `python app.py`.

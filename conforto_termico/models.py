@@ -63,21 +63,72 @@ class Resfriamento:
     dos equipamentos remotos (ventiladores e nebulizadores) descritos na
     secao 4.3 da dissertacao."""
 
+    ORDEM_INTENSIDADE = {
+        None: 0,
+        "baixa": 1,
+        "media": 2,
+        "maxima": 3,
+    }
+
+    INTENSIDADE_POR_ORDEM = {
+        0: None,
+        1: "baixa",
+        2: "media",
+        3: "maxima",
+    }
+
     # tipo_de_resfriador: 0=nenhum, 1=ventilador, 2=nebulizador, 3=ambos
     def __init__(self):
         self.tipo_de_resfriador: int = 0
         self.ativo: bool = False
         self.intensidade: str | None = None
+        self.intensidade_reducao_pendente: str | None = None
+        self.leituras_reducao_consecutivas: int = 0
 
     def ativar(self, intensidade: str) -> None:
+        self._aplicar_intensidade(intensidade)
+
+    def _aplicar_intensidade(self, intensidade: str | None) -> None:
+        if intensidade is None:
+            self.desativar()
+            return
+
         self.ativo = True
         self.intensidade = intensidade
         self.tipo_de_resfriador = 3  # a dissertacao liga ventilador + nebulizador juntos
+        self.intensidade_reducao_pendente = None
+        self.leituras_reducao_consecutivas = 0
 
     def desativar(self) -> None:
         self.ativo = False
         self.intensidade = None
         self.tipo_de_resfriador = 0
+        self.intensidade_reducao_pendente = None
+        self.leituras_reducao_consecutivas = 0
+
+    def registrar_leitura(self, status: str, leituras_para_reduzir: int = 3) -> None:
+        nova_intensidade = ti.intensidade_do_status(status)
+        ordem_atual = self.ORDEM_INTENSIDADE[self.intensidade]
+        nova_ordem = self.ORDEM_INTENSIDADE[nova_intensidade]
+
+        if nova_ordem > ordem_atual:
+            self._aplicar_intensidade(nova_intensidade)
+            return
+
+        if nova_ordem == ordem_atual:
+            self.intensidade_reducao_pendente = None
+            self.leituras_reducao_consecutivas = 0
+            return
+
+        intensidade_reduzida = self.INTENSIDADE_POR_ORDEM[ordem_atual - 1]
+        if self.intensidade_reducao_pendente != intensidade_reduzida:
+            self.intensidade_reducao_pendente = intensidade_reduzida
+            self.leituras_reducao_consecutivas = 1
+        else:
+            self.leituras_reducao_consecutivas += 1
+
+        if self.leituras_reducao_consecutivas >= leituras_para_reduzir:
+            self._aplicar_intensidade(intensidade_reduzida)
 
     def estado(self) -> dict:
         return {
@@ -85,6 +136,13 @@ class Resfriamento:
             "intensidade": self.intensidade,
             "ventilador": self.ativo,
             "nebulizador": self.ativo,
+            "intensidade_reducao_pendente": self.intensidade_reducao_pendente,
+            "leituras_reducao_consecutivas": self.leituras_reducao_consecutivas,
+            "leituras_conforto_consecutivas": (
+                self.leituras_reducao_consecutivas
+                if self.intensidade_reducao_pendente is None
+                else 0
+            ),
         }
 
 

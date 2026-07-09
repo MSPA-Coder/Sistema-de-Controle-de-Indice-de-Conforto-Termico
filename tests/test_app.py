@@ -81,6 +81,50 @@ class TestHistoricoGraficoApi(unittest.TestCase):
         self.assertEqual(2, len(segunda.json["indices"]["ITUV"]["historico"]))
         self.assertEqual(2, len(segunda.json["indices"]["IGNU"]["historico"]))
 
+    def test_nao_calcula_indices_sem_campos_preenchidos(self):
+        resposta = self.client.post(
+            "/api/calcular",
+            json={
+                "especie": "frangos",
+                "indice": "ITU",
+                "entradas": {"tbs": 25, "tbu": 20},
+                "config": {},
+            },
+        )
+
+        self.assertEqual(200, resposta.status_code)
+        self.assertEqual({"ITU"}, set(resposta.json["indices"]))
+        self.assertEqual("ITU", resposta.json["indice"])
+
+    def test_calcula_indice_compartilhado_quando_campos_estao_preenchidos(self):
+        resposta = self.client.post(
+            "/api/calcular",
+            json={
+                "especie": "frangos",
+                "indice": "ITUV",
+                "entradas": {"tbs": 25, "tbu": 20, "v": 1},
+                "config": {},
+            },
+        )
+
+        self.assertEqual(200, resposta.status_code)
+        self.assertEqual({"ITU", "ITUV"}, set(resposta.json["indices"]))
+        self.assertNotIn("IGNU", resposta.json["indices"])
+
+    def test_indice_selecionado_continua_exigindo_campos(self):
+        resposta = self.client.post(
+            "/api/calcular",
+            json={
+                "especie": "frangos",
+                "indice": "IGNU",
+                "entradas": {"tgn": 25},
+                "config": {},
+            },
+        )
+
+        self.assertEqual(400, resposta.status_code)
+        self.assertIn("Preencha todos os campos exigidos", resposta.json["erro"])
+
     def test_nao_toca_som_quando_indice_selecionado_esta_em_conforto(self):
         resposta = self.client.post(
             "/api/calcular",
@@ -130,7 +174,39 @@ class TestHistoricoGraficoApi(unittest.TestCase):
             leitura = self.client.get("/api/sensor?especie=frangos&indice=ITU").json
 
         self.assertEqual("Conforto", status)
-        self.assertFalse(resposta.json["equipamento"]["ativo"])
+        self.assertTrue(resposta.json["equipamento"]["ativo"])
+        self.assertEqual(1, resposta.json["equipamento"]["leituras_conforto_consecutivas"])
+
+        leitura_conforto_2 = self.client.get("/api/sensor?especie=frangos&indice=ITU").json
+        self.assertLess(leitura_conforto_2["tbs"], resposta.json["entradas"]["tbs"])
+        self.assertLess(leitura_conforto_2["tbu"], resposta.json["entradas"]["tbu"])
+        segunda_conforto = self.client.post(
+            "/api/calcular",
+            json={
+                "especie": "frangos",
+                "indice": "ITU",
+                "entradas": {**base_entradas, **leitura_conforto_2},
+                "config": {"habilitarEquipamentos": True},
+            },
+        )
+        self.assertEqual("Conforto", segunda_conforto.json["status"])
+        self.assertTrue(segunda_conforto.json["equipamento"]["ativo"])
+        self.assertEqual(2, segunda_conforto.json["equipamento"]["leituras_conforto_consecutivas"])
+
+        leitura_conforto_3 = self.client.get("/api/sensor?especie=frangos&indice=ITU").json
+        self.assertLess(leitura_conforto_3["tbs"], segunda_conforto.json["entradas"]["tbs"])
+        self.assertLess(leitura_conforto_3["tbu"], segunda_conforto.json["entradas"]["tbu"])
+        terceira_conforto = self.client.post(
+            "/api/calcular",
+            json={
+                "especie": "frangos",
+                "indice": "ITU",
+                "entradas": {**base_entradas, **leitura_conforto_3},
+                "config": {"habilitarEquipamentos": True},
+            },
+        )
+        self.assertEqual("Conforto", terceira_conforto.json["status"])
+        self.assertFalse(terceira_conforto.json["equipamento"]["ativo"])
 
         with patch("conforto_termico.services.random.uniform", side_effect=[22.0, 18.0]):
             leitura_aleatoria = self.client.get("/api/sensor?especie=frangos&indice=ITU").json

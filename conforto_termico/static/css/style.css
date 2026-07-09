@@ -141,7 +141,7 @@ button { font-family: inherit; }
 }
 .entrada-painel { grid-column: span 2; }
 .graficos-painel, .email-painel, .tabela-painel { grid-column: 1 / -1; }
-.grade-settings {
+.grade-configuracoes {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: start;
 }
@@ -149,7 +149,7 @@ button { font-family: inherit; }
 @media (max-width: 900px) {
   .grade { grid-template-columns: 1fr; padding: 1rem; }
   .entrada-painel { grid-column: auto; }
-  .grade-settings { grid-template-columns: 1fr; }
+  .grade-configuracoes { grid-template-columns: 1fr; }
   .abas-app { padding: 0.85rem 1rem 0; }
   .rail { padding: 0.8rem 1rem; }
 }
@@ -241,6 +241,12 @@ button { font-family: inherit; }
   width: 100%;
 }
 .campo-entrada input:focus { border-color: var(--cor-acento); }
+.campo-entrada--inativo label { color: var(--cor-texto-mute) !important; opacity: 0.55; }
+.campo-entrada input:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+  background: #241f19;
+}
 
 .acao-linha { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
 
@@ -292,9 +298,9 @@ button { font-family: inherit; }
   color: var(--cor-texto);
 }
 
-.settings-bloco + .settings-bloco { margin-top: 1rem; }
-.settings-bloco:empty { display: none; }
-.settings-bloco--acoes {
+.configuracoes-bloco + .configuracoes-bloco { margin-top: 1rem; }
+.configuracoes-bloco:empty { display: none; }
+.configuracoes-bloco--acoes {
   display: flex;
   justify-content: flex-end;
   margin-top: 1rem;

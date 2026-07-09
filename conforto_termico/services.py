@@ -118,10 +118,7 @@ class EstrategiaResfriamento:
         self._fator_resfriamento = fator_resfriamento
         self._fator_ventilacao = fator_ventilacao
 
-    def aplicar(self, especie: str, indice: str, estado: EstadoSensor) -> EstadoSensor | None:
-        if estado.status == "Conforto":
-            return None
-
+    def aplicar(self, especie: str, indice: str, estado: EstadoSensor) -> EstadoSensor:
         entradas = dict(estado.entradas)
         ajustadas = {
             campo: round(self._valor_ajustado(campo, entradas[campo]), 2 if campo == "v" else 1)
@@ -256,6 +253,8 @@ class CalculoIctService:
         resultados = {}
         avisos = []
         for indice_calculado in ti.INDICES_POR_ESPECIE[especie]:
+            if indice_calculado != indice and not self._entradas_completas(indice_calculado, entradas):
+                continue
             resultado = self._calcular_indice(
                 especie, indice_calculado, entradas, config, logger
             )
@@ -283,6 +282,16 @@ class CalculoIctService:
         if avisos:
             resposta["aviso"] = "<br>".join(avisos)
         return resposta
+
+    @staticmethod
+    def _entrada_preenchida(valor) -> bool:
+        return valor is not None and str(valor).strip() != ""
+
+    def _entradas_completas(self, indice: str, entradas: dict) -> bool:
+        return all(
+            campo in entradas and self._entrada_preenchida(entradas[campo])
+            for campo in ti.CAMPOS_POR_INDICE[indice]
+        )
 
     def _calcular_indice(
         self,
@@ -371,11 +380,7 @@ class CalculoIctService:
             return equipamento_info
 
         try:
-            intensidade = ti.intensidade_do_status(status)
-            if intensidade:
-                self._resfriador.ativar(intensidade)
-            else:
-                self._resfriador.desativar()
+            self._resfriador.registrar_leitura(status)
             return self._resfriador.estado()
         except Exception:
             if logger:

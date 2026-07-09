@@ -49,6 +49,11 @@ function quantidadePorIntensidade(intensidade) {
   return CONTAGEM_INTENSIDADE[chave] || 2;
 }
 
+function rotuloIntensidade(intensidade) {
+  const rotulos = { baixa: "baixa", media: "m\u00e9dia", maxima: "m\u00e1xima" };
+  return rotulos[intensidade] || intensidade;
+}
+
 // Glifos SVG proprios, inspirados em equipamentos agropecuarios reais: exaustor
 // axial em moldura/grade e bico nebulizador em linha pressurizada.
 const ICONE_VENTILADOR =
@@ -170,6 +175,7 @@ function selecionarEspecie(especie) {
 function selecionarIndice(indice) {
   estado.indice = indice;
   renderSeletorIndice();
+  atualizarCamposEntrada();
   if (ultimosResultados && ultimosResultados[estado.indice]) {
     atualizarPainelIndiceSelecionado(ultimosResultados[estado.indice]);
   } else {
@@ -189,6 +195,7 @@ function renderCamposEntrada() {
     const meta = CONFIG_APP.campoMetadados[campo];
     const wrap = document.createElement("div");
     wrap.className = "campo-entrada";
+    wrap.id = "campo-wrap-" + campo;
 
     const label = document.createElement("label");
     label.setAttribute("for", "campo-" + campo);
@@ -207,14 +214,34 @@ function renderCamposEntrada() {
     wrap.appendChild(input);
     container.appendChild(wrap);
   });
+  atualizarCamposEntrada();
 }
 
-function coletarEntradas() {
+function camposDoIndiceAtual() {
+  return CONFIG_APP.camposPorIndice[estado.indice] || [];
+}
+
+function atualizarCamposEntrada() {
+  const camposAtivos = camposDoIndiceAtual();
+  camposDaEspecie().forEach((campo) => {
+    const wrap = document.getElementById("campo-wrap-" + campo);
+    const input = document.getElementById("campo-" + campo);
+    const ativo = camposAtivos.includes(campo);
+    if (wrap) wrap.classList.toggle("campo-entrada--inativo", !ativo);
+    if (input) {
+      input.disabled = !ativo;
+      input.required = ativo;
+      input.setAttribute("aria-disabled", String(!ativo));
+    }
+  });
+}
+
+function coletarEntradas(incluirDesabilitados = false) {
   const campos = camposDaEspecie();
   const entradas = {};
   campos.forEach((campo) => {
     const input = document.getElementById("campo-" + campo);
-    entradas[campo] = input ? input.value : "";
+    if (input && (incluirDesabilitados || !input.disabled)) entradas[campo] = input.value;
   });
   return entradas;
 }
@@ -254,9 +281,9 @@ function coletarConfig() {
 // ---------------------------------------------------------------------------
 // Chamadas a API
 // ---------------------------------------------------------------------------
-async function calcular() {
+async function calcular(opcoes = {}) {
   esconderErro();
-  const entradas = coletarEntradas();
+  const entradas = coletarEntradas(!!opcoes.incluirCamposDesabilitados);
   const config = coletarConfig();
 
   let dados;
@@ -468,7 +495,7 @@ function renderizarIconesEquipamento(containerId, svgIcone, nomeEquipamento, lig
 
   const estadoTexto = ligado
     ? intensidade
-      ? `ligado (intensidade ${intensidade}, ${quantidadeAtiva} de ${TOTAL_ICONES_EQUIPAMENTO} ativos)`
+      ? `ligado (intensidade ${rotuloIntensidade(intensidade)}, ${quantidadeAtiva} de ${TOTAL_ICONES_EQUIPAMENTO} ativos)`
       : `ligado (${quantidadeAtiva} de ${TOTAL_ICONES_EQUIPAMENTO} ativos)`
     : `desligado, 0 de ${TOTAL_ICONES_EQUIPAMENTO} ativos`;
   container.setAttribute("aria-label", `${nomeEquipamento} ${estadoTexto}`);
@@ -482,7 +509,7 @@ function atualizarEquipamento(equip) {
   renderizarIconesEquipamento("icones-ventilador", ICONE_VENTILADOR, "Ventilador", ventiladorLigado, intensidade);
   renderizarIconesEquipamento("icones-nebulizador", ICONE_NEBULIZADOR, "Nebulizador", nebulizadorLigado, intensidade);
 
-  document.getElementById("intensidade-valor").textContent = intensidade || "desligado";
+  document.getElementById("intensidade-valor").textContent = intensidade ? rotuloIntensidade(intensidade) : "desligado";
 }
 
 function atualizarSensorRemoto() {
@@ -1134,11 +1161,11 @@ function inicializarAbas() {
   });
 }
 
-function moverControlesParaSettings() {
-  const settingsOpcoes = document.getElementById("settings-opcoes");
-  const settingsEmail = document.getElementById("settings-email");
-  const settingsAutomacao = document.getElementById("settings-automacao");
-  const settingsHistorico = document.getElementById("settings-historico");
+function moverControlesParaConfiguracoes() {
+  const configuracoesOpcoes = document.getElementById("configuracoes-opcoes");
+  const configuracoesEmail = document.getElementById("configuracoes-email");
+  const configuracoesAutomacao = document.getElementById("configuracoes-automacao");
+  const configuracoesHistorico = document.getElementById("configuracoes-historico");
   const historicoAcoes = document.getElementById("historico-acoes");
   const historicoPaginacao = document.getElementById("historico-paginacao");
 
@@ -1147,11 +1174,11 @@ function moverControlesParaSettings() {
   const automatico = document.querySelector(".check--automatico");
   const limparHistorico = document.getElementById("btn-limpar");
 
-  if (settingsOpcoes && opcoes) settingsOpcoes.appendChild(opcoes);
-  if (settingsEmail && email) settingsEmail.appendChild(email);
-  if (settingsAutomacao && automatico) settingsAutomacao.appendChild(automatico);
+  if (configuracoesOpcoes && opcoes) configuracoesOpcoes.appendChild(opcoes);
+  if (configuracoesEmail && email) configuracoesEmail.appendChild(email);
+  if (configuracoesAutomacao && automatico) configuracoesAutomacao.appendChild(automatico);
   if (historicoAcoes && historicoPaginacao) historicoAcoes.appendChild(historicoPaginacao);
-  if (settingsHistorico && limparHistorico) settingsHistorico.appendChild(limparHistorico);
+  if (configuracoesHistorico && limparHistorico) configuracoesHistorico.appendChild(limparHistorico);
 
   document.querySelectorAll(".entrada-painel .acao-linha").forEach((linha) => {
     if (!linha.querySelector("button, input, label")) linha.remove();
@@ -1195,7 +1222,7 @@ async function cicloAutomatico() {
   autoEmExecucao = true;
   try {
     await simularSensor();
-    await calcular();
+    await calcular({ incluirCamposDesabilitados: true });
   } catch (erro) {
     console.error("Erro no ciclo do modo automatico:", erro);
   } finally {
@@ -1227,7 +1254,7 @@ function esconderErro() {
 // Inicializacao
 // ---------------------------------------------------------------------------
 document.addEventListener("DOMContentLoaded", () => {
-  moverControlesParaSettings();
+  moverControlesParaConfiguracoes();
   inicializarAbas();
   inicializarHistorico();
   renderSeletorEspecie();

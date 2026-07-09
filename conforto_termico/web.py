@@ -111,7 +111,6 @@ def sensor_simulado():
         especie,
         indice,
         resfriamento_ativo=_resfriador.estado()["ativo"],
-        ao_atingir_conforto=_resfriador.desativar,
     )
     return jsonify(leitura)
 
