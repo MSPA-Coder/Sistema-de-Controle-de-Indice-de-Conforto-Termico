@@ -165,6 +165,17 @@ def diagnostico():
         return jsonify({"banco_ok": False, "erro": str(erro)}), 500
 
 
+@app.route("/api/configuracoes", methods=["GET"])
+def obter_configuracoes():
+    return jsonify(db.obter_configuracoes())
+
+
+@app.route("/api/configuracoes", methods=["POST"])
+def salvar_configuracoes():
+    dados = request.get_json(force=True, silent=True) or {}
+    return jsonify(db.salvar_configuracoes(dados))
+
+
 @app.route("/api/reset", methods=["POST"])
 def reset():
     dados = request.get_json(force=True, silent=True) or {}
@@ -175,5 +186,15 @@ def reset():
     return jsonify({"ok": True})
 
 
+def executar_servidor_local() -> None:
+    """Executa o servidor local sem o reloader do Werkzeug.
+
+    O reloader cria um processo pai e um filho. Em execucoes locais pelo
+    PyCharm, terminal ou automacao, isso pode deixar processos Flask aparentes
+    depois que a janela principal foi encerrada.
+    """
+    app.run(debug=True, use_reloader=False)
+
+
 if __name__ == "__main__":
-    app.run(debug=True)
+    executar_servidor_local()

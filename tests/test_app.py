@@ -81,6 +81,29 @@ class TestHistoricoGraficoApi(unittest.TestCase):
         self.assertEqual(2, len(segunda.json["indices"]["ITUV"]["historico"]))
         self.assertEqual(2, len(segunda.json["indices"]["IGNU"]["historico"]))
 
+    def test_api_persiste_configuracoes(self):
+        payload = {
+            "coletarDados": True,
+            "habilitarSons": True,
+            "enviarEmails": True,
+            "habilitarEquipamentos": True,
+            "emailDestino": "teste@fazenda.com.br",
+            "modoAutomatico": True,
+            "intervaloLeituraSegundos": 4,
+            "intervaloGravacaoMinutos": 2,
+            "modoPontoOrvalho": "calculado",
+            "modoUmidadeRelativa": "medido",
+            "altitudeMetros": 800,
+            "limiteUmidadeNebulizador": 68,
+        }
+
+        salvar = self.client.post("/api/configuracoes", json=payload)
+        buscar = self.client.get("/api/configuracoes")
+
+        self.assertEqual(200, salvar.status_code)
+        self.assertEqual(200, buscar.status_code)
+        self.assertEqual(payload, buscar.json)
+
     def test_nao_calcula_indices_sem_campos_preenchidos(self):
         resposta = self.client.post(
             "/api/calcular",
@@ -125,6 +148,22 @@ class TestHistoricoGraficoApi(unittest.TestCase):
         self.assertEqual(400, resposta.status_code)
         self.assertIn("Preencha todos os campos exigidos", resposta.json["erro"])
 
+    def test_ignu_calcula_ponto_de_orvalho_por_tbs_tbu(self):
+        resposta = self.client.post(
+            "/api/calcular",
+            json={
+                "especie": "frangos",
+                "indice": "IGNU",
+                "entradas": {"tgn": 25, "tbs": 25, "tbu": 20},
+                "config": {"modoPontoOrvalho": "calculado", "altitudeMetros": 0},
+            },
+        )
+
+        self.assertEqual(200, resposta.status_code)
+        self.assertAlmostEqual(17.5, resposta.json["entradas"]["tpo"], places=1)
+        self.assertAlmostEqual(63.0, resposta.json["entradas"]["ur"], places=1)
+        self.assertAlmostEqual(62.8, resposta.json["valor"], places=1)
+
     def test_nao_toca_som_quando_indice_selecionado_esta_em_conforto(self):
         resposta = self.client.post(
             "/api/calcular",
@@ -139,6 +178,66 @@ class TestHistoricoGraficoApi(unittest.TestCase):
         self.assertEqual(200, resposta.status_code)
         self.assertEqual("Conforto", resposta.json["status"])
         self.assertFalse(resposta.json["tocarSom"])
+
+    def test_nebulizador_nao_liga_acima_do_limite_de_umidade(self):
+        resposta = self.client.post(
+            "/api/calcular",
+            json={
+                "especie": "frangos",
+                "indice": "ITU",
+                "entradas": {"tbs": 35, "tbu": 33},
+                "config": {
+                    "habilitarEquipamentos": True,
+                    "limiteUmidadeNebulizador": 70,
+                },
+            },
+        )
+
+        self.assertEqual(200, resposta.status_code)
+        self.assertEqual("Emergência", resposta.json["status"])
+        self.assertGreater(resposta.json["entradas"]["ur"], 70)
+        self.assertTrue(resposta.json["equipamento"]["ventilador"])
+        self.assertFalse(resposta.json["equipamento"]["nebulizador"])
+
+    def test_nebulizador_liga_quando_umidade_esta_no_limite(self):
+        resposta = self.client.post(
+            "/api/calcular",
+            json={
+                "especie": "frangos",
+                "indice": "ITU",
+                "entradas": {"tbs": 35, "tbu": 30},
+                "config": {
+                    "habilitarEquipamentos": True,
+                    "limiteUmidadeNebulizador": 70,
+                },
+            },
+        )
+
+        self.assertEqual(200, resposta.status_code)
+        self.assertEqual("Emergência", resposta.json["status"])
+        self.assertLessEqual(resposta.json["entradas"]["ur"], 70)
+        self.assertTrue(resposta.json["equipamento"]["ventilador"])
+        self.assertTrue(resposta.json["equipamento"]["nebulizador"])
+
+    def test_umidade_relativa_medida_nao_e_recalculada(self):
+        resposta = self.client.post(
+            "/api/calcular",
+            json={
+                "especie": "frangos",
+                "indice": "ITU",
+                "entradas": {"tbs": 35, "tbu": 33, "ur": 50},
+                "config": {
+                    "habilitarEquipamentos": True,
+                    "modoUmidadeRelativa": "medido",
+                    "limiteUmidadeNebulizador": 70,
+                },
+            },
+        )
+
+        self.assertEqual(200, resposta.status_code)
+        self.assertEqual(50.0, resposta.json["entradas"]["ur"])
+        self.assertTrue(resposta.json["equipamento"]["ventilador"])
+        self.assertTrue(resposta.json["equipamento"]["nebulizador"])
 
     def test_sensor_resfria_leituras_ate_voltar_ao_conforto(self):
         payload = {
@@ -228,6 +327,14 @@ class TestHistoricoGraficoApi(unittest.TestCase):
         self.assertLess(leitura["tbs"], 35)
         self.assertLess(leitura["tbu"], 30)
         self.assertGreater(leitura["v"], 1)
+
+
+class TestServidorLocal(unittest.TestCase):
+    def test_servidor_local_nao_usa_reloader(self):
+        with patch.object(flask_app.app, "run") as run:
+            flask_app.executar_servidor_local()
+
+        run.assert_called_once_with(debug=True, use_reloader=False)
 
 
 if __name__ == "__main__":

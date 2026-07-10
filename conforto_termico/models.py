@@ -81,6 +81,7 @@ class Resfriamento:
     def __init__(self):
         self.tipo_de_resfriador: int = 0
         self.ativo: bool = False
+        self.nebulizador_ativo: bool = False
         self.intensidade: str | None = None
         self.intensidade_reducao_pendente: str | None = None
         self.leituras_reducao_consecutivas: int = 0
@@ -96,6 +97,7 @@ class Resfriamento:
         self.ativo = True
         self.intensidade = intensidade
         self.tipo_de_resfriador = 3  # a dissertacao liga ventilador + nebulizador juntos
+        self.nebulizador_ativo = True
         self.intensidade_reducao_pendente = None
         self.leituras_reducao_consecutivas = 0
 
@@ -103,8 +105,24 @@ class Resfriamento:
         self.ativo = False
         self.intensidade = None
         self.tipo_de_resfriador = 0
+        self.nebulizador_ativo = False
         self.intensidade_reducao_pendente = None
         self.leituras_reducao_consecutivas = 0
+
+    def aplicar_limite_umidade_nebulizador(
+        self,
+        umidade_relativa: float | None,
+        limite_umidade: float,
+    ) -> None:
+        if not self.ativo:
+            self.nebulizador_ativo = False
+            self.tipo_de_resfriador = 0
+            return
+
+        self.nebulizador_ativo = (
+            umidade_relativa is not None and umidade_relativa <= limite_umidade
+        )
+        self.tipo_de_resfriador = 3 if self.nebulizador_ativo else 1
 
     def registrar_leitura(self, status: str, leituras_para_reduzir: int = 3) -> None:
         nova_intensidade = ti.intensidade_do_status(status)
@@ -135,7 +153,7 @@ class Resfriamento:
             "ativo": self.ativo,
             "intensidade": self.intensidade,
             "ventilador": self.ativo,
-            "nebulizador": self.ativo,
+            "nebulizador": self.nebulizador_ativo,
             "intensidade_reducao_pendente": self.intensidade_reducao_pendente,
             "leituras_reducao_consecutivas": self.leituras_reducao_consecutivas,
             "leituras_conforto_consecutivas": (

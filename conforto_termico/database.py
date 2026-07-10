@@ -34,6 +34,21 @@ DB_PATH = os.path.join(PROJECT_ROOT, "historico.db")
 _lock = threading.Lock()
 INTERVALO_MINIMO_LEITURAS = datetime.timedelta(minutes=1)
 
+CONFIGURACOES_PADRAO = {
+    "coletarDados": False,
+    "habilitarSons": False,
+    "enviarEmails": False,
+    "habilitarEquipamentos": False,
+    "emailDestino": "produtor@fazenda.com.br",
+    "modoAutomatico": False,
+    "intervaloLeituraSegundos": 1,
+    "intervaloGravacaoMinutos": 1,
+    "modoPontoOrvalho": "medido",
+    "modoUmidadeRelativa": "calculado",
+    "altitudeMetros": 0,
+    "limiteUmidadeNebulizador": 70,
+}
+
 
 @contextmanager
 def _conexao() -> Iterator[sqlite3.Connection]:
@@ -64,6 +79,15 @@ def iniciar_banco() -> None:
                 status TEXT NOT NULL,
                 entradas TEXT NOT NULL,
                 criado_em TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS configuracoes (
+                chave TEXT PRIMARY KEY,
+                valor TEXT NOT NULL,
+                atualizado_em TEXT NOT NULL
             )
             """
         )
@@ -148,3 +172,43 @@ def contar_leituras() -> int:
     with _conexao() as conn:
         (total,) = conn.execute("SELECT COUNT(*) FROM leituras").fetchone()
     return total
+
+
+def obter_configuracoes() -> dict:
+    with _conexao() as conn:
+        linhas = conn.execute("SELECT chave, valor FROM configuracoes").fetchall()
+
+    configuracoes = dict(CONFIGURACOES_PADRAO)
+    for linha in linhas:
+        try:
+            configuracoes[linha["chave"]] = json.loads(linha["valor"])
+        except json.JSONDecodeError:
+            configuracoes[linha["chave"]] = linha["valor"]
+    return configuracoes
+
+
+def salvar_configuracoes(configuracoes: dict) -> dict:
+    salvas = dict(CONFIGURACOES_PADRAO)
+    salvas.update(
+        {
+            chave: valor
+            for chave, valor in (configuracoes or {}).items()
+            if chave in CONFIGURACOES_PADRAO
+        }
+    )
+    agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+    with _conexao() as conn:
+        conn.executemany(
+            """
+            INSERT INTO configuracoes (chave, valor, atualizado_em)
+            VALUES (?, ?, ?)
+            ON CONFLICT(chave) DO UPDATE SET
+                valor = excluded.valor,
+                atualizado_em = excluded.atualizado_em
+            """,
+            [
+                (chave, json.dumps(valor), agora)
+                for chave, valor in salvas.items()
+            ],
+        )
+    return salvas

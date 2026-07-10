@@ -5,10 +5,11 @@ from conforto_termico.web import (
     _resfriador,
     app,
     calculo_ict_service,
+    executar_servidor_local,
     historico_grafico_service,
     sensor_simulado_service,
 )
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    executar_servidor_local()

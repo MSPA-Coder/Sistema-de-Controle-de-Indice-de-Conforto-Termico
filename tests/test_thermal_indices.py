@@ -16,6 +16,9 @@ from conforto_termico.thermal_indices import (
     calcular_ignu,
     calcular_itu,
     calcular_ituv,
+    calcular_ponto_orvalho,
+    calcular_pressao_atmosferica,
+    calcular_umidade_relativa,
     classificar_status,
 )
 
@@ -44,6 +47,11 @@ class TestFormulas(unittest.TestCase):
         self.assertAlmostEqual(calcular_ituv(22, 1, 4.00), 17.39, places=1)
         self.assertAlmostEqual(calcular_ituv(27, 21, 4.00), 24.08, places=1)
         self.assertAlmostEqual(calcular_ituv(44, 13, 1.00), 39.35, places=1)
+
+    def test_psicrometria_calcula_umidade_e_ponto_de_orvalho(self):
+        self.assertAlmostEqual(calcular_pressao_atmosferica(0), 101.325, places=3)
+        self.assertAlmostEqual(calcular_umidade_relativa(25, 20, 0), 63.0, places=1)
+        self.assertAlmostEqual(calcular_ponto_orvalho(25, 20, 0), 17.5, places=1)
 
 
 class TestClassificacao(unittest.TestCase):

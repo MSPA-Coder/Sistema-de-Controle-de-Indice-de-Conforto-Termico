@@ -27,6 +27,7 @@ Oduvaldo Vendrametto).
 
 from __future__ import annotations
 
+import math
 import unicodedata
 
 
@@ -69,6 +70,7 @@ CAMPOS_POR_INDICE: dict[str, tuple[str, ...]] = {
 CAMPO_METADADOS: dict[str, dict] = {
     "tbs": {"label": "Temperatura de Bulbo Seco / Ambiente", "unidade": "°C", "min": -10, "max": 55, "passo": 0.1},
     "tbu": {"label": "Temperatura de Bulbo Úmido", "unidade": "°C", "min": -10, "max": 55, "passo": 0.1},
+    "ur": {"label": "Umidade Relativa do Ar", "unidade": "%", "min": 0, "max": 100, "passo": 0.1},
     "v": {"label": "Velocidade do Ar", "unidade": "m/s", "min": 0.01, "max": 15, "passo": 0.01},
     "tgn": {"label": "Temperatura de Globo Negro", "unidade": "°C", "min": -10, "max": 65, "passo": 0.1},
     "tpo": {"label": "Temperatura de Ponto de Orvalho", "unidade": "°C", "min": -20, "max": 45, "passo": 0.1},
@@ -108,6 +110,47 @@ def calcular_ituv(tbs: float, tbu: float, v: float) -> float:
 def calcular_ignu(tgn: float, tpo: float) -> float:
     """IGNU - Eq. 6 (Buffington et al., 1981)."""
     return 0.6 * tgn + 0.36 * tpo + 41.5
+
+
+def calcular_pressao_atmosferica(altitude_m: float = 0.0) -> float:
+    """Pressao atmosferica local estimada pela altitude, em kPa."""
+    altitude = max(-500.0, min(9000.0, float(altitude_m)))
+    return 101.325 * ((1 - 2.25577e-5 * altitude) ** 5.2559)
+
+
+def calcular_pressao_vapor_saturado(temperatura_c: float) -> float:
+    """Pressao de vapor saturado pela forma de Magnus, em kPa."""
+    temperatura = float(temperatura_c)
+    return 0.61078 * math.exp((17.27 * temperatura) / (temperatura + 237.3))
+
+
+def calcular_pressao_vapor_atual(tbs: float, tbu: float, altitude_m: float = 0.0) -> float:
+    """Pressao parcial de vapor a partir de bulbo seco/umido, em kPa."""
+    tbs = float(tbs)
+    tbu = float(tbu)
+    if tbu > tbs:
+        raise EntradaInvalidaError(
+            "A temperatura de bulbo umido nao pode ser maior que a temperatura de bulbo seco."
+        )
+
+    pressao = calcular_pressao_atmosferica(altitude_m)
+    constante_psicrometrica = 0.00066 * (1 + 0.00115 * tbu)
+    vapor = calcular_pressao_vapor_saturado(tbu) - constante_psicrometrica * pressao * (tbs - tbu)
+    return max(0.001, vapor)
+
+
+def calcular_umidade_relativa(tbs: float, tbu: float, altitude_m: float = 0.0) -> float:
+    """Umidade relativa do ar calculada de tbs/tbu e altitude, em porcentagem."""
+    vapor_atual = calcular_pressao_vapor_atual(tbs, tbu, altitude_m)
+    vapor_saturado = calcular_pressao_vapor_saturado(float(tbs))
+    return max(0.0, min(100.0, 100 * vapor_atual / vapor_saturado))
+
+
+def calcular_ponto_orvalho(tbs: float, tbu: float, altitude_m: float = 0.0) -> float:
+    """Temperatura de ponto de orvalho calculada de tbs/tbu e altitude, em graus C."""
+    vapor_atual = calcular_pressao_vapor_atual(tbs, tbu, altitude_m)
+    fator = math.log(vapor_atual / 0.61078)
+    return (237.3 * fator) / (17.27 - fator)
 
 
 CALCULADORAS = {

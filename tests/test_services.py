@@ -130,6 +130,20 @@ class TestResfriamento(unittest.TestCase):
         resfriamento.registrar_leitura("Conforto")
         self.assertFalse(resfriamento.estado()["ativo"])
 
+    def test_nebulizador_respeita_limite_de_umidade(self):
+        resfriamento = Resfriamento()
+        resfriamento.registrar_leitura("Emergencia")
+
+        resfriamento.aplicar_limite_umidade_nebulizador(80.0, 70.0)
+        self.assertTrue(resfriamento.estado()["ventilador"])
+        self.assertFalse(resfriamento.estado()["nebulizador"])
+        self.assertEqual(1, resfriamento.tipo_de_resfriador)
+
+        resfriamento.aplicar_limite_umidade_nebulizador(70.0, 70.0)
+        self.assertTrue(resfriamento.estado()["ventilador"])
+        self.assertTrue(resfriamento.estado()["nebulizador"])
+        self.assertEqual(3, resfriamento.tipo_de_resfriador)
+
 
 if __name__ == "__main__":
     unittest.main()

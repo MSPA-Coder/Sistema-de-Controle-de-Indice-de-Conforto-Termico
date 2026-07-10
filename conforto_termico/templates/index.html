@@ -177,13 +177,21 @@
   <section id="aba-configuracoes" class="grade grade-configuracoes aba-conteudo oculto" data-aba-conteudo="configuracoes" role="tabpanel">
     <section class="painel configuracoes-painel">
       <h2 class="painel-titulo">Configurações do app</h2>
-      <div id="configuracoes-opcoes" class="configuracoes-bloco"></div>
-      <div id="configuracoes-email" class="configuracoes-bloco"></div>
-      <div id="configuracoes-automacao" class="configuracoes-bloco"></div>
+      <div id="configuracoes-app" class="configuracoes-bloco"></div>
     </section>
 
     <section class="painel configuracoes-painel">
-      <h2 class="painel-titulo">Leituras e banco de dados</h2>
+      <h2 class="painel-titulo">Sensores</h2>
+      <div id="configuracoes-sensores" class="configuracoes-bloco"></div>
+    </section>
+
+    <section class="painel configuracoes-painel">
+      <h2 class="painel-titulo">C&aacute;lculos dos par&acirc;metros</h2>
+      <div id="configuracoes-calculos" class="configuracoes-bloco"></div>
+    </section>
+
+    <section class="painel configuracoes-painel">
+      <h2 class="painel-titulo">Banco de dados</h2>
 
       <div class="campos-config">
         <div class="campo-config">
@@ -193,6 +201,28 @@
         <div class="campo-config">
           <label for="cfg-intervalo-gravacao">Gravar no banco a cada (minutos)</label>
           <input type="number" id="cfg-intervalo-gravacao" min="0" step="1" value="1">
+        </div>
+        <div class="campo-config">
+          <label for="cfg-ponto-orvalho">Ponto de orvalho</label>
+          <select id="cfg-ponto-orvalho">
+            <option value="medido">Medido</option>
+            <option value="calculado">Calculado por tbs/tbu</option>
+          </select>
+        </div>
+        <div class="campo-config">
+          <label for="cfg-umidade-relativa">Umidade relativa do ar</label>
+          <select id="cfg-umidade-relativa">
+            <option value="calculado">Calculada por tbs/tbu</option>
+            <option value="medido">Medida</option>
+          </select>
+        </div>
+        <div class="campo-config">
+          <label for="cfg-altitude">Altitude local (m)</label>
+          <input type="number" id="cfg-altitude" min="-500" max="9000" step="1" value="0">
+        </div>
+        <div class="campo-config">
+          <label for="cfg-limite-umidade-nebulizador">Limite UR nebulizador (%)</label>
+          <input type="number" id="cfg-limite-umidade-nebulizador" min="0" max="100" step="1" value="70">
         </div>
       </div>
       <div id="configuracoes-historico" class="configuracoes-bloco configuracoes-bloco--acoes"></div>

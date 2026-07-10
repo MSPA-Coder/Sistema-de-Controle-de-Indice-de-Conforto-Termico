@@ -82,6 +82,39 @@ class TestIntervaloMinimoLeituras(unittest.TestCase):
         self.assertEqual([], db.obter_historico("frangos", "IGNU"))
         self.assertEqual(1, len(db.obter_historico("bovinos", "ITU")))
 
+    def test_configuracoes_retornam_padroes(self):
+        configuracoes = db.obter_configuracoes()
+
+        self.assertFalse(configuracoes["coletarDados"])
+        self.assertEqual(1, configuracoes["intervaloLeituraSegundos"])
+        self.assertEqual("medido", configuracoes["modoPontoOrvalho"])
+        self.assertEqual("calculado", configuracoes["modoUmidadeRelativa"])
+        self.assertEqual(70, configuracoes["limiteUmidadeNebulizador"])
+
+    def test_salva_e_recupera_configuracoes(self):
+        db.salvar_configuracoes(
+            {
+                "coletarDados": True,
+                "habilitarSons": True,
+                "intervaloLeituraSegundos": 5,
+                "modoPontoOrvalho": "calculado",
+                "modoUmidadeRelativa": "medido",
+                "altitudeMetros": 760,
+                "limiteUmidadeNebulizador": 65,
+                "campoIgnorado": "nao deve persistir",
+            }
+        )
+
+        configuracoes = db.obter_configuracoes()
+        self.assertTrue(configuracoes["coletarDados"])
+        self.assertTrue(configuracoes["habilitarSons"])
+        self.assertEqual(5, configuracoes["intervaloLeituraSegundos"])
+        self.assertEqual("calculado", configuracoes["modoPontoOrvalho"])
+        self.assertEqual("medido", configuracoes["modoUmidadeRelativa"])
+        self.assertEqual(760, configuracoes["altitudeMetros"])
+        self.assertEqual(65, configuracoes["limiteUmidadeNebulizador"])
+        self.assertNotIn("campoIgnorado", configuracoes)
+
 
 if __name__ == "__main__":
     unittest.main()

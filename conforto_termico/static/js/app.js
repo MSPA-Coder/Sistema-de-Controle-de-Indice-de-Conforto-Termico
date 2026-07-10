@@ -19,7 +19,7 @@ const COR_STATUS = {
 };
 
 const STATUS_HISTORICO = ["Conforto", "Alerta", "Perigo", "Emerg\u00eancia"];
-const CORES_CAMPOS_ENTRADA = ["#4F8A93", "#D9A441", "#8FBF9F", "#C1443C", "#9E7BB5"];
+const CORES_CAMPOS_ENTRADA = ["#4F8A93", "#D9A441", "#8FBF9F", "#C1443C", "#9E7BB5", "#6FA8DC"];
 const HISTORICO_LINHAS_POR_PAGINA = 20;
 
 function normalizarChaveTexto(valor) {
@@ -110,6 +110,7 @@ let filtroHistoricoStatus = "";
 let autoAtivo = false; // Modo automatico ligado/desligado (checado antes de CADA ciclo)
 let autoEmExecucao = false; // true enquanto um ciclo esta em andamento (evita sobreposicao)
 let autoTimeoutId = null; // id do proximo ciclo agendado (setTimeout), se houver
+let salvamentoConfigTimeoutId = null;
 let audioCtx = null;
 
 // ---------------------------------------------------------------------------
@@ -158,7 +159,58 @@ function camposDaEspecie() {
       if (!campos.includes(campo)) campos.push(campo);
     });
   });
-  return campos;
+  if (campos.includes("tbs") && campos.includes("tbu") && !campos.includes("ur")) {
+    campos.push("ur");
+  }
+  const ordemInterface = ["tbs", "tbu", "tgn", "tpo", "ur", "v"];
+  return campos.sort((a, b) => ordemInterface.indexOf(a) - ordemInterface.indexOf(b));
+}
+
+function pontoOrvalhoCalculado() {
+  return document.getElementById("cfg-ponto-orvalho")?.value === "calculado";
+}
+
+function umidadeRelativaCalculada() {
+  return document.getElementById("cfg-umidade-relativa")?.value !== "medido";
+}
+
+function campoCalculado(campo) {
+  return (campo === "ur" && umidadeRelativaCalculada()) || (campo === "tpo" && pontoOrvalhoCalculado());
+}
+
+function lerNumeroEntrada(campo) {
+  const valor = Number(document.getElementById("campo-" + campo)?.value);
+  return Number.isFinite(valor) ? valor : null;
+}
+
+function lerAltitudeMetros() {
+  return lerNumeroConfiguracao("cfg-altitude", 0, -500);
+}
+
+function pressaoAtmosferica(altitudeM) {
+  const altitude = Math.min(9000, Math.max(-500, altitudeM));
+  return 101.325 * ((1 - 2.25577e-5 * altitude) ** 5.2559);
+}
+
+function pressaoVaporSaturado(temperaturaC) {
+  return 0.61078 * Math.exp((17.27 * temperaturaC) / (temperaturaC + 237.3));
+}
+
+function pressaoVaporAtual(tbs, tbu, altitudeM) {
+  const constantePsicrometrica = 0.00066 * (1 + 0.00115 * tbu);
+  return Math.max(
+    0.001,
+    pressaoVaporSaturado(tbu) - constantePsicrometrica * pressaoAtmosferica(altitudeM) * (tbs - tbu)
+  );
+}
+
+function calcularUmidadeRelativa(tbs, tbu, altitudeM) {
+  return Math.min(100, Math.max(0, 100 * pressaoVaporAtual(tbs, tbu, altitudeM) / pressaoVaporSaturado(tbs)));
+}
+
+function calcularPontoOrvalho(tbs, tbu, altitudeM) {
+  const fator = Math.log(pressaoVaporAtual(tbs, tbu, altitudeM) / 0.61078);
+  return (237.3 * fator) / (17.27 - fator);
 }
 
 function selecionarEspecie(especie) {
@@ -176,6 +228,7 @@ function selecionarIndice(indice) {
   estado.indice = indice;
   renderSeletorIndice();
   atualizarCamposEntrada();
+  atualizarCamposCalculados();
   if (ultimosResultados && ultimosResultados[estado.indice]) {
     atualizarPainelIndiceSelecionado(ultimosResultados[estado.indice]);
   } else {
@@ -209,16 +262,30 @@ function renderCamposEntrada() {
     input.min = meta.min;
     input.max = meta.max;
     input.placeholder = "Ex.: " + (((meta.min + meta.max) / 2).toFixed(1));
+    input.addEventListener("input", atualizarCamposCalculados);
 
     wrap.appendChild(label);
     wrap.appendChild(input);
     container.appendChild(wrap);
   });
   atualizarCamposEntrada();
+  atualizarCamposCalculados();
 }
 
 function camposDoIndiceAtual() {
-  return CONFIG_APP.camposPorIndice[estado.indice] || [];
+  const campos = [...(CONFIG_APP.camposPorIndice[estado.indice] || [])];
+  if (estado.indice === "IGNU" && pontoOrvalhoCalculado()) {
+    ["tbs", "tbu"].forEach((campo) => {
+      if (!campos.includes(campo)) campos.push(campo);
+    });
+  }
+  if (campos.includes("tbs") && campos.includes("tbu") && !campos.includes("ur")) {
+    campos.push("ur");
+  }
+  if (!umidadeRelativaCalculada() && !campos.includes("ur")) {
+    campos.push("ur");
+  }
+  return campos;
 }
 
 function atualizarCamposEntrada() {
@@ -227,13 +294,35 @@ function atualizarCamposEntrada() {
     const wrap = document.getElementById("campo-wrap-" + campo);
     const input = document.getElementById("campo-" + campo);
     const ativo = camposAtivos.includes(campo);
-    if (wrap) wrap.classList.toggle("campo-entrada--inativo", !ativo);
+    const calculado = campoCalculado(campo);
+    if (wrap) {
+      wrap.classList.toggle("campo-entrada--inativo", !ativo);
+      wrap.classList.toggle("campo-entrada--calculado", ativo && calculado);
+    }
     if (input) {
       input.disabled = !ativo;
-      input.required = ativo;
+      input.readOnly = ativo && calculado;
+      input.required = ativo && !calculado;
       input.setAttribute("aria-disabled", String(!ativo));
     }
   });
+}
+
+function atualizarCamposCalculados() {
+  const tbs = lerNumeroEntrada("tbs");
+  const tbu = lerNumeroEntrada("tbu");
+  const altitude = lerAltitudeMetros();
+  const urInput = document.getElementById("campo-ur");
+  const tpoInput = document.getElementById("campo-tpo");
+  const podeCalcular = tbs !== null && tbu !== null && tbu <= tbs;
+
+  if (urInput && !urInput.disabled && umidadeRelativaCalculada()) {
+    urInput.value = podeCalcular ? calcularUmidadeRelativa(tbs, tbu, altitude).toFixed(1) : "";
+  }
+
+  if (tpoInput && pontoOrvalhoCalculado()) {
+    tpoInput.value = podeCalcular ? calcularPontoOrvalho(tbs, tbu, altitude).toFixed(1) : "";
+  }
 }
 
 function coletarEntradas(incluirDesabilitados = false) {
@@ -251,6 +340,7 @@ function preencherEntradas(dados) {
     const input = document.getElementById("campo-" + campo);
     if (input) input.value = valor;
   });
+  atualizarCamposCalculados();
 }
 
 function lerNumeroConfiguracao(id, padrao, minimo) {
@@ -274,8 +364,76 @@ function coletarConfig() {
     enviarEmails: document.getElementById("cfg-emails").checked,
     habilitarEquipamentos: document.getElementById("cfg-equipamentos").checked,
     emailDestino: document.getElementById("email-destino").value,
+    modoAutomatico: document.getElementById("cfg-auto").checked,
+    intervaloLeituraSegundos: lerNumeroConfiguracao("cfg-intervalo-leitura", 1, 1),
     intervaloGravacaoMinutos: lerNumeroConfiguracao("cfg-intervalo-gravacao", 1, 0),
+    modoPontoOrvalho: document.getElementById("cfg-ponto-orvalho").value,
+    modoUmidadeRelativa: document.getElementById("cfg-umidade-relativa").value,
+    altitudeMetros: lerAltitudeMetros(),
+    limiteUmidadeNebulizador: lerNumeroConfiguracao("cfg-limite-umidade-nebulizador", 70, 0),
   };
+}
+
+function definirValorConfiguracao(id, valor) {
+  const elemento = document.getElementById(id);
+  if (!elemento || valor === undefined || valor === null) return;
+
+  if (elemento.type === "checkbox") {
+    elemento.checked = !!valor;
+  } else {
+    elemento.value = String(valor);
+  }
+}
+
+function aplicarConfiguracoes(config) {
+  definirValorConfiguracao("cfg-coletar", config.coletarDados);
+  definirValorConfiguracao("cfg-sons", config.habilitarSons);
+  definirValorConfiguracao("cfg-emails", config.enviarEmails);
+  definirValorConfiguracao("cfg-equipamentos", config.habilitarEquipamentos);
+  definirValorConfiguracao("email-destino", config.emailDestino);
+  definirValorConfiguracao("cfg-auto", config.modoAutomatico);
+  definirValorConfiguracao("cfg-intervalo-leitura", config.intervaloLeituraSegundos);
+  definirValorConfiguracao("cfg-intervalo-gravacao", config.intervaloGravacaoMinutos);
+  definirValorConfiguracao("cfg-ponto-orvalho", config.modoPontoOrvalho);
+  definirValorConfiguracao("cfg-umidade-relativa", config.modoUmidadeRelativa);
+  definirValorConfiguracao("cfg-altitude", config.altitudeMetros);
+  definirValorConfiguracao("cfg-limite-umidade-nebulizador", config.limiteUmidadeNebulizador);
+
+  if (document.getElementById("cfg-auto").checked) {
+    document.getElementById("cfg-coletar").checked = true;
+  }
+  document.getElementById("wrap-email-destino").classList.toggle(
+    "oculto",
+    !document.getElementById("cfg-emails").checked
+  );
+  document.getElementById("btn-simular").disabled = !document.getElementById("cfg-coletar").checked;
+}
+
+async function carregarConfiguracoesPersistidas() {
+  try {
+    const resposta = await fetch("/api/configuracoes");
+    if (!resposta.ok) return;
+    aplicarConfiguracoes(await resposta.json());
+  } catch (erro) {
+    console.error("Nao foi possivel carregar configuracoes persistidas:", erro);
+  }
+}
+
+async function salvarConfiguracoesPersistidas() {
+  try {
+    await fetch("/api/configuracoes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(coletarConfig()),
+    });
+  } catch (erro) {
+    console.error("Nao foi possivel salvar configuracoes:", erro);
+  }
+}
+
+function agendarSalvarConfiguracoes() {
+  if (salvamentoConfigTimeoutId) clearTimeout(salvamentoConfigTimeoutId);
+  salvamentoConfigTimeoutId = setTimeout(salvarConfiguracoesPersistidas, 250);
 }
 
 // ---------------------------------------------------------------------------
@@ -649,7 +807,7 @@ function atualizarGraficosLegado(historico) {
 
   const campos = CONFIG_APP.camposPorIndice[estado.indice];
   const paleta = ["#4F8A93", "#D9A441", "#8FBF9F"];
-  const temVelocidade = campos.includes("v");
+  const temEixoSecundario = campos.some((campo) => campo === "v" || campo === "ur");
   const datasetsAtuaisEntradas = new Map(
     graficoEntradas ? graficoEntradas.data.datasets.map((dataset) => [dataset.campo, dataset]) : []
   );
@@ -666,8 +824,8 @@ function atualizarGraficosLegado(historico) {
       cubicInterpolationMode: "monotone",
       pointRadius: 2,
       pointHoverRadius: 4,
-      fill: campo !== "v",
-      yAxisID: campo === "v" ? "y1" : "y",
+      fill: campo !== "v" && campo !== "ur",
+      yAxisID: campo === "v" || campo === "ur" ? "y1" : "y",
     });
     return dataset;
   });
@@ -675,7 +833,7 @@ function atualizarGraficosLegado(historico) {
   graficoEntradas = criarOuAtualizarGrafico(graficoEntradas, "grafico-entradas", {
     type: "line",
     data: { labels: rotulos, datasets: datasetsEntradas },
-    options: opcoesGrafico(temVelocidade),
+    options: opcoesGrafico(temEixoSecundario),
   });
 }
 
@@ -728,7 +886,7 @@ function atualizarGraficosCombinadoLegado(historicos) {
 
   const campos = camposDaEspecie();
   const paleta = ["#4F8A93", "#D9A441", "#8FBF9F", "#C1443C", "#9E7BB5"];
-  const temVelocidade = campos.includes("v");
+  const temEixoSecundario = campos.some((campo) => campo === "v" || campo === "ur");
   const datasetsAtuaisEntradas = new Map(
     graficoEntradas ? graficoEntradas.data.datasets.map((dataset) => [dataset.campo, dataset]) : []
   );
@@ -745,8 +903,8 @@ function atualizarGraficosCombinadoLegado(historicos) {
       cubicInterpolationMode: "monotone",
       pointRadius: 2,
       pointHoverRadius: 4,
-      fill: campo !== "v",
-      yAxisID: campo === "v" ? "y1" : "y",
+      fill: campo !== "v" && campo !== "ur",
+      yAxisID: campo === "v" || campo === "ur" ? "y1" : "y",
     });
     return dataset;
   });
@@ -754,7 +912,7 @@ function atualizarGraficosCombinadoLegado(historicos) {
   graficoEntradas = criarOuAtualizarGrafico(graficoEntradas, "grafico-entradas", {
     type: "line",
     data: { labels: rotulos, datasets: datasetsEntradas },
-    options: opcoesGrafico(temVelocidade),
+    options: opcoesGrafico(temEixoSecundario),
   });
 }
 
@@ -786,7 +944,7 @@ function atualizarGraficoEntradas(historicosPorIndice) {
   const chaves = chavesCronologicas(historicosPorIndice);
   const entradasPorChave = entradasPorChaveDosHistoricos(historicosPorIndice);
   const campos = camposDaEspecie();
-  const temVelocidade = campos.includes("v");
+  const temEixoSecundario = campos.some((campo) => campo === "v" || campo === "ur");
   const datasetsAtuais = new Map(
     graficoEntradas ? graficoEntradas.data.datasets.map((dataset) => [dataset.campo, dataset]) : []
   );
@@ -803,13 +961,13 @@ function atualizarGraficoEntradas(historicosPorIndice) {
       cubicInterpolationMode: "monotone",
       pointRadius: 2,
       pointHoverRadius: 4,
-      fill: campo !== "v",
-      yAxisID: campo === "v" ? "y1" : "y",
+      fill: campo !== "v" && campo !== "ur",
+      yAxisID: campo === "v" || campo === "ur" ? "y1" : "y",
     });
     return dataset;
   });
 
-  const opcoes = opcoesGrafico(temVelocidade);
+  const opcoes = opcoesGrafico(temEixoSecundario);
   opcoes.plugins.legend.display = false;
 
   graficoEntradas = criarOuAtualizarGrafico(graficoEntradas, "grafico-entradas", {
@@ -1162,21 +1320,63 @@ function inicializarAbas() {
 }
 
 function moverControlesParaConfiguracoes() {
-  const configuracoesOpcoes = document.getElementById("configuracoes-opcoes");
-  const configuracoesEmail = document.getElementById("configuracoes-email");
-  const configuracoesAutomacao = document.getElementById("configuracoes-automacao");
+  const configuracoesApp = document.getElementById("configuracoes-app");
+  const configuracoesSensores = document.getElementById("configuracoes-sensores");
+  const configuracoesCalculos = document.getElementById("configuracoes-calculos");
   const configuracoesHistorico = document.getElementById("configuracoes-historico");
   const historicoAcoes = document.getElementById("historico-acoes");
   const historicoPaginacao = document.getElementById("historico-paginacao");
 
-  const opcoes = document.querySelector(".entrada-painel .config-grade");
   const email = document.getElementById("wrap-email-destino");
-  const automatico = document.querySelector(".check--automatico");
   const limparHistorico = document.getElementById("btn-limpar");
 
-  if (configuracoesOpcoes && opcoes) configuracoesOpcoes.appendChild(opcoes);
-  if (configuracoesEmail && email) configuracoesEmail.appendChild(email);
-  if (configuracoesAutomacao && automatico) configuracoesAutomacao.appendChild(automatico);
+  const criarGradeChecks = (container) => {
+    if (!container) return null;
+    let grade = container.querySelector(".config-grade");
+    if (!grade) {
+      grade = document.createElement("div");
+      grade.className = "config-grade";
+      container.appendChild(grade);
+    }
+    return grade;
+  };
+  const criarGradeCampos = (container) => {
+    if (!container) return null;
+    let grade = container.querySelector(".campos-config");
+    if (!grade) {
+      grade = document.createElement("div");
+      grade.className = "campos-config";
+      container.appendChild(grade);
+    }
+    return grade;
+  };
+  const moverCheck = (id, container) => {
+    const controle = document.getElementById(id);
+    const label = controle?.closest("label");
+    const grade = criarGradeChecks(container);
+    if (label && grade) grade.appendChild(label);
+  };
+  const moverCampo = (id, container) => {
+    const controle = document.getElementById(id);
+    const campo = controle?.closest(".campo-config");
+    const grade = criarGradeCampos(container);
+    if (campo && grade) grade.appendChild(campo);
+  };
+
+  moverCheck("cfg-emails", configuracoesApp);
+  moverCheck("cfg-sons", configuracoesApp);
+  moverCheck("cfg-equipamentos", configuracoesApp);
+  if (configuracoesApp && email) configuracoesApp.appendChild(email);
+
+  moverCheck("cfg-coletar", configuracoesSensores);
+  moverCheck("cfg-auto", configuracoesSensores);
+  moverCampo("cfg-intervalo-leitura", configuracoesSensores);
+
+  moverCampo("cfg-ponto-orvalho", configuracoesCalculos);
+  moverCampo("cfg-umidade-relativa", configuracoesCalculos);
+  moverCampo("cfg-altitude", configuracoesCalculos);
+  moverCampo("cfg-limite-umidade-nebulizador", configuracoesCalculos);
+
   if (historicoAcoes && historicoPaginacao) historicoAcoes.appendChild(historicoPaginacao);
   if (configuracoesHistorico && limparHistorico) configuracoesHistorico.appendChild(limparHistorico);
 
@@ -1253,10 +1453,11 @@ function esconderErro() {
 // ---------------------------------------------------------------------------
 // Inicializacao
 // ---------------------------------------------------------------------------
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   moverControlesParaConfiguracoes();
   inicializarAbas();
   inicializarHistorico();
+  await carregarConfiguracoesPersistidas();
   renderSeletorEspecie();
   renderSeletorIndice();
   renderCamposEntrada();
@@ -1289,4 +1490,22 @@ document.addEventListener("DOMContentLoaded", () => {
       autoTimeoutId = setTimeout(cicloAutomatico, obterIntervaloLeituraMs());
     }
   });
+  document.getElementById("cfg-ponto-orvalho").addEventListener("change", () => {
+    atualizarCamposEntrada();
+    atualizarCamposCalculados();
+  });
+  document.getElementById("cfg-umidade-relativa").addEventListener("change", () => {
+    atualizarCamposEntrada();
+    atualizarCamposCalculados();
+  });
+  document.getElementById("cfg-altitude").addEventListener("input", atualizarCamposCalculados);
+  document.querySelectorAll("#aba-configuracoes input, #aba-configuracoes select").forEach((controle) => {
+    controle.addEventListener("change", agendarSalvarConfiguracoes);
+    if (["number", "email"].includes(controle.type)) {
+      controle.addEventListener("input", agendarSalvarConfiguracoes);
+    }
+  });
+  if (document.getElementById("cfg-auto").checked) {
+    alternarModoAutomatico(true);
+  }
 });
