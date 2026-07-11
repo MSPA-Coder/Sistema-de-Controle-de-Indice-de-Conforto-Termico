@@ -29,10 +29,29 @@ from __future__ import annotations
 
 import math
 import unicodedata
+from types import MappingProxyType
+from typing import Any
 
 
 def normalizar_chave_texto(valor: str) -> str:
     return unicodedata.normalize("NFD", str(valor)).encode("ascii", "ignore").decode("ascii")
+
+
+def _congelar(estrutura: Any) -> Any:
+    """Congela recursivamente dicts (e dicts aninhados) em MappingProxyType.
+
+    NOTA DE ESTABILIDADE: os dicionarios abaixo (LIMITES, INDICES_POR_ESPECIE,
+    CAMPOS_POR_INDICE, etc.) sao estado compartilhado por TODAS as
+    requisicoes HTTP, ja que o processo Flask e de longa duracao. Um dict
+    mutavel aqui e uma superficie de bug silenciosa: um `item["chave"] = x`
+    acidental em qualquer parte do codigo (presente ou futura) corromperia a
+    configuracao para todos os usuarios ate o processo reiniciar, sem
+    lancar excecao nenhuma. Congelar com MappingProxyType transforma esse
+    erro de programacao em um TypeError imediato e barulhento, no lugar de
+    uma corrupcao de estado silenciosa em producao."""
+    if isinstance(estrutura, dict):
+        return MappingProxyType({chave: _congelar(valor) for chave, valor in estrutura.items()})
+    return estrutura
 
 
 # ---------------------------------------------------------------------------
@@ -42,41 +61,41 @@ def normalizar_chave_texto(valor: str) -> str:
 # ---------------------------------------------------------------------------
 ESPECIES_VALIDAS: tuple[str, ...] = ("frangos", "bovinos", "suinos")
 
-NOME_ESPECIE = {
+NOME_ESPECIE = _congelar({
     "frangos": "Avicultura (frangos de corte)",
     "bovinos": "Bovinocultura (bovinos de leite)",
     "suinos": "Suinocultura (suínos)",
-}
+})
 
-INDICES_POR_ESPECIE: dict[str, tuple[str, ...]] = {
+INDICES_POR_ESPECIE = _congelar({
     "frangos": ("ITU", "ITUV", "IGNU"),
     "bovinos": ("ITU", "IGNU"),
     "suinos": ("ITU", "IGNU"),
-}
+})
 
-NOME_INDICE = {
+NOME_INDICE = _congelar({
     "ITU": "Índice de Temperatura e Umidade",
     "ITUV": "Índice de Temperatura, Umidade e Velocidade",
     "IGNU": "Índice de Globo Negro e Umidade",
-}
+})
 
 # Campos de entrada exigidos por indice (nomes conforme a propria dissertacao)
-CAMPOS_POR_INDICE: dict[str, tuple[str, ...]] = {
+CAMPOS_POR_INDICE = _congelar({
     "ITU": ("tbs", "tbu"),
     "ITUV": ("tbs", "tbu", "v"),
     "IGNU": ("tgn", "tpo"),
-}
+})
 
-CAMPO_METADADOS: dict[str, dict] = {
+CAMPO_METADADOS = _congelar({
     "tbs": {"label": "Temperatura de Bulbo Seco / Ambiente", "unidade": "°C", "min": -10, "max": 55, "passo": 0.1},
     "tbu": {"label": "Temperatura de Bulbo Úmido", "unidade": "°C", "min": -10, "max": 55, "passo": 0.1},
     "ur": {"label": "Umidade Relativa do Ar", "unidade": "%", "min": 0, "max": 100, "passo": 0.1},
     "v": {"label": "Velocidade do Ar", "unidade": "m/s", "min": 0.01, "max": 15, "passo": 0.01},
     "tgn": {"label": "Temperatura de Globo Negro", "unidade": "°C", "min": -10, "max": 65, "passo": 0.1},
     "tpo": {"label": "Temperatura de Ponto de Orvalho", "unidade": "°C", "min": -20, "max": 45, "passo": 0.1},
-}
+})
 
-RANGE_VALIDACAO = {
+RANGE_VALIDACAO = _congelar({
     # (minimo, maximo) - a dissertacao valida o programa gerando dados
     # aleatorios entre 0 e 45°C para temperaturas e 0,01 a 5,00 m/s para
     # velocidade do ar (secao 4.2). Aqui aceitamos uma folga adicional para
@@ -86,7 +105,7 @@ RANGE_VALIDACAO = {
     "tgn": (-10.0, 65.0),
     "tpo": (-20.0, 45.0),
     "v": (0.01, 15.0),
-}
+})
 
 
 class EntradaInvalidaError(ValueError):
@@ -153,11 +172,11 @@ def calcular_ponto_orvalho(tbs: float, tbu: float, altitude_m: float = 0.0) -> f
     return (237.3 * fator) / (17.27 - fator)
 
 
-CALCULADORAS = {
+CALCULADORAS = _congelar({
     "ITU": calcular_itu,
     "ITUV": calcular_ituv,
     "IGNU": calcular_ignu,
-}
+})
 
 
 def validar_entradas(indice: str, entradas: dict) -> dict:
@@ -204,7 +223,7 @@ def validar_entradas(indice: str, entradas: dict) -> dict:
 # uma interpretacao monotonica razoavel, seguindo o mesmo padrao das demais
 # linhas da tabela. Se voce tiver os valores exatos de Sales et al. (2006) e
 # Ferreira (2001), e so ajustar os numeros abaixo.
-LIMITES = {
+LIMITES = _congelar({
     "ITU": {
         "frangos": {"conforto": 74, "alerta": 79, "perigo": 84},  # Thom, 1959
         "bovinos": {"conforto": 70, "alerta": 78, "perigo": 83},  # Hahn, 1985
@@ -221,20 +240,20 @@ LIMITES = {
         "bovinos": {"conforto": 74, "alerta": 78, "perigo": 84},  # Baeta, 1985
         "suinos": {"conforto": 69.6, "alerta": 82.6, "perigo": 82.6},  # Ferreira, 2001 (*)
     },
-}
+})
 
 STATUS_ORDEM = ("Conforto", "Alerta", "Perigo", "Emergência")
 
-CORES_STATUS = {
+CORES_STATUS = _congelar({
     "Conforto": "#3E8E5B",
     "Alerta": "#E3A73E",
     "Perigo": "#C1443C",
     "Emergencia": "#171512",
-}
+})
 
 # Mensagens de orientacao - reproduzidas das telas do proprio programa
 # descrito na dissertacao (Figuras 17/19, 20/22, 16/25 e 18).
-MENSAGENS_STATUS = {
+MENSAGENS_STATUS = _congelar({
     "Conforto": "As condições de temperatura são adequadas.",
     "Alerta": "São necessárias medidas para a diminuição da temperatura.",
     "Perigo": (
@@ -245,18 +264,18 @@ MENSAGENS_STATUS = {
         "Condições extremas. Abaixe a temperatura imediatamente. "
         "Ligue ventiladores e nebulizadores e considere a retirada dos animais."
     ),
-}
+})
 
 # Intensidade de acionamento dos equipamentos remotos (secao 4.3): em
 # "Conforto" os equipamentos ficam desligados; a intensidade cresce com a
 # gravidade, chegando ao nivel maximo (com todos os equipamentos disponiveis)
 # em "Emergencia".
-INTENSIDADE_EQUIPAMENTO = {
+INTENSIDADE_EQUIPAMENTO = _congelar({
     "Conforto": None,
     "Alerta": "baixa",
     "Perigo": "media",
     "Emergencia": "maxima",
-}
+})
 
 
 def cor_do_status(status: str) -> str:

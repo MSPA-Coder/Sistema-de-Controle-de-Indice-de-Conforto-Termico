@@ -116,5 +116,63 @@ class TestIntervaloMinimoLeituras(unittest.TestCase):
         self.assertNotIn("campoIgnorado", configuracoes)
 
 
+class TestSanitizacaoDeConfiguracoes(unittest.TestCase):
+    """`salvar_configuracoes`/`obter_configuracoes` nunca devem persistir ou
+    devolver um valor de tipo errado, fora de faixa ou (no caso do
+    e-mail) potencialmente perigoso -- sempre caem de volta ao padrao
+    seguro daquele campo especifico, sem lancar excecao."""
+
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.db_path_original = db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
+        db.iniciar_banco()
+
+    def tearDown(self):
+        db.DB_PATH = self.db_path_original
+        self.tempdir.cleanup()
+
+    def test_email_com_quebra_de_linha_cai_para_padrao(self):
+        # Tentativa de injecao de cabecalho SMTP (ex.: "Bcc: atacante@...")
+        # via quebra de linha no valor do e-mail.
+        salvas = db.salvar_configuracoes(
+            {"emailDestino": "vitima@fazenda.com.br\r\nBcc: atacante@evil.com"}
+        )
+        self.assertEqual(db.CONFIGURACOES_PADRAO["emailDestino"], salvas["emailDestino"])
+
+    def test_email_sem_formato_valido_cai_para_padrao(self):
+        salvas = db.salvar_configuracoes({"emailDestino": "isso nao e um email"})
+        self.assertEqual(db.CONFIGURACOES_PADRAO["emailDestino"], salvas["emailDestino"])
+
+    def test_email_valido_e_preservado(self):
+        salvas = db.salvar_configuracoes({"emailDestino": "produtor.silva@exemplo.com.br"})
+        self.assertEqual("produtor.silva@exemplo.com.br", salvas["emailDestino"])
+
+    def test_altitude_fora_da_faixa_e_limitada(self):
+        salvas = db.salvar_configuracoes({"altitudeMetros": 999999})
+        self.assertEqual(9000, salvas["altitudeMetros"])
+
+        salvas = db.salvar_configuracoes({"altitudeMetros": -999999})
+        self.assertEqual(-500, salvas["altitudeMetros"])
+
+    def test_limite_umidade_fora_da_faixa_e_limitado(self):
+        salvas = db.salvar_configuracoes({"limiteUmidadeNebulizador": 150})
+        self.assertEqual(100, salvas["limiteUmidadeNebulizador"])
+
+    def test_enum_invalido_cai_para_padrao(self):
+        salvas = db.salvar_configuracoes({"modoPontoOrvalho": "chute"})
+        self.assertEqual(db.CONFIGURACOES_PADRAO["modoPontoOrvalho"], salvas["modoPontoOrvalho"])
+
+    def test_booleano_com_tipo_errado_cai_para_padrao(self):
+        salvas = db.salvar_configuracoes({"coletarDados": {"nao": "e bool"}})
+        self.assertEqual(db.CONFIGURACOES_PADRAO["coletarDados"], salvas["coletarDados"])
+
+    def test_numero_nao_numerico_cai_para_padrao(self):
+        salvas = db.salvar_configuracoes({"intervaloLeituraSegundos": "abc"})
+        self.assertEqual(
+            db.CONFIGURACOES_PADRAO["intervaloLeituraSegundos"], salvas["intervaloLeituraSegundos"]
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

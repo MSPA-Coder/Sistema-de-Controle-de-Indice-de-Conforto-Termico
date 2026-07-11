@@ -330,11 +330,170 @@ class TestHistoricoGraficoApi(unittest.TestCase):
 
 
 class TestServidorLocal(unittest.TestCase):
-    def test_servidor_local_nao_usa_reloader(self):
+    def test_servidor_local_nao_usa_reloader_e_debug_comeca_desligado(self):
+        """O runner passa por AppConfig; por padrao (sem variaveis de
+        ambiente CONFORTO_*), o debug deve vir DESLIGADO -- ver a nota de
+        seguranca no topo de web.py sobre o console interativo do
+        Werkzeug. Passar uma AppConfig explicita torna o teste
+        deterministico, sem depender do ambiente de quem roda a suite."""
+        config = flask_app.AppConfig(
+            debug=False, host="127.0.0.1", port=5000, threaded=True, max_content_length=1_000_000
+        )
         with patch.object(flask_app.app, "run") as run:
-            flask_app.executar_servidor_local()
+            flask_app.executar_servidor_local(config)
 
-        run.assert_called_once_with(debug=True, use_reloader=False)
+        run.assert_called_once_with(
+            debug=False, host="127.0.0.1", port=5000, threaded=True, use_reloader=False
+        )
+
+    def test_servidor_local_respeita_config_explicita(self):
+        config = flask_app.AppConfig(
+            debug=True, host="0.0.0.0", port=8080, threaded=False, max_content_length=1_000_000
+        )
+        with patch.object(flask_app.app, "run") as run:
+            flask_app.executar_servidor_local(config)
+
+        run.assert_called_once_with(
+            debug=True, host="0.0.0.0", port=8080, threaded=False, use_reloader=False
+        )
+
+    def test_app_config_from_env_usa_padroes_seguros_sem_variaveis(self):
+        ambiente_limpo = {
+            chave: valor
+            for chave, valor in os.environ.items()
+            if not chave.startswith("CONFORTO_")
+        }
+        with patch.dict(os.environ, ambiente_limpo, clear=True):
+            config = flask_app.AppConfig.from_env()
+
+        self.assertFalse(config.debug)
+        self.assertEqual("127.0.0.1", config.host)
+        self.assertEqual(5000, config.port)
+
+    def test_app_config_from_env_le_variaveis_customizadas(self):
+        variaveis = {
+            "CONFORTO_DEBUG": "1",
+            "CONFORTO_HOST": "0.0.0.0",
+            "CONFORTO_PORT": "9090",
+            "CONFORTO_THREADED": "0",
+        }
+        with patch.dict(os.environ, variaveis):
+            config = flask_app.AppConfig.from_env()
+
+        self.assertTrue(config.debug)
+        self.assertEqual("0.0.0.0", config.host)
+        self.assertEqual(9090, config.port)
+        self.assertFalse(config.threaded)
+
+
+class TestValidacaoDeParametros(unittest.TestCase):
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.db_path_original = db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
+        db.iniciar_banco()
+        self.client = flask_app.app.test_client()
+
+    def tearDown(self):
+        db.DB_PATH = self.db_path_original
+        self.tempdir.cleanup()
+
+    def test_historico_rejeita_especie_desconhecida(self):
+        resposta = self.client.get("/api/historico?especie=marciano&indice=ITU")
+        self.assertEqual(400, resposta.status_code)
+        self.assertIn("erro", resposta.json)
+
+    def test_historico_rejeita_indice_incompativel_com_especie(self):
+        # ITUV so existe para frangos, nao para bovinos.
+        resposta = self.client.get("/api/historico?especie=bovinos&indice=ITUV")
+        self.assertEqual(400, resposta.status_code)
+
+    def test_historico_todos_rejeita_especie_desconhecida(self):
+        resposta = self.client.get("/api/historico-todos?especie=marciano")
+        self.assertEqual(400, resposta.status_code)
+
+    def test_historico_grafico_todos_rejeita_especie_desconhecida(self):
+        resposta = self.client.get("/api/historico-grafico-todos?especie=marciano")
+        self.assertEqual(400, resposta.status_code)
+
+    def test_sensor_rejeita_indice_incompativel_com_especie(self):
+        resposta = self.client.get("/api/sensor?especie=suinos&indice=ITUV")
+        self.assertEqual(400, resposta.status_code)
+
+    def test_reset_rejeita_especie_desconhecida(self):
+        resposta = self.client.post("/api/reset", json={"especie": "marciano"})
+        self.assertEqual(400, resposta.status_code)
+
+    def test_reset_aceita_ausencia_de_especie_e_indice(self):
+        resposta = self.client.post("/api/reset", json={})
+        self.assertEqual(200, resposta.status_code)
+        self.assertTrue(resposta.json["ok"])
+
+    def test_historico_com_parametros_validos_continua_funcionando(self):
+        resposta = self.client.get("/api/historico?especie=frangos&indice=ITU")
+        self.assertEqual(200, resposta.status_code)
+        self.assertEqual([], resposta.json)
+
+
+class TestCabecalhosDeSeguranca(unittest.TestCase):
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.db_path_original = db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
+        db.iniciar_banco()
+        self.client = flask_app.app.test_client()
+
+    def tearDown(self):
+        db.DB_PATH = self.db_path_original
+        self.tempdir.cleanup()
+
+    def test_resposta_api_inclui_cabecalhos_de_seguranca(self):
+        resposta = self.client.get("/api/configuracoes")
+        self.assertEqual("nosniff", resposta.headers.get("X-Content-Type-Options"))
+        self.assertEqual("DENY", resposta.headers.get("X-Frame-Options"))
+        self.assertEqual("no-referrer", resposta.headers.get("Referrer-Policy"))
+        self.assertEqual("no-store", resposta.headers.get("Cache-Control"))
+
+    def test_pagina_inicial_carrega_com_dicionarios_congelados(self):
+        # thermal_indices.py congela seus dicts com MappingProxyType; esta
+        # rota depende do ProvedorJSON customizado para serializar
+        # `| tojson` corretamente. Um regressao aqui quebraria a pagina
+        # inteira com um TypeError silencioso no lado do servidor.
+        resposta = self.client.get("/")
+        self.assertEqual(200, resposta.status_code)
+        self.assertIn(b"indicesPorEspecie", resposta.data)
+
+
+class TestErroInternoNaoVazaDetalhe(unittest.TestCase):
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.db_path_original = db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
+        db.iniciar_banco()
+        self.client = flask_app.app.test_client()
+
+    def tearDown(self):
+        db.DB_PATH = self.db_path_original
+        self.tempdir.cleanup()
+
+    def test_excecao_inesperada_nao_vaza_mensagem_original(self):
+        segredo = "detalhe-interno-sensivel-do-servidor"
+        with patch.object(
+            flask_app.calculo_ict_service, "calcular", side_effect=RuntimeError(segredo)
+        ):
+            resposta = self.client.post(
+                "/api/calcular",
+                json={
+                    "especie": "frangos",
+                    "indice": "ITU",
+                    "entradas": {"tbs": 25, "tbu": 20},
+                    "config": {},
+                },
+            )
+
+        self.assertEqual(500, resposta.status_code)
+        self.assertNotIn(segredo, resposta.json["erro"])
+        self.assertEqual(flask_app.MENSAGEM_ERRO_INTERNO, resposta.json["erro"])
 
 
 if __name__ == "__main__":

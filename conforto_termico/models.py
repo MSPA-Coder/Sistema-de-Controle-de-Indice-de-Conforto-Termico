@@ -21,10 +21,20 @@ from __future__ import annotations
 
 import datetime
 import os
+import re
 import smtplib
 from email.mime.text import MIMEText
 
 from . import thermal_indices as ti
+
+# Mesma checagem pragmatica usada em database.py: garante formato minimo de
+# e-mail e, principalmente, ausencia de espacos/quebras de linha que
+# permitiriam injetar cabecalhos SMTP adicionais no envio abaixo.
+_EMAIL_REGEX = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+
+
+def _email_valido(endereco: object) -> bool:
+    return isinstance(endereco, str) and bool(_EMAIL_REGEX.fullmatch(endereco.strip()))
 
 
 class Temperatura:
@@ -181,6 +191,15 @@ class Email:
     def enviar(self) -> bool:
         host = os.environ.get("SMTP_HOST")
         if not host:
+            self._enviado = False
+            return False
+        if not _email_valido(self.destino):
+            # Defesa em profundidade: o caminho normal ja valida o
+            # destinatario em database.salvar_configuracoes, mas esta classe
+            # nunca deve montar uma mensagem SMTP com um valor fora do
+            # formato esperado, mesmo que chegue aqui por outro caminho no
+            # futuro. Isso evita injecao de cabecalhos adicionais (ex.:
+            # "Bcc:") via quebras de linha ou caracteres de controle.
             self._enviado = False
             return False
         porta = int(os.environ.get("SMTP_PORT", "587"))

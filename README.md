@@ -193,6 +193,87 @@ navegador real (Playwright + Chromium), não só por leitura de código:
    pela própria documentação do Chart.js). Testado com navegador real: a
    altura do gráfico ficou em exatos 220px em 8 recálculos seguidos.
 
+### Terceira rodada: design patterns, segurança, performance e estabilidade
+
+Revisão geral do backend com foco em robustez de produção, sem alterar
+nenhuma fórmula, limite de espécie ou contrato JSON existente (a suíte de
+testes cresceu de 41 para 75 casos, todos verdes antes e depois):
+
+6. **Debug do Flask ligado por padrão.** `app.run(debug=True, ...)` estava
+   hardcoded — o console interativo do Werkzeug pode executar código
+   arbitrário a quem alcançar uma página de erro. Agora o runtime é
+   configurado por um objeto `AppConfig` (`conforto_termico/web.py`), lido
+   de variáveis de ambiente opcionais (`CONFORTO_DEBUG`, `CONFORTO_HOST`,
+   `CONFORTO_PORT`, `CONFORTO_THREADED`, `CONFORTO_MAX_CONTENT_LENGTH`),
+   **desligado por padrão**. Ver a seção "Variáveis de ambiente do
+   servidor" abaixo.
+7. **Erros inesperados vazavam a mensagem da exceção para o cliente.** O
+   handler global de erro devolvia `str(erro)` dentro do JSON de resposta —
+   um vazamento de informação clássico (pode incluir caminhos de arquivo,
+   nomes de tabela, etc.). O detalhe completo continua indo para o log do
+   servidor (`app.logger.exception`); o cliente agora recebe sempre a mesma
+   mensagem genérica.
+8. **Sem validação de `especie`/`indice` nas rotas de histórico.** Uma
+   espécie desconhecida em `/api/historico`, `/api/historico-todos`,
+   `/api/historico-grafico(-todos)` ou `/api/sensor` retornava
+   silenciosamente uma lista vazia — indistinguível de "sem histórico
+   ainda". Agora essas rotas devolvem `400` com uma mensagem clara.
+9. **Configurações persistidas sem validação de tipo/faixa/formato.**
+   `salvar_configuracoes` só filtrava chaves desconhecidas, mas aceitava
+   qualquer tipo/valor para as conhecidas — incluindo, por exemplo, um
+   `emailDestino` com quebra de linha (`\r\n`), o que poderia permitir
+   injeção de cabeçalhos SMTP adicionais (`Bcc:`, etc.) se esse valor
+   chegasse a ser usado para montar um e-mail malicioso. Agora
+   `database._sanitizar_configuracoes` valida cada campo (booleano, número
+   com faixa, enum, ou formato de e-mail) e cai para o padrão seguro
+   daquele campo quando o valor recebido é inválido — nunca lança exceção.
+   `models.Email.enviar` também valida o destinatário de forma
+   independente, como segunda camada de defesa.
+10. **Tabela `leituras` sem índice.** Toda leitura de histórico e toda
+    checagem de "leitura gravada há menos de X minutos" fazia uma varredura
+    completa da tabela — cada vez mais lenta com o tempo em modo
+    automático, já que a tabela nunca é podada. Adicionado um índice
+    composto em `(especie, indice, id)`. O banco também passou a rodar em
+    modo `WAL` (melhor throughput e menor bloqueio entre leitura/escrita
+    simultâneas) e com um timeout de espera por lock configurado.
+11. **Dicionários de configuração compartilhada eram mutáveis em tempo de
+    execução.** `LIMITES`, `INDICES_POR_ESPECIE`, `CAMPOS_POR_INDICE`, etc.
+    (em `thermal_indices.py`) são estado de processo único, reutilizado em
+    toda requisição HTTP — um `dict` mutável ali é uma superfície de bug
+    silenciosa (uma escrita acidental corromperia o comportamento para
+    todo mundo até o próximo restart, sem lançar exceção nenhuma). Agora
+    são congelados recursivamente com `types.MappingProxyType`; qualquer
+    tentativa de escrita levanta `TypeError` imediatamente. Isso exigiu um
+    `JSONProvider` customizado no Flask (`ProvedorJSON`) para que
+    `jsonify`/`| tojson` continuem sabendo serializar essas estruturas.
+12. **Cabeçalhos de segurança ausentes.** Adicionado
+    `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+    `Referrer-Policy: no-referrer` em toda resposta, e
+    `Cache-Control: no-store` nas respostas de `/api/*` (que carregam
+    estado dinâmico e nunca devem ser cacheadas).
+13. **Concatenação de string em `innerHTML` no front-end.** O painel de
+    status montava `"<strong>" + status + ":</strong> " + mensagem + ...`
+    diretamente. Hoje `status`/`mensagem` só vêm de um conjunto fixo de
+    valores no servidor, mas o padrão em si é frágil: se um desses campos
+    um dia passar a refletir algo configurável pelo usuário, isso abriria
+    uma injeção de HTML/script sem nenhuma mudança necessária no
+    front-end. Substituído por construção de DOM real (`createElement` +
+    `textContent`) em `definirMensagemOrientacao`, que nunca interpreta o
+    conteúdo como marcação.
+
+## Variáveis de ambiente do servidor
+
+Todas opcionais — sem nenhuma configurada, o servidor roda com os mesmos
+padrões seguros de sempre (`127.0.0.1:5000`, debug desligado):
+
+| Variável | Padrão | Efeito |
+|---|---|---|
+| `CONFORTO_DEBUG` | `0` (desligado) | Liga o debugger interativo do Werkzeug. **Nunca ligue isso fora da sua máquina de desenvolvimento** — permite execução de código arbitrário a quem alcançar uma página de erro. |
+| `CONFORTO_HOST` | `127.0.0.1` | Interface de rede em que o Flask escuta. |
+| `CONFORTO_PORT` | `5000` | Porta TCP. |
+| `CONFORTO_THREADED` | `1` (ligado) | Permite o servidor de desenvolvimento atender requisições concorrentes (útil com o modo automático, que faz polling). |
+| `CONFORTO_MAX_CONTENT_LENGTH` | `1000000` (~1 MB) | Tamanho máximo aceito para o corpo de uma requisição, em bytes. |
+
 ## Como rodar no PyCharm 2026
 
 1. Abra o PyCharm → **File → Open...** → selecione a pasta

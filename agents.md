@@ -85,6 +85,45 @@ Use ASCII identifiers and internal values such as `especie`, `indice`,
 - If sensor values are missing for an index, that index must not be calculated
   unless it is the selected index, where normal validation errors should still
   be raised.
+- Shared config dicts in `thermal_indices.py` (`LIMITES`, `INDICES_POR_ESPECIE`,
+  `CAMPOS_POR_INDICE`, etc.) are frozen with `MappingProxyType` via the
+  `_congelar` helper. Do not work around this by unfreezing them; add new
+  entries by editing the literal dict before it is frozen. If you add a new
+  such dict, freeze it too and make sure `web.py`'s `ProvedorJSON` is still
+  the app's `app.json` provider (it is what makes `jsonify`/`tojson` able to
+  serialize `MappingProxyType`).
+- `database.salvar_configuracoes` / `obter_configuracoes` always pass values
+  through `_sanitizar_configuracoes`. Any new config key needs a matching
+  coercion rule there (`_coagir_booleano`, `_coagir_numero`, `_coagir_enum`,
+  or a dedicated validator like `_coagir_email`) with a safe fallback to
+  `CONFIGURACOES_PADRAO` on invalid input -- never let a malformed config
+  value propagate unchecked into equipment control or email sending.
+
+## Security & Configuration
+
+- Server runtime settings (`debug`, `host`, `port`, `threaded`,
+  `max_content_length`) are centralized in `web.AppConfig`, populated via
+  `AppConfig.from_env()`. Do not read `os.environ` ad hoc elsewhere in
+  `web.py` for these; add a field to `AppConfig` instead.
+- Environment variables (all optional, all default to safe local values):
+  `CONFORTO_DEBUG` (default `0`/off), `CONFORTO_HOST` (default
+  `127.0.0.1`), `CONFORTO_PORT` (default `5000`), `CONFORTO_THREADED`
+  (default `1`/on), `CONFORTO_MAX_CONTENT_LENGTH` (default `1000000`
+  bytes).
+- `debug=True` enables the Werkzeug interactive debugger, which can execute
+  arbitrary code from the browser. Never change the default of
+  `CONFORTO_DEBUG` to on; a developer who wants it opts in locally via the
+  environment variable.
+- `/api/*` responses never include raw exception text (see
+  `MENSAGEM_ERRO_INTERNO` in `web.py`). Full details always go to
+  `app.logger.exception` server-side. Keep this split when adding new
+  error handling.
+- Any config value that ends up inside an SMTP header (currently
+  `emailDestino`) must be validated to reject whitespace/control
+  characters before use, both where it is persisted (`database.py`) and
+  again where it is actually used to build the message (`models.Email`).
+  Treat this as two independent checks, not one shared one -- see
+  `test_models.py` / `test_database.py` for the expected behavior.
 
 ## Verification
 

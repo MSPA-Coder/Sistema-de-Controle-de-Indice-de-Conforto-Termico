@@ -539,6 +539,35 @@ async function limparHistorico() {
 // ---------------------------------------------------------------------------
 // Atualizacao da interface
 // ---------------------------------------------------------------------------
+
+// NOTA DE SEGURANCA: `resultado.status`, `resultado.mensagem` e o texto de
+// aviso vem da resposta JSON do servidor. Hoje sao sempre valores fixos
+// (um enum de status e mensagens pre-definidas em thermal_indices.py), mas
+// concatena-los direto em `innerHTML` como estava antes e um padrao fragil:
+// se qualquer um desses campos um dia passar a incluir texto proveniente
+// de uma configuracao editavel pelo usuario, isso abriria uma injecao de
+// HTML/script (XSS) sem que nada no front-end precisasse mudar para
+// "ativar" o problema. `definirMensagemOrientacao` monta os mesmos
+// elementos (<strong>, <br>, <em>) via DOM real com `textContent`, que
+// nunca interpreta o conteudo como marcacao, entao o resultado visual e
+// identico mas nao ha superficie de injecao.
+function definirMensagemOrientacao(status, mensagem, aviso) {
+  const container = document.getElementById("mensagem-orientacao");
+  container.textContent = "";
+
+  const destaque = document.createElement("strong");
+  destaque.textContent = status + ":";
+  container.appendChild(destaque);
+  container.appendChild(document.createTextNode(" " + mensagem));
+
+  if (aviso) {
+    container.appendChild(document.createElement("br"));
+    const em = document.createElement("em");
+    em.textContent = aviso;
+    container.appendChild(em);
+  }
+}
+
 function resetarPainelResultado() {
   ultimosResultados = null;
   const readoutValor = document.getElementById("readout-valor");
@@ -569,9 +598,7 @@ function atualizarPainelIndiceSelecionado(resultado, avisoGeral) {
   faixa.className = "faixa-status faixa-" + classe;
   document.getElementById("faixa-status-texto").textContent = resultado.status.toUpperCase();
 
-  document.getElementById("mensagem-orientacao").innerHTML =
-    "<strong>" + resultado.status + ":</strong> " + resultado.mensagem +
-    (avisoGeral ? "<br><em>" + avisoGeral + "</em>" : "");
+  definirMensagemOrientacao(resultado.status, resultado.mensagem, avisoGeral);
 }
 
 function historicosDosResultados(resultados, tipo) {
@@ -598,9 +625,7 @@ function atualizarResultado(dados) {
   faixa.className = "faixa-status faixa-" + classe;
   document.getElementById("faixa-status-texto").textContent = selecionado.status.toUpperCase();
 
-  document.getElementById("mensagem-orientacao").innerHTML =
-    "<strong>" + selecionado.status + ":</strong> " + selecionado.mensagem +
-    (dados.aviso ? "<br><em>" + dados.aviso + "</em>" : "");
+  definirMensagemOrientacao(selecionado.status, selecionado.mensagem, dados.aviso);
 
   atualizarEquipamento(dados.equipamento);
   atualizarEmail(dados.email);

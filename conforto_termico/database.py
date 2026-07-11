@@ -16,6 +16,24 @@ abria uma conexao nova que nunca era fechada, vazando conexoes/descritores
 de arquivo ao longo do tempo (principalmente com o modo automatico, que
 calcula a cada 1s). Agora todas as operacoes passam pelo gerenciador de
 contexto `_conexao()` abaixo, que garante `close()` mesmo se ocorrer erro.
+
+NOTA DE PERFORMANCE/ESTABILIDADE: `_conexao()` agora tambem liga o modo WAL
+(melhor throughput e menor chance de bloqueio entre leitores/escritores),
+define um timeout de espera por lock e cria um indice composto em
+(especie, indice, id) -- sem ele, toda leitura de historico e toda
+verificacao de "ultima leitura gravada ha menos de X minutos" fazia uma
+varredura completa da tabela `leituras`, que so piora com o tempo em modo
+automatico (uma escrita a cada poucos minutos, para sempre).
+
+NOTA DE SEGURANCA/ESTABILIDADE: `salvar_configuracoes`/`obter_configuracoes`
+agora passam por `_sanitizar_configuracoes`, que valida tipo, faixa e
+formato de cada campo (ex.: `emailDestino` precisa parecer um e-mail e nao
+pode conter quebras de linha, o que evitaria injecao de cabecalhos SMTP se
+esse valor chegasse a ser usado para montar um e-mail malicioso). Um valor
+invalido nunca derruba a rota -- ele apenas volta a usar o padrao seguro
+daquele campo especifico, seguindo o mesmo principio adotado no resto do
+projeto (nunca deixar uma falha de um aspecto secundario quebrar o
+restante do sistema).
 """
 
 from __future__ import annotations
@@ -23,6 +41,7 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import re
 import sqlite3
 import threading
 from contextlib import contextmanager
@@ -33,6 +52,12 @@ DB_PATH = os.path.join(PROJECT_ROOT, "historico.db")
 
 _lock = threading.Lock()
 INTERVALO_MINIMO_LEITURAS = datetime.timedelta(minutes=1)
+
+# Tempo (segundos) que uma conexao espera por um lock antes de desistir com
+# "database is locked". O `_lock` do Python ja serializa acessos dentro do
+# MESMO processo; este timeout cobre o caso de outro processo (ex.: uma
+# ferramenta externa) acessando o mesmo arquivo ao mesmo tempo.
+TIMEOUT_CONEXAO_SEGUNDOS = 30.0
 
 CONFIGURACOES_PADRAO = {
     "coletarDados": False,
@@ -49,14 +74,24 @@ CONFIGURACOES_PADRAO = {
     "limiteUmidadeNebulizador": 70,
 }
 
+# Regex pragmatica (nao e uma validacao RFC 5322 completa) para pegar os
+# casos que importam aqui: formato minimamente plausivel de e-mail e,
+# principalmente, ausencia de espacos/CR/LF que permitiriam injetar
+# cabecalhos SMTP adicionais (ex.: "Bcc:") caso este valor va parar dentro
+# de um cabecalho de e-mail (ver models.Email).
+_EMAIL_REGEX = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+
 
 @contextmanager
 def _conexao() -> Iterator[sqlite3.Connection]:
     """Abre uma conexao SQLite, garante commit em caso de sucesso (ou
     rollback em caso de excecao) e SEMPRE fecha a conexao ao final."""
     with _lock:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(DB_PATH, timeout=TIMEOUT_CONEXAO_SEGUNDOS)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
+        conn.execute("PRAGMA foreign_keys = ON")
         try:
             yield conn
             conn.commit()
@@ -90,6 +125,15 @@ def iniciar_banco() -> None:
                 atualizado_em TEXT NOT NULL
             )
             """
+        )
+        # Indice composto: toda consulta de historico e toda checagem do
+        # intervalo minimo de gravacao filtram por (especie, indice) e
+        # ordenam por id. Sem este indice, cada uma dessas consultas varre
+        # a tabela inteira -- o que fica cada vez mais lento conforme o
+        # historico cresce (a tabela nunca e podada em uso normal).
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_leituras_especie_indice_id "
+            "ON leituras (especie, indice, id)"
         )
 
 
@@ -174,6 +218,86 @@ def contar_leituras() -> int:
     return total
 
 
+def _coagir_booleano(valor, padrao: bool) -> bool:
+    if isinstance(valor, bool):
+        return valor
+    if isinstance(valor, (int, float)):
+        return bool(valor)
+    if isinstance(valor, str):
+        normalizado = valor.strip().lower()
+        if normalizado in ("true", "1", "sim", "on"):
+            return True
+        if normalizado in ("false", "0", "nao", "não", "off", ""):
+            return False
+    return padrao
+
+
+def _coagir_numero(valor, padrao: float, minimo: float, maximo: float) -> float:
+    try:
+        numero = float(str(valor).replace(",", "."))
+    except (TypeError, ValueError):
+        return padrao
+    if numero != numero:  # NaN nunca e igual a si mesmo
+        return padrao
+    # `float(...)` explicito no retorno: sem isso, `max(minimo, ...)` pode
+    # devolver o proprio `minimo` (int) sem conversao quando o valor
+    # limitado empata exatamente com o piso, deixando esse campo como int
+    # enquanto os demais campos numericos da mesma configuracao viram
+    # float -- inconsistencia de tipo inofensiva, mas desnecessaria.
+    return float(max(minimo, min(maximo, numero)))
+
+
+def _coagir_enum(valor, padrao: str, permitidos: tuple[str, ...]) -> str:
+    return valor if isinstance(valor, str) and valor in permitidos else padrao
+
+
+def _coagir_email(valor, padrao: str) -> str:
+    if isinstance(valor, str):
+        candidato = valor.strip()
+        if _EMAIL_REGEX.fullmatch(candidato):
+            return candidato
+    return padrao
+
+
+def _sanitizar_configuracoes(configuracoes: dict) -> dict:
+    """Valida tipo, faixa e formato de cada chave de configuracao conhecida.
+
+    Mistura os valores recebidos com os padroes (chaves desconhecidas sao
+    descartadas) e entao aplica um "validador" especifico por chave. Um
+    valor invalido (tipo errado, fora da faixa, e-mail malformado) nunca
+    lanca excecao: ele simplesmente volta a usar o padrao daquele campo. Ver
+    a nota de seguranca no topo do modulo sobre `emailDestino`."""
+    padrao = CONFIGURACOES_PADRAO
+    bruto = {**padrao, **{k: v for k, v in (configuracoes or {}).items() if k in padrao}}
+
+    return {
+        "coletarDados": _coagir_booleano(bruto["coletarDados"], padrao["coletarDados"]),
+        "habilitarSons": _coagir_booleano(bruto["habilitarSons"], padrao["habilitarSons"]),
+        "enviarEmails": _coagir_booleano(bruto["enviarEmails"], padrao["enviarEmails"]),
+        "habilitarEquipamentos": _coagir_booleano(
+            bruto["habilitarEquipamentos"], padrao["habilitarEquipamentos"]
+        ),
+        "emailDestino": _coagir_email(bruto["emailDestino"], padrao["emailDestino"]),
+        "modoAutomatico": _coagir_booleano(bruto["modoAutomatico"], padrao["modoAutomatico"]),
+        "intervaloLeituraSegundos": _coagir_numero(
+            bruto["intervaloLeituraSegundos"], padrao["intervaloLeituraSegundos"], 1, 3600
+        ),
+        "intervaloGravacaoMinutos": _coagir_numero(
+            bruto["intervaloGravacaoMinutos"], padrao["intervaloGravacaoMinutos"], 0, 1440
+        ),
+        "modoPontoOrvalho": _coagir_enum(
+            bruto["modoPontoOrvalho"], padrao["modoPontoOrvalho"], ("medido", "calculado")
+        ),
+        "modoUmidadeRelativa": _coagir_enum(
+            bruto["modoUmidadeRelativa"], padrao["modoUmidadeRelativa"], ("medido", "calculado")
+        ),
+        "altitudeMetros": _coagir_numero(bruto["altitudeMetros"], padrao["altitudeMetros"], -500, 9000),
+        "limiteUmidadeNebulizador": _coagir_numero(
+            bruto["limiteUmidadeNebulizador"], padrao["limiteUmidadeNebulizador"], 0, 100
+        ),
+    }
+
+
 def obter_configuracoes() -> dict:
     with _conexao() as conn:
         linhas = conn.execute("SELECT chave, valor FROM configuracoes").fetchall()
@@ -184,18 +308,14 @@ def obter_configuracoes() -> dict:
             configuracoes[linha["chave"]] = json.loads(linha["valor"])
         except json.JSONDecodeError:
             configuracoes[linha["chave"]] = linha["valor"]
-    return configuracoes
+    # Sanitiza tambem na leitura: protege contra um valor corrompido ou
+    # editado manualmente no arquivo .db (defesa em profundidade -- a
+    # escrita ja e validada em salvar_configuracoes).
+    return _sanitizar_configuracoes(configuracoes)
 
 
 def salvar_configuracoes(configuracoes: dict) -> dict:
-    salvas = dict(CONFIGURACOES_PADRAO)
-    salvas.update(
-        {
-            chave: valor
-            for chave, valor in (configuracoes or {}).items()
-            if chave in CONFIGURACOES_PADRAO
-        }
-    )
+    salvas = _sanitizar_configuracoes(configuracoes)
     agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
     with _conexao() as conn:
         conn.executemany(
