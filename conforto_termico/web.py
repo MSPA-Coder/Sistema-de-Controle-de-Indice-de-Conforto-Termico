@@ -132,6 +132,7 @@ calculo_ict_service = CalculoIctService(
     sensor_simulado_service,
     db.salvar_leitura,
     db.obter_historico,
+    obter_configuracoes=db.obter_configuracoes,
 )
 
 
@@ -325,15 +326,31 @@ def diagnostico():
         return jsonify({"banco_ok": False, "erro": MENSAGEM_ERRO_INTERNO}), 500
 
 
+def _configuracoes_publicas(config: dict) -> dict:
+    """Nunca deixa a senha SMTP sair do servidor. `smtpSenha` sempre volta
+    vazio para o cliente HTTP, acompanhado de uma flag booleana
+    (`smtpSenhaConfigurada`) indicando se ja existe uma senha salva --
+    suficiente para a interface mostrar "senha configurada" sem nunca
+    reexibir o valor real. `database.obter_configuracoes()` (usado
+    internamente por `calculo_ict_service` para enviar e-mails de verdade)
+    continua recebendo o valor real; a mascara so se aplica aqui, no
+    limite HTTP."""
+    publico = dict(config)
+    publico["smtpSenhaConfigurada"] = bool(publico.get("smtpSenha"))
+    publico["smtpSenha"] = ""
+    return publico
+
+
 @app.route("/api/configuracoes", methods=["GET"])
 def obter_configuracoes():
-    return jsonify(db.obter_configuracoes())
+    return jsonify(_configuracoes_publicas(db.obter_configuracoes()))
 
 
 @app.route("/api/configuracoes", methods=["POST"])
 def salvar_configuracoes():
     dados = request.get_json(force=True, silent=True) or {}
-    return jsonify(db.salvar_configuracoes(dados))
+    salvas = db.salvar_configuracoes(dados)
+    return jsonify(_configuracoes_publicas(salvas))
 
 
 @app.route("/api/reset", methods=["POST"])

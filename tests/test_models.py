@@ -74,6 +74,40 @@ class TestEmailEnviar(unittest.TestCase):
         self.assertTrue(email.informar_envio())
         servidor.sendmail.assert_called_once()
 
+    def test_smtp_config_explicito_tem_prioridade_sobre_variaveis_de_ambiente(self):
+        variaveis = {
+            "SMTP_HOST": "smtp-do-ambiente.com",
+            "SMTP_USER": "usuario-ambiente",
+            "SMTP_PASS": "senha-ambiente",
+        }
+        smtp_config = {
+            "host": "smtp-do-banco.com.br",
+            "porta": 465,
+            "usuario": "usuario-banco",
+            "senha": "senha-banco",
+        }
+        with patch.dict(os.environ, variaveis), patch("smtplib.SMTP") as smtp_mock:
+            servidor = smtp_mock.return_value.__enter__.return_value
+            email = Email("produtor@fazenda.com.br", "conteudo")
+            enviado = email.enviar(smtp_config)
+
+        self.assertTrue(enviado)
+        smtp_mock.assert_called_once_with("smtp-do-banco.com.br", 465, timeout=10)
+        servidor.login.assert_called_once_with("usuario-banco", "senha-banco")
+
+    def test_smtp_config_com_campos_vazios_cai_para_variaveis_de_ambiente(self):
+        variaveis = {
+            "SMTP_HOST": "smtp-do-ambiente.com",
+            "SMTP_USER": "usuario-ambiente",
+            "SMTP_PASS": "senha-ambiente",
+        }
+        with patch.dict(os.environ, variaveis), patch("smtplib.SMTP") as smtp_mock:
+            email = Email("produtor@fazenda.com.br", "conteudo")
+            enviado = email.enviar({"host": "", "porta": None, "usuario": "", "senha": ""})
+
+        self.assertTrue(enviado)
+        smtp_mock.assert_called_once_with("smtp-do-ambiente.com", 587, timeout=10)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -229,6 +229,7 @@ class CalculoIctService:
         salvar_leitura: Callable,
         obter_historico: Callable,
         email_cls: type[Email] = Email,
+        obter_configuracoes: Callable | None = None,
     ):
         self._resfriador = resfriador
         self._historico_grafico = historico_grafico
@@ -236,6 +237,12 @@ class CalculoIctService:
         self._salvar_leitura = salvar_leitura
         self._obter_historico = obter_historico
         self._email_cls = email_cls
+        # Usado apenas para buscar host/porta/usuario/senha SMTP direto da
+        # configuracao persistida no servidor (ver `_smtp_config_atual`).
+        # Opcional e por ultimo para nao quebrar quem ja instancia esta
+        # classe sem esse parametro -- nesse caso, o envio de e-mail volta a
+        # depender só das variaveis de ambiente SMTP_*, como antes.
+        self._obter_configuracoes = obter_configuracoes
 
     def calcular(
         self,
@@ -461,6 +468,27 @@ class CalculoIctService:
                 logger.exception("Falha ao atualizar equipamentos remotos")
             return equipamento_info
 
+    def _smtp_config_atual(self) -> dict:
+        """Busca host/porta/usuario/senha SMTP direto da configuracao
+        persistida no servidor -- nunca do `config` recebido no corpo do
+        request de /api/calcular. O campo de senha e somente-escrita (o
+        navegador nunca recebe a senha real de volta, ver
+        web._configuracoes_publicas); usar o `config` do request para a
+        senha sempre resultaria numa string vazia, mesmo com uma senha
+        valida ja salva no banco."""
+        if not self._obter_configuracoes:
+            return {}
+        try:
+            persistida = self._obter_configuracoes()
+        except Exception:
+            return {}
+        return {
+            "host": persistida.get("smtpHost") or None,
+            "porta": persistida.get("smtpPorta") or None,
+            "usuario": persistida.get("smtpUsuario") or None,
+            "senha": persistida.get("smtpSenha") or None,
+        }
+
     def _montar_email(
         self,
         indice: str,
@@ -476,7 +504,7 @@ class CalculoIctService:
             conteudo = self._email_cls.montar_conteudo(indice, valor, status)
             destino = (config.get("emailDestino") or "produtor@fazenda.com.br").strip()
             email = self._email_cls(destino, conteudo)
-            enviado_de_verdade = email.enviar()
+            enviado_de_verdade = email.enviar(self._smtp_config_atual())
             return {
                 "destino": destino,
                 "conteudo": conteudo,

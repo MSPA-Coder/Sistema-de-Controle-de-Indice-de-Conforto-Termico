@@ -188,8 +188,19 @@ class Email:
         self.conteudo = conteudo
         self._enviado = False
 
-    def enviar(self) -> bool:
-        host = os.environ.get("SMTP_HOST")
+    def enviar(self, smtp_config: dict | None = None) -> bool:
+        """Envia o e-mail via SMTP.
+
+        `smtp_config` (opcional) traz host/porta/usuario/senha vindos da
+        configuracao persistida no banco (card "E-mail" da aba
+        Configuracoes). Quando um campo especifico vem vazio ali (ex.:
+        SMTP nunca configurado pela interface), cai de volta para a
+        respectiva variavel de ambiente (`SMTP_HOST`/`SMTP_PORT`/
+        `SMTP_USER`/`SMTP_PASS`) -- mantendo funcionando, sem nenhuma
+        mudanca, quem configurava o envio so por variavel de ambiente
+        antes deste campo existir na interface."""
+        smtp_config = smtp_config or {}
+        host = smtp_config.get("host") or os.environ.get("SMTP_HOST")
         if not host:
             self._enviado = False
             return False
@@ -202,15 +213,15 @@ class Email:
             # "Bcc:") via quebras de linha ou caracteres de controle.
             self._enviado = False
             return False
-        porta = int(os.environ.get("SMTP_PORT", "587"))
-        usuario = os.environ.get("SMTP_USER")
-        senha = os.environ.get("SMTP_PASS")
+        porta = smtp_config.get("porta") or int(os.environ.get("SMTP_PORT", "587"))
+        usuario = smtp_config.get("usuario") or os.environ.get("SMTP_USER")
+        senha = smtp_config.get("senha") or os.environ.get("SMTP_PASS")
         try:
             msg = MIMEText(self.conteudo, _charset="utf-8")
             msg["Subject"] = "Alerta - Sistema de Controle dos Índices de Conforto Térmico"
             msg["From"] = usuario
             msg["To"] = self.destino
-            with smtplib.SMTP(host, porta, timeout=10) as servidor:
+            with smtplib.SMTP(host, int(porta), timeout=10) as servidor:
                 servidor.starttls()
                 servidor.login(usuario, senha)
                 servidor.sendmail(usuario, [self.destino], msg.as_string())

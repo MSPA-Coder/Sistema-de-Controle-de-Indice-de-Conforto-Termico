@@ -20,15 +20,13 @@
 
   <main id="aba-principal" class="grade aba-conteudo" data-aba-conteudo="principal">
 
-    <!-- Seletor de especie e indice -------------------------------------------------->
-    <section class="painel seletor-painel">
-      <div class="seletor-linha">
-        <span class="seletor-etiqueta">Espécie</span>
-        <div id="seletor-especie" class="rocker-grupo" role="tablist"></div>
-      </div>
-      <div class="seletor-linha">
-        <span class="seletor-etiqueta">Índice</span>
-        <div id="seletor-indice" class="rocker-grupo rocker-grupo--pequeno" role="tablist"></div>
+    <!-- Valores de entrada (antiga posicao do seletor de especie/indice, -->
+    <!-- que agora mora na aba Configuracoes - ver secao "seletor-painel" -->
+    <!-- la embaixo) ------------------------------------------------------->
+    <section class="painel entradas-grafico-painel">
+      <div class="grafico-bloco grafico-bloco--sem-moldura">
+        <p class="grafico-titulo">Valores de entrada por leitura</p>
+        <div class="grafico-canvas-wrap"><canvas id="grafico-entradas"></canvas></div>
       </div>
     </section>
 
@@ -70,14 +68,6 @@
       </div>
 
       <p id="mensagem-erro" class="mensagem-erro oculto" role="alert"></p>
-    </section>
-
-    <!-- Valores de entrada ------------------------------------------------------------------>
-    <section class="painel entradas-grafico-painel">
-      <div class="grafico-bloco grafico-bloco--sem-moldura">
-        <p class="grafico-titulo">Valores de entrada por leitura</p>
-        <div class="grafico-canvas-wrap"><canvas id="grafico-entradas"></canvas></div>
-      </div>
     </section>
 
     <!-- Leitura / readout ---------------------------------------------------------------->
@@ -175,9 +165,54 @@
   </main>
 
   <section id="aba-configuracoes" class="grade grade-configuracoes aba-conteudo oculto" data-aba-conteudo="configuracoes" role="tabpanel">
+    <!-- Seletor de especie e indice (movido da aba Principal a pedido do -->
+    <!-- usuario: agora e mais um parametro persistido, como os demais -->
+    <!-- desta aba) --------------------------------------------------------->
+    <section class="painel seletor-painel">
+      <h2 class="painel-titulo">Espécie e índice</h2>
+      <div class="seletor-linha">
+        <span class="seletor-etiqueta">Espécie</span>
+        <div id="seletor-especie" class="rocker-grupo" role="tablist"></div>
+      </div>
+      <div class="seletor-linha">
+        <span class="seletor-etiqueta">Índice</span>
+        <div id="seletor-indice" class="rocker-grupo rocker-grupo--pequeno" role="tablist"></div>
+      </div>
+    </section>
+
     <section class="painel configuracoes-painel">
       <h2 class="painel-titulo">Configurações do app</h2>
       <div id="configuracoes-app" class="configuracoes-bloco"></div>
+    </section>
+
+    <!-- E-mail: liga/desliga, destinatario e credenciais SMTP para envio -->
+    <!-- de verdade (mesmos 4 parametros ja documentados no README como -->
+    <!-- variaveis de ambiente SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS). -->
+    <section class="painel configuracoes-painel">
+      <h2 class="painel-titulo">E-mail</h2>
+      <div id="configuracoes-email" class="configuracoes-bloco"></div>
+
+      <div class="campos-config">
+        <div class="campo-config">
+          <label for="cfg-smtp-host">Servidor SMTP (host)</label>
+          <input type="text" id="cfg-smtp-host" placeholder="smtp.seuservidor.com" autocomplete="off">
+        </div>
+        <div class="campo-config">
+          <label for="cfg-smtp-porta">Porta SMTP</label>
+          <input type="number" id="cfg-smtp-porta" min="1" max="65535" step="1" value="587">
+        </div>
+        <div class="campo-config">
+          <label for="cfg-smtp-usuario">Usuário SMTP</label>
+          <input type="text" id="cfg-smtp-usuario" placeholder="usuario@seudominio.com" autocomplete="off">
+        </div>
+        <div class="campo-config">
+          <label for="cfg-smtp-senha">Senha SMTP</label>
+          <input type="password" id="cfg-smtp-senha" placeholder="Deixe em branco para manter a senha atual" autocomplete="new-password">
+        </div>
+      </div>
+      <p id="smtp-status" class="smtp-status">
+        Sem host SMTP configurado, o envio funciona em modo simulado (o e-mail é montado e mostrado na tela, mas nada é enviado de fato).
+      </p>
     </section>
 
     <section class="painel configuracoes-painel">

@@ -173,6 +173,41 @@ class TestSanitizacaoDeConfiguracoes(unittest.TestCase):
             db.CONFIGURACOES_PADRAO["intervaloLeituraSegundos"], salvas["intervaloLeituraSegundos"]
         )
 
+    def test_especie_desconhecida_cai_para_padrao(self):
+        salvas = db.salvar_configuracoes({"especie": "marciano"})
+        self.assertEqual(db.CONFIGURACOES_PADRAO["especie"], salvas["especie"])
+
+    def test_indice_incompativel_com_especie_cai_para_indice_valido(self):
+        # ITUV so existe para frangos; ao salvar bovinos+ITUV, o indice deve
+        # ser corrigido para um indice que bovinos realmente tem.
+        salvas = db.salvar_configuracoes({"especie": "bovinos", "indice": "ITUV"})
+        self.assertEqual("bovinos", salvas["especie"])
+        self.assertIn(salvas["indice"], ("ITU", "IGNU"))
+
+    def test_indice_compativel_e_preservado(self):
+        salvas = db.salvar_configuracoes({"especie": "suinos", "indice": "IGNU"})
+        self.assertEqual("suinos", salvas["especie"])
+        self.assertEqual("IGNU", salvas["indice"])
+
+    def test_smtp_porta_fora_da_faixa_e_limitada(self):
+        salvas = db.salvar_configuracoes({"smtpPorta": 999999})
+        self.assertEqual(65535, salvas["smtpPorta"])
+
+    def test_smtp_host_com_quebra_de_linha_e_sanitizado(self):
+        salvas = db.salvar_configuracoes({"smtpHost": "smtp.fazenda.com.br\r\nX-Injetado: 1"})
+        self.assertNotIn("\r", salvas["smtpHost"])
+        self.assertNotIn("\n", salvas["smtpHost"])
+
+    def test_smtp_senha_em_branco_preserva_senha_ja_salva(self):
+        db.salvar_configuracoes({"smtpSenha": "senha-original"})
+        salvas = db.salvar_configuracoes({"smtpSenha": "", "habilitarSons": True})
+        self.assertEqual("senha-original", salvas["smtpSenha"])
+
+    def test_smtp_senha_nao_vazia_substitui_a_anterior(self):
+        db.salvar_configuracoes({"smtpSenha": "senha-antiga"})
+        salvas = db.salvar_configuracoes({"smtpSenha": "senha-nova"})
+        self.assertEqual("senha-nova", salvas["smtpSenha"])
+
 
 if __name__ == "__main__":
     unittest.main()

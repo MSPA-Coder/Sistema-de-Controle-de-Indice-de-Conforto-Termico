@@ -98,6 +98,35 @@ Use ASCII identifiers and internal values such as `especie`, `indice`,
   or a dedicated validator like `_coagir_email`) with a safe fallback to
   `CONFIGURACOES_PADRAO` on invalid input -- never let a malformed config
   value propagate unchecked into equipment control or email sending.
+- `especie`/`indice` are now persisted config keys (moved from the
+  Principal tab's selector card into a "Espécie e índice" card in
+  Configurações). They are validated together, not independently:
+  `_coagir_indice(valor, especie, padrao)` needs the already-resolved
+  `especie` to know which indices are even valid (ITUV only exists for
+  frangos, for example). If you add a new species/index combination,
+  update `thermal_indices.INDICES_POR_ESPECIE` first -- the config
+  validator reads from there, not from a separate hardcoded list.
+- `smtpHost`/`smtpPorta`/`smtpUsuario`/`smtpSenha` are persisted config keys
+  backing the "E-mail" card in Configurações (same four values documented
+  in the README as `SMTP_*` environment variables). `smtpSenha` is
+  write-only end to end:
+  - `web._configuracoes_publicas` always returns `smtpSenha: ""` to any
+    HTTP caller (GET or POST), plus a `smtpSenhaConfigurada: bool` flag.
+    Never remove this masking or return the raw value over HTTP.
+  - `database.salvar_configuracoes` treats a blank incoming `smtpSenha` as
+    "leave the current one alone" (fetches the existing value before
+    sanitizing), not as "clear it". This matters because the front-end
+    always POSTs a full config object, and its password field is always
+    blank unless the user just typed a new one.
+  - `services.CalculoIctService._smtp_config_atual` fetches SMTP
+    credentials directly from `obter_configuracoes` (server-side, real
+    values), never from the client-supplied `config` in `/api/calcular` --
+    that `config` always carries a blank `smtpSenha`, so reading the
+    secret from it would silently break real email sending.
+  - `models.Email.enviar(smtp_config=None)` prefers `smtp_config` fields
+    when present/non-empty, falling back to the `SMTP_*` environment
+    variables per field. Keep both paths working; some deployments may
+    still rely purely on environment variables.
 
 ## Security & Configuration
 

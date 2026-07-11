@@ -640,6 +640,7 @@ td.status-alerta { color: var(--status-alerta); }
 td.status-perigo { color: var(--status-perigo); }
 td.status-emergencia { color: var(--status-emergencia); }
 .tabela-vazia { color: var(--cor-texto-mute); font-size: 0.85rem; margin: 0.5rem 0 0; }
+.smtp-status { color: var(--cor-texto-mute); font-size: 0.82rem; margin: 0.9rem 0 0; line-height: 1.4; }
 .historico-paginacao {
   display: flex;
   align-items: center;

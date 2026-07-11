@@ -111,6 +111,7 @@ let autoAtivo = false; // Modo automatico ligado/desligado (checado antes de CAD
 let autoEmExecucao = false; // true enquanto um ciclo esta em andamento (evita sobreposicao)
 let autoTimeoutId = null; // id do proximo ciclo agendado (setTimeout), se houver
 let salvamentoConfigTimeoutId = null;
+let smtpSenhaJaConfigurada = false;
 let audioCtx = null;
 
 // ---------------------------------------------------------------------------
@@ -222,6 +223,7 @@ function selecionarEspecie(especie) {
   renderCamposEntrada();
   resetarPainelResultado();
   carregarHistorico();
+  agendarSalvarConfiguracoes();
 }
 
 function selecionarIndice(indice) {
@@ -235,6 +237,7 @@ function selecionarIndice(indice) {
     resetarPainelResultado();
   }
   atualizarGraficos(ultimosHistoricosGrafico);
+  agendarSalvarConfiguracoes();
 }
 
 // ---------------------------------------------------------------------------
@@ -371,6 +374,17 @@ function coletarConfig() {
     modoUmidadeRelativa: document.getElementById("cfg-umidade-relativa").value,
     altitudeMetros: lerAltitudeMetros(),
     limiteUmidadeNebulizador: lerNumeroConfiguracao("cfg-limite-umidade-nebulizador", 70, 0),
+    especie: estado.especie,
+    indice: estado.indice,
+    smtpHost: document.getElementById("cfg-smtp-host")?.value || "",
+    smtpPorta: lerNumeroConfiguracao("cfg-smtp-porta", 587, 1),
+    smtpUsuario: document.getElementById("cfg-smtp-usuario")?.value || "",
+    // Campo somente-escrita: o servidor nunca devolve a senha real (ver
+    // web._configuracoes_publicas), entao so enviamos algo aqui quando o
+    // usuario de fato digitou uma senha nova nesta sessao. Deixar em
+    // branco significa "nao mexer na senha ja salva" - tratado do lado do
+    // servidor em database.salvar_configuracoes.
+    smtpSenha: document.getElementById("cfg-smtp-senha")?.value || "",
   };
 }
 
@@ -382,6 +396,24 @@ function definirValorConfiguracao(id, valor) {
     elemento.checked = !!valor;
   } else {
     elemento.value = String(valor);
+  }
+}
+
+function refletirStatusSmtp() {
+  const status = document.getElementById("smtp-status");
+  if (!status) return;
+  const host = (document.getElementById("cfg-smtp-host")?.value || "").trim();
+  const senhaDigitadaAgora = (document.getElementById("cfg-smtp-senha")?.value || "").trim();
+
+  if (!host) {
+    status.textContent =
+      "Sem host SMTP configurado, o envio funciona em modo simulado (o e-mail é montado e mostrado na tela, mas nada é enviado de fato).";
+  } else if (senhaDigitadaAgora || smtpSenhaJaConfigurada) {
+    status.textContent =
+      "SMTP configurado (" + host + "). Uma senha já está salva; deixe o campo de senha em branco para mantê-la.";
+  } else {
+    status.textContent =
+      "Host SMTP definido, mas ainda sem senha salva. Informe a senha para habilitar o envio real.";
   }
 }
 
@@ -398,6 +430,24 @@ function aplicarConfiguracoes(config) {
   definirValorConfiguracao("cfg-umidade-relativa", config.modoUmidadeRelativa);
   definirValorConfiguracao("cfg-altitude", config.altitudeMetros);
   definirValorConfiguracao("cfg-limite-umidade-nebulizador", config.limiteUmidadeNebulizador);
+  definirValorConfiguracao("cfg-smtp-host", config.smtpHost);
+  definirValorConfiguracao("cfg-smtp-porta", config.smtpPorta);
+  definirValorConfiguracao("cfg-smtp-usuario", config.smtpUsuario);
+  // cfg-smtp-senha propositalmente NAO e preenchido aqui: o servidor nunca
+  // devolve a senha real, entao o campo fica vazio ate o usuario digitar
+  // uma senha nova.
+
+  // Especie/indice persistidos (agora configurados na aba Configuracoes,
+  // nao mais na Principal). So aceita valores que a propria tabela
+  // indicesPorEspecie reconhece - protege contra um valor antigo/invalido
+  // vindo do banco.
+  if (CONFIG_APP.indicesPorEspecie[config.especie]) {
+    estado.especie = config.especie;
+  }
+  const indicesDaEspecieConfig = CONFIG_APP.indicesPorEspecie[estado.especie] || [];
+  if (indicesDaEspecieConfig.includes(config.indice)) {
+    estado.indice = config.indice;
+  }
 
   if (document.getElementById("cfg-auto").checked) {
     document.getElementById("cfg-coletar").checked = true;
@@ -407,6 +457,9 @@ function aplicarConfiguracoes(config) {
     !document.getElementById("cfg-emails").checked
   );
   document.getElementById("btn-simular").disabled = !document.getElementById("cfg-coletar").checked;
+
+  smtpSenhaJaConfigurada = !!config.smtpSenhaConfigurada;
+  refletirStatusSmtp();
 }
 
 async function carregarConfiguracoesPersistidas() {
@@ -421,11 +474,19 @@ async function carregarConfiguracoesPersistidas() {
 
 async function salvarConfiguracoesPersistidas() {
   try {
-    await fetch("/api/configuracoes", {
+    const resposta = await fetch("/api/configuracoes", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(coletarConfig()),
     });
+    if (!resposta.ok) return;
+    const salvo = await resposta.json();
+    smtpSenhaJaConfigurada = !!salvo.smtpSenhaConfigurada;
+    // Uma vez salva, a senha nao precisa continuar visivel no campo -- o
+    // status abaixo do card ja confirma que ela esta configurada.
+    const campoSenha = document.getElementById("cfg-smtp-senha");
+    if (campoSenha) campoSenha.value = "";
+    refletirStatusSmtp();
   } catch (erro) {
     console.error("Nao foi possivel salvar configuracoes:", erro);
   }
@@ -1346,6 +1407,7 @@ function inicializarAbas() {
 
 function moverControlesParaConfiguracoes() {
   const configuracoesApp = document.getElementById("configuracoes-app");
+  const configuracoesEmail = document.getElementById("configuracoes-email");
   const configuracoesSensores = document.getElementById("configuracoes-sensores");
   const configuracoesCalculos = document.getElementById("configuracoes-calculos");
   const configuracoesHistorico = document.getElementById("configuracoes-historico");
@@ -1388,10 +1450,11 @@ function moverControlesParaConfiguracoes() {
     if (campo && grade) grade.appendChild(campo);
   };
 
-  moverCheck("cfg-emails", configuracoesApp);
   moverCheck("cfg-sons", configuracoesApp);
   moverCheck("cfg-equipamentos", configuracoesApp);
-  if (configuracoesApp && email) configuracoesApp.appendChild(email);
+
+  moverCheck("cfg-emails", configuracoesEmail);
+  if (configuracoesEmail && email) configuracoesEmail.appendChild(email);
 
   moverCheck("cfg-coletar", configuracoesSensores);
   moverCheck("cfg-auto", configuracoesSensores);
@@ -1524,6 +1587,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     atualizarCamposCalculados();
   });
   document.getElementById("cfg-altitude").addEventListener("input", atualizarCamposCalculados);
+  document.getElementById("cfg-smtp-host")?.addEventListener("input", refletirStatusSmtp);
+  document.getElementById("cfg-smtp-senha")?.addEventListener("input", refletirStatusSmtp);
   document.querySelectorAll("#aba-configuracoes input, #aba-configuracoes select").forEach((controle) => {
     controle.addEventListener("change", agendarSalvarConfiguracoes);
     if (["number", "email"].includes(controle.type)) {

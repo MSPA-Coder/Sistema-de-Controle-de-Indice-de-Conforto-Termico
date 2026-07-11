@@ -47,6 +47,8 @@ import threading
 from contextlib import contextmanager
 from typing import Iterator
 
+from . import thermal_indices as ti
+
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(PROJECT_ROOT, "historico.db")
 
@@ -72,6 +74,22 @@ CONFIGURACOES_PADRAO = {
     "modoUmidadeRelativa": "calculado",
     "altitudeMetros": 0,
     "limiteUmidadeNebulizador": 70,
+    # Especie/indice selecionados na interface (movidos do card "Principal"
+    # para a aba "Configuracoes" a pedido do usuario): agora persistem como
+    # mais um parametro do sistema, assim como os demais acima.
+    "especie": "frangos",
+    "indice": "ITU",
+    # Parametros de SMTP para envio de e-mail de verdade -- mesmos quatro
+    # valores ja documentados no README ("Envio de e-mails de verdade") como
+    # variaveis de ambiente SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS. Aqui
+    # viram configuracao editavel pela interface e persistida no banco;
+    # continuam funcionando como fallback caso as variaveis de ambiente
+    # tambem estejam definidas (ver models.Email.enviar). "" (vazio) para
+    # host/usuario/senha significa "nao configurado" -- nao e um erro.
+    "smtpHost": "",
+    "smtpPorta": 587,
+    "smtpUsuario": "",
+    "smtpSenha": "",
 }
 
 # Regex pragmatica (nao e uma validacao RFC 5322 completa) para pegar os
@@ -259,6 +277,36 @@ def _coagir_email(valor, padrao: str) -> str:
     return padrao
 
 
+def _coagir_especie(valor, padrao: str) -> str:
+    return valor if isinstance(valor, str) and valor in ti.ESPECIES_VALIDAS else padrao
+
+
+def _coagir_indice(valor, especie: str, padrao: str) -> str:
+    """Valida o indice em funcao da especie ja resolvida (nao existe indice
+    "generico" -- ITUV so faz sentido para frangos, por exemplo). Se nem o
+    valor recebido nem o padrao servirem para a especie atual (ex.: especie
+    mudou e o indice salvo ficou orfao), cai para o primeiro indice
+    disponivel daquela especie, que sempre existe."""
+    disponiveis = ti.INDICES_POR_ESPECIE.get(especie, ())
+    if isinstance(valor, str) and valor in disponiveis:
+        return valor
+    if padrao in disponiveis:
+        return padrao
+    return disponiveis[0] if disponiveis else padrao
+
+
+def _coagir_texto_livre(valor, padrao: str, tamanho_maximo: int = 255) -> str:
+    """Sanitizador para campos de texto livre (host/usuario/senha SMTP):
+    aceita apenas string, remove caracteres de controle (CR/LF/NUL -- nunca
+    legitimos nesses campos e sinal classico de tentativa de injecao) e
+    limita o tamanho. Diferente dos demais coercers, uma string vazia AQUI
+    e um valor valido (significa "SMTP nao configurado", nao um erro)."""
+    if not isinstance(valor, str):
+        return padrao
+    limpo = re.sub(r"[\r\n\x00]", "", valor).strip()
+    return limpo[:tamanho_maximo]
+
+
 def _sanitizar_configuracoes(configuracoes: dict) -> dict:
     """Valida tipo, faixa e formato de cada chave de configuracao conhecida.
 
@@ -269,6 +317,12 @@ def _sanitizar_configuracoes(configuracoes: dict) -> dict:
     a nota de seguranca no topo do modulo sobre `emailDestino`."""
     padrao = CONFIGURACOES_PADRAO
     bruto = {**padrao, **{k: v for k, v in (configuracoes or {}).items() if k in padrao}}
+
+    # `indice` depende de `especie` (ITUV so existe para frangos, etc.) --
+    # por isso especie e resolvida primeiro e passada para o coercer do
+    # indice, em vez de cada campo ser validado de forma totalmente
+    # independente como os demais.
+    especie = _coagir_especie(bruto["especie"], padrao["especie"])
 
     return {
         "coletarDados": _coagir_booleano(bruto["coletarDados"], padrao["coletarDados"]),
@@ -295,6 +349,12 @@ def _sanitizar_configuracoes(configuracoes: dict) -> dict:
         "limiteUmidadeNebulizador": _coagir_numero(
             bruto["limiteUmidadeNebulizador"], padrao["limiteUmidadeNebulizador"], 0, 100
         ),
+        "especie": especie,
+        "indice": _coagir_indice(bruto["indice"], especie, padrao["indice"]),
+        "smtpHost": _coagir_texto_livre(bruto["smtpHost"], padrao["smtpHost"]),
+        "smtpPorta": _coagir_numero(bruto["smtpPorta"], padrao["smtpPorta"], 1, 65535),
+        "smtpUsuario": _coagir_texto_livre(bruto["smtpUsuario"], padrao["smtpUsuario"]),
+        "smtpSenha": _coagir_texto_livre(bruto["smtpSenha"], padrao["smtpSenha"]),
     }
 
 
@@ -315,6 +375,19 @@ def obter_configuracoes() -> dict:
 
 
 def salvar_configuracoes(configuracoes: dict) -> dict:
+    configuracoes = dict(configuracoes or {})
+
+    # `smtpSenha` e um campo "somente escrita": a API nunca devolve a senha
+    # real de volta ao navegador (ver web._configuracoes_publicas), entao um
+    # valor em branco aqui significa "o usuario nao mudou a senha", nao
+    # "apague a senha". Sem este tratamento, salvar QUALQUER outro campo
+    # (ex.: marcar uma checkbox) apagaria silenciosamente a senha SMTP ja
+    # configurada, porque o front-end sempre envia o payload completo e o
+    # campo de senha no navegador sempre chega vazio (nunca e preenchido de
+    # volta a partir do servidor).
+    if not str(configuracoes.get("smtpSenha", "")).strip():
+        configuracoes["smtpSenha"] = obter_configuracoes().get("smtpSenha", "")
+
     salvas = _sanitizar_configuracoes(configuracoes)
     agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
     with _conexao() as conn:

@@ -95,6 +95,12 @@ class TestHistoricoGraficoApi(unittest.TestCase):
             "modoUmidadeRelativa": "medido",
             "altitudeMetros": 800,
             "limiteUmidadeNebulizador": 68,
+            "especie": "bovinos",
+            "indice": "IGNU",
+            "smtpHost": "smtp.fazenda.com.br",
+            "smtpPorta": 465,
+            "smtpUsuario": "sistema@fazenda.com.br",
+            "smtpSenha": "segredo-app-password",
         }
 
         salvar = self.client.post("/api/configuracoes", json=payload)
@@ -102,7 +108,41 @@ class TestHistoricoGraficoApi(unittest.TestCase):
 
         self.assertEqual(200, salvar.status_code)
         self.assertEqual(200, buscar.status_code)
-        self.assertEqual(payload, buscar.json)
+
+        # A senha SMTP nunca volta em texto puro pelo HTTP -- nem na
+        # resposta do proprio POST que acabou de salva-la, nem em GETs
+        # seguintes. O cliente so recebe a confirmacao de que ela esta
+        # configurada.
+        esperado_publico = dict(payload)
+        esperado_publico["smtpSenha"] = ""
+        esperado_publico["smtpSenhaConfigurada"] = True
+        self.assertEqual(esperado_publico, salvar.json)
+        self.assertEqual(esperado_publico, buscar.json)
+
+    def test_api_mantem_senha_smtp_ao_salvar_sem_reenviar(self):
+        primeiro = self.client.post(
+            "/api/configuracoes", json={"smtpHost": "smtp.fazenda.com.br", "smtpSenha": "segredo123"}
+        )
+        self.assertTrue(primeiro.json["smtpSenhaConfigurada"])
+
+        # Um segundo salvamento (ex.: so mudando outro campo qualquer) sem
+        # reenviar a senha nao deve apagar a ja configurada.
+        segundo = self.client.post(
+            "/api/configuracoes", json={"smtpHost": "smtp.fazenda.com.br", "habilitarSons": True}
+        )
+        self.assertTrue(segundo.json["smtpSenhaConfigurada"])
+        self.assertTrue(self.client.get("/api/configuracoes").json["smtpSenhaConfigurada"])
+
+    def test_api_indice_incompativel_com_especie_cai_para_indice_valido(self):
+        # ITUV so existe para frangos: ao mudar a especie persistida para
+        # bovinos mantendo indice=ITUV, o servidor deve corrigir sozinho
+        # para um indice valido daquela especie, em vez de guardar uma
+        # combinacao impossivel.
+        resposta = self.client.post(
+            "/api/configuracoes", json={"especie": "bovinos", "indice": "ITUV"}
+        )
+        self.assertEqual("bovinos", resposta.json["especie"])
+        self.assertIn(resposta.json["indice"], ("ITU", "IGNU"))
 
     def test_nao_calcula_indices_sem_campos_preenchidos(self):
         resposta = self.client.post(

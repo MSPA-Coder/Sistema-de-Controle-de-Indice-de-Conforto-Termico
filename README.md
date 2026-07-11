@@ -261,6 +261,29 @@ testes cresceu de 41 para 75 casos, todos verdes antes e depois):
     `textContent`) em `definirMensagemOrientacao`, que nunca interpreta o
     conteúdo como marcação.
 
+### Quarta rodada: reorganização de cards e configuração de e-mail pela interface
+
+14. **Card "Espécie e índice" movido para a aba Configurações.** O card
+    "Valores de entrada por leitura" assumiu a posição que era dele na aba
+    Principal. Espécie e índice selecionados agora são mais um parâmetro
+    persistido no banco (`especie`/`indice`, junto dos demais em
+    `configuracoes`), com a mesma validação acoplada usada em
+    `thermal_indices.INDICES_POR_ESPECIE` (ex.: se a espécie muda para
+    bovinos enquanto o índice salvo era ITUV — que só existe para frangos
+    — o servidor corrige sozinho para um índice válido daquela espécie).
+15. **Novo card "E-mail" na aba Configurações**, reunindo o que já existia
+    (habilitar envio, destinatário) com os quatro parâmetros de SMTP até
+    então só configuráveis por variável de ambiente
+    (`SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS` — ver "Envio de
+    e-mails de verdade" abaixo). A senha é **somente-escrita**: a API
+    nunca devolve o valor real de volta (`smtpSenha` sempre volta `""`,
+    acompanhado de um `smtpSenhaConfigurada: bool`), e salvar qualquer
+    outro campo sem reenviar a senha não a apaga — o servidor mantém a
+    senha já salva. O envio de e-mail de verdade sempre busca a senha
+    direto do servidor (nunca do payload enviado pelo navegador, que
+    chega vazio de propósito). As variáveis de ambiente continuam
+    funcionando como estavam, como alternativa a esse card.
+
 ## Variáveis de ambiente do servidor
 
 Todas opcionais — sem nenhuma configurada, o servidor roda com os mesmos
