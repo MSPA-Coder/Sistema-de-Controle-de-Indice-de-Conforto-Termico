@@ -686,6 +686,76 @@ class TestZonasApi(unittest.TestCase):
         resposta = self.client.post("/api/zonas/9999/calcular")
         self.assertEqual(400, resposta.status_code)
 
+    def test_calcular_zona_com_entradas_digitadas_nao_exige_sensores(self):
+        zona_id = self._criar_zona().json["id"]
+        resposta = self.client.post(
+            f"/api/zonas/{zona_id}/calcular",
+            json={"entradas": {"tbs": 25.0, "tbu": 20.0}},
+        )
+        self.assertEqual(200, resposta.status_code)
+        self.assertEqual(zona_id, resposta.json["zona_id"])
+        self.assertEqual(1, len(resposta.json["historico_grafico"]))
+        self.assertEqual(1, len(db.obter_historico_por_zona(zona_id)))
+
+    def test_calcular_zonas_ativas_usa_sensores_de_todas_as_ativas(self):
+        zona_a = self._criar_zona(nome="Zona A").json["id"]
+        zona_b = self._criar_zona(nome="Zona B").json["id"]
+        zona_inativa = self._criar_zona(nome="Zona Inativa", ativa=False).json["id"]
+        for zona_id in (zona_a, zona_b, zona_inativa):
+            for campo in ("tbs", "tbu"):
+                self.client.post(
+                    f"/api/zonas/{zona_id}/equipamentos",
+                    json={
+                        "tipo": "sensor",
+                        "nome": f"Sensor {campo.upper()} {zona_id}",
+                        "modo_conexao": "tcp",
+                        "host": "127.0.0.1",
+                        "porta": 502,
+                        "tipo_registrador": "input",
+                        "endereco_registrador": 1,
+                        "campo_medido": campo,
+                    },
+                )
+
+        def ler_modbus(equipamento):
+            return 25.0 if equipamento["campo_medido"] == "tbs" else 20.0
+
+        with patch.object(flask_app.zona_service, "_ler_modbus", side_effect=ler_modbus):
+            resposta = self.client.post("/api/zonas/calcular-ativas")
+
+        self.assertEqual(200, resposta.status_code)
+        ids = {item["zona_id"] for item in resposta.json["resultados"]}
+        self.assertEqual({zona_a, zona_b}, ids)
+        self.assertNotIn(zona_inativa, ids)
+
+    def test_calcular_zonas_ativas_nao_derruba_rota_com_entrada_invalida(self):
+        zona_id = self._criar_zona(nome="Zona ITUV", indice="ITUV").json["id"]
+        for campo in ("tbs", "tbu", "v"):
+            self.client.post(
+                f"/api/zonas/{zona_id}/equipamentos",
+                json={
+                    "tipo": "sensor",
+                    "nome": f"Sensor {campo.upper()}",
+                    "modo_conexao": "tcp",
+                    "host": "127.0.0.1",
+                    "porta": 502,
+                    "tipo_registrador": "input",
+                    "endereco_registrador": 1,
+                    "campo_medido": campo,
+                },
+            )
+
+        def ler_modbus(equipamento):
+            valores = {"tbs": 25.0, "tbu": 20.0, "v": -0.27}
+            return valores[equipamento["campo_medido"]]
+
+        with patch.object(flask_app.zona_service, "_ler_modbus", side_effect=ler_modbus):
+            resposta = self.client.post("/api/zonas/calcular-ativas")
+
+        self.assertEqual(200, resposta.status_code)
+        self.assertEqual(zona_id, resposta.json["resultados"][0]["zona_id"])
+        self.assertIn("fora da faixa esperada", resposta.json["resultados"][0]["erro"])
+
     def test_historico_de_zona_inexistente_devolve_404(self):
         resposta = self.client.get("/api/zonas/9999/historico")
         self.assertEqual(404, resposta.status_code)
@@ -737,6 +807,20 @@ class TestZonasApi(unittest.TestCase):
         self.assertEqual(200, historico_endpoint.status_code)
         self.assertEqual(2, len(historico_endpoint.json))
         self.assertEqual(1, len(db.obter_historico_por_zona(zona_id)))
+
+    def test_grafico_de_zona_mantem_ultimas_30_leituras(self):
+        zona_id = self._criar_zona().json["id"]
+        ultima = None
+        for i in range(31):
+            ultima = self.client.post(
+                f"/api/zonas/{zona_id}/calcular",
+                json={"entradas": {"tbs": 20.0 + i, "tbu": 18.0}},
+            )
+
+        self.assertEqual(200, ultima.status_code)
+        self.assertEqual(30, len(ultima.json["historico_grafico"]))
+        self.assertEqual(21.0, ultima.json["historico_grafico"][0]["entradas"]["tbs"])
+        self.assertEqual(50.0, ultima.json["historico_grafico"][-1]["entradas"]["tbs"])
 
     def test_testar_conexao_de_equipamento_inexistente_devolve_404(self):
         zona_id = self._criar_zona().json["id"]

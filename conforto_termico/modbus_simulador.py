@@ -27,6 +27,7 @@ import threading
 import time
 from typing import Callable
 
+from . import thermal_indices as ti
 from .services import SensorSimuladoService
 
 
@@ -105,7 +106,11 @@ class SimuladorModbusZonas:
         # que tornaria a MEDIA entre sensores um teste trivial (todos os
         # valores identicos). O jitter imita a variacao natural entre
         # sensores fisicos reais medindo o mesmo ambiente.
-        return round(valor_base + random.uniform(-0.4, 0.4), 2)
+        valor = valor_base + random.uniform(-0.4, 0.4)
+        if campo in ti.RANGE_VALIDACAO:
+            minimo, maximo = ti.RANGE_VALIDACAO[campo]
+            valor = min(maximo, max(minimo, valor))
+        return round(valor, 2)
 
     def escrever_valor(self, equipamento: dict, ligar: bool) -> bool:  # noqa: ARG002
         return True

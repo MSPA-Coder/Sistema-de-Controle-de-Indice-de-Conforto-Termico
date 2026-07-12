@@ -41,6 +41,20 @@ class TestSimuladorModbusZonas(unittest.TestCase):
         self.assertGreaterEqual(valor, minimo - 1)
         self.assertLessEqual(valor, maximo + 1)
 
+    def test_velocidade_simulada_nunca_fica_negativa_com_jitter(self):
+        self.zona = {
+            "id": 1,
+            "nome": "Zona Teste",
+            "especie": "frangos",
+            "indice": "ITUV",
+            "ativa": True,
+        }
+        minimo, maximo = ti.RANGE_VALIDACAO["v"]
+
+        valores = [self.simulador.ler_valor(self._sensor("v")) for _ in range(200)]
+
+        self.assertTrue(all(minimo <= valor <= maximo for valor in valores))
+
     def test_dois_sensores_do_mesmo_campo_tem_jitter_mas_ficam_proximos(self):
         valores = [self.simulador.ler_valor(self._sensor("tbs")) for _ in range(10)]
         # todos vieram do mesmo "valor verdadeiro" em cache (mesma zona,

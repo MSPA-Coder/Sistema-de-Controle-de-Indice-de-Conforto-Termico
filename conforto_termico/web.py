@@ -39,7 +39,7 @@ from . import database as db
 from . import modbus_client
 from . import thermal_indices as ti
 from .modbus_simulador import SimuladorModbusZonas
-from .models import Resfriamento
+from .models import Email, Resfriamento
 from .services import CalculoIctService, HistoricoGraficoService, SensorSimuladoService
 from .zona_service import ZonaCalculoError, ZonaService
 
@@ -360,6 +360,39 @@ def _configuracoes_publicas(config: dict) -> dict:
     return publico
 
 
+def _smtp_config_atual(config: dict) -> dict:
+    return {
+        "host": config.get("smtpHost") or None,
+        "porta": config.get("smtpPorta") or None,
+        "usuario": config.get("smtpUsuario") or None,
+        "senha": config.get("smtpSenha") or None,
+    }
+
+
+def _aplicar_notificacoes_zona(resposta: dict, config: dict) -> dict:
+    if config.get("habilitarSons") and resposta.get("status") != "Conforto":
+        resposta["tocarSom"] = True
+
+    if not config.get("enviarEmails"):
+        return resposta
+
+    try:
+        conteudo = Email.montar_conteudo(
+            resposta["indice"], resposta["valor"], resposta["status"]
+        )
+        destino = (config.get("emailDestino") or "produtor@fazenda.com.br").strip()
+        email = Email(destino, conteudo)
+        enviado_de_verdade = email.enviar(_smtp_config_atual(config))
+        resposta["email"] = {
+            "destino": destino,
+            "conteudo": conteudo,
+            "enviado_de_verdade": enviado_de_verdade,
+        }
+    except Exception:
+        app.logger.exception("Falha ao montar/enviar e-mail da zona")
+    return resposta
+
+
 @app.route("/api/configuracoes", methods=["GET"])
 def obter_configuracoes():
     return jsonify(_configuracoes_publicas(db.obter_configuracoes()))
@@ -491,10 +524,39 @@ def testar_conexao_equipamento(zona_id, equipamento_id):
 
 @app.route("/api/zonas/<int:zona_id>/calcular", methods=["POST"])
 def calcular_zona(zona_id):
+    dados = request.get_json(force=True, silent=True) or {}
     try:
-        return jsonify(zona_service.calcular(zona_id, logger=app.logger))
-    except ZonaCalculoError as erro:
+        if isinstance(dados.get("entradas"), dict):
+            resposta = zona_service.calcular_manual(
+                zona_id, dados.get("entradas") or {}, logger=app.logger
+            )
+        else:
+            resposta = zona_service.calcular(zona_id, logger=app.logger)
+        resposta = _aplicar_notificacoes_zona(resposta, db.obter_configuracoes())
+        return jsonify(resposta)
+    except (ZonaCalculoError, ti.EntradaInvalidaError) as erro:
         return jsonify({"erro": str(erro)}), 400
+
+
+@app.route("/api/zonas/calcular-ativas", methods=["POST"])
+def calcular_zonas_ativas():
+    config = db.obter_configuracoes()
+    resultados = []
+    for zona in db.listar_zonas():
+        if not zona.get("ativa"):
+            continue
+        try:
+            resposta = zona_service.calcular(zona["id"], logger=app.logger)
+            resultados.append(_aplicar_notificacoes_zona(resposta, config))
+        except (ZonaCalculoError, ti.EntradaInvalidaError) as erro:
+            resultados.append(
+                {
+                    "zona_id": zona["id"],
+                    "zona_nome": zona["nome"],
+                    "erro": str(erro),
+                }
+            )
+    return jsonify({"resultados": resultados})
 
 
 @app.route("/api/zonas/<int:zona_id>/historico", methods=["GET"])

@@ -77,7 +77,7 @@ class ZonaService:
         ler_modbus_real: Callable = modbus_client.ler_valor,
         escrever_modbus_real: Callable = modbus_client.escrever_valor,
         simulador=None,
-        limite_historico_grafico: int = 20,
+        limite_historico_grafico: int = 30,
     ):
         self._obter_zona = obter_zona
         self._salvar_leitura = salvar_leitura
@@ -235,24 +235,46 @@ class ZonaService:
 
         equipamentos = zona["equipamentos"]
         leitura = self.ler_sensores(equipamentos)
+        entradas = self._preparar_entradas_da_zona(leitura["entradas"])
 
-        try:
-            altitude = float(self._obter_configuracoes().get("altitudeMetros") or 0)
-        except Exception:
-            altitude = 0.0
-        entradas = _derivar_campos_calculaveis(leitura["entradas"], altitude)
-
-        campos_necessarios = ti.CAMPOS_POR_INDICE[zona["indice"]]
-        if not any(campo in entradas for campo in campos_necessarios):
+        if not any(campo in entradas for campo in ti.CAMPOS_POR_INDICE[zona["indice"]]):
             raise ZonaCalculoError(
                 f"Nenhum sensor da zona '{zona['nome']}' respondeu com dados "
                 f"suficientes para calcular o índice {zona['indice']}."
             )
+        return self._calcular_com_entradas(
+            zona, entradas, leitura["sensores_com_falha"], logger
+        )
 
+    def calcular_manual(self, zona_id: int, entradas: dict, logger=None) -> dict:
+        zona = self._obter_zona(zona_id)
+        if not zona:
+            raise ZonaCalculoError(f"Zona {zona_id} não encontrada.")
+        if not zona["ativa"]:
+            raise ZonaCalculoError(f"A zona '{zona['nome']}' está desativada.")
+        return self._calcular_com_entradas(
+            zona, self._preparar_entradas_da_zona(entradas or {}), [], logger
+        )
+
+    def _preparar_entradas_da_zona(self, entradas: dict) -> dict:
+        try:
+            altitude = float(self._obter_configuracoes().get("altitudeMetros") or 0)
+        except Exception:
+            altitude = 0.0
+        return _derivar_campos_calculaveis(entradas, altitude)
+
+    def _calcular_com_entradas(
+        self, zona: dict, entradas: dict, sensores_com_falha: list[str], logger=None
+    ) -> dict:
+        zona_id = zona["id"]
+        equipamentos = zona["equipamentos"]
         temperatura = Temperatura(zona["especie"], zona["indice"])
         valor, status = temperatura.calcular_ict(entradas)
+        entradas_historico = self._entradas_para_historico(
+            zona["indice"], temperatura.entradas, entradas
+        )
         historico_grafico = self._registrar_historico_grafico(
-            zona, valor, status, temperatura.entradas, logger
+            zona, valor, status, entradas_historico, logger
         )
 
         gravado = False
@@ -262,7 +284,7 @@ class ZonaService:
                 zona["indice"],
                 valor,
                 status,
-                temperatura.entradas,
+                entradas_historico,
                 zona_id=zona_id,
             )
         except Exception:
@@ -277,7 +299,9 @@ class ZonaService:
             )
         except Exception:
             limite_umidade = 70.0
-        resfriador.aplicar_limite_umidade_nebulizador(entradas.get("ur"), limite_umidade)
+        resfriador.aplicar_limite_umidade_nebulizador(
+            self._numero_ou_none(entradas.get("ur")), limite_umidade
+        )
 
         atuadores_com_falha = self._aplicar_atuadores(equipamentos, resfriador, logger)
 
@@ -287,7 +311,7 @@ class ZonaService:
             # como o sensor simulado da aba Principal faz apos cada
             # calculo (ver services.CalculoIctService._calcular_indice).
             self._simulador.registrar_calculo(
-                zona_id, zona["especie"], zona["indice"], temperatura.entradas, valor, status
+                zona_id, zona["especie"], zona["indice"], entradas_historico, valor, status
             )
 
         return {
@@ -299,14 +323,32 @@ class ZonaService:
             "status": status,
             "cor": ti.cor_do_status(status),
             "mensagem": ti.mensagem_do_status(status),
-            "entradas": temperatura.entradas,
+            "entradas": entradas_historico,
             "historico_grafico": historico_grafico,
             "leitura_gravada": gravado,
-            "sensores_com_falha": leitura["sensores_com_falha"],
+            "sensores_com_falha": sensores_com_falha,
             "equipamento": resfriador.estado(),
             "atuadores_com_falha": atuadores_com_falha,
             "modo_simulado": self._em_modo_simulado(),
         }
+
+    @staticmethod
+    def _entradas_para_historico(indice: str, entradas_validas: dict, entradas_preparadas: dict) -> dict:
+        entradas_historico = dict(entradas_validas)
+        extras = ("tbs", "tbu", "ur", "tpo") if indice == "IGNU" else ("ur", "tpo")
+        for campo in extras:
+            if campo in entradas_preparadas and campo not in entradas_historico:
+                entradas_historico[campo] = entradas_preparadas[campo]
+        return entradas_historico
+
+    @staticmethod
+    def _numero_ou_none(valor) -> float | None:
+        if valor is None or valor == "":
+            return None
+        try:
+            return float(str(valor).replace(",", "."))
+        except (TypeError, ValueError):
+            return None
 
     def _aplicar_atuadores(
         self, equipamentos: list[dict], resfriador: Resfriamento, logger

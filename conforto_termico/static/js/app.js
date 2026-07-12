@@ -15,7 +15,7 @@ const COR_STATUS = {
   "Conforto": "#3E8E5B",
   "Alerta": "#E3A73E",
   "Perigo": "#C1443C",
-  "Emergencia": "#FF6B5E",
+  "Emergencia": "#E1261C",
 };
 
 const STATUS_HISTORICO = ["Conforto", "Alerta", "Perigo", "Emerg\u00eancia"];
@@ -39,15 +39,10 @@ function corCampoEntrada(campo) {
   return CORES_CAMPOS_ENTRADA[Math.max(0, indice) % CORES_CAMPOS_ENTRADA.length];
 }
 
-// Quantos icones acender por equipamento ligado, conforme a intensidade
-// informada pelo servidor. Cada nivel ocupa duas posicoes no conjunto fixo.
-const TOTAL_ICONES_EQUIPAMENTO = 6;
-const CONTAGEM_INTENSIDADE = { baixa: 2, media: 4, maxima: 6 };
-
-function quantidadePorIntensidade(intensidade) {
-  const chave = normalizarChaveTexto(intensidade).toLowerCase();
-  return CONTAGEM_INTENSIDADE[chave] || 2;
-}
+// Um icone por equipamento cadastrado. A intensidade nao muda a quantidade;
+// ela muda o destaque visual dos icones ativos.
+const ICONES_POR_EQUIPAMENTO_ATUADOR = 1;
+const ICONES_POR_SENSOR = 1;
 
 function rotuloIntensidade(intensidade) {
   const rotulos = { baixa: "baixa", media: "m\u00e9dia", maxima: "m\u00e1xima" };
@@ -95,7 +90,7 @@ const ICONE_SENSOR =
   '<path class="sensor-base" d="M12.2 25h7.6"/>' +
   "</svg>";
 
-const estado = { especie: "frangos", indice: "ITU" };
+const estado = { especie: "frangos", indice: "ITU", zonaId: null };
 
 let graficosPorIndice = new Map();
 let graficoEntradas = null;
@@ -119,6 +114,7 @@ let audioCtx = null;
 // ---------------------------------------------------------------------------
 function renderSeletorEspecie() {
   const container = document.getElementById("seletor-especie");
+  if (!container) return;
   container.innerHTML = "";
   Object.keys(CONFIG_APP.indicesPorEspecie).forEach((especie) => {
     const btn = document.createElement("button");
@@ -133,6 +129,7 @@ function renderSeletorEspecie() {
 
 function renderSeletorIndice() {
   const container = document.getElementById("seletor-indice");
+  if (!container) return;
   container.innerHTML = "";
   const indices = CONFIG_APP.indicesPorEspecie[estado.especie];
   if (!indices.includes(estado.indice)) {
@@ -150,19 +147,14 @@ function renderSeletorIndice() {
 }
 
 function indicesDaEspecie() {
-  return CONFIG_APP.indicesPorEspecie[estado.especie] || [];
+  return estado.indice ? [estado.indice] : [];
 }
 
 function camposDaEspecie() {
-  const campos = [];
-  indicesDaEspecie().forEach((indice) => {
-    (CONFIG_APP.camposPorIndice[indice] || []).forEach((campo) => {
-      if (!campos.includes(campo)) campos.push(campo);
-    });
-  });
-  if (campos.includes("tbs") && campos.includes("tbu") && !campos.includes("ur")) {
-    campos.push("ur");
-  }
+  const campos = camposDoIndiceAtual();
+  const temBulbos = campos.includes("tbs") && campos.includes("tbu");
+  if (temBulbos && umidadeRelativaCalculada() && !campos.includes("ur")) campos.push("ur");
+  if (temBulbos && pontoOrvalhoCalculado() && !campos.includes("tpo")) campos.push("tpo");
   const ordemInterface = ["tbs", "tbu", "tgn", "tpo", "ur", "v"];
   return campos.sort((a, b) => ordemInterface.indexOf(a) - ordemInterface.indexOf(b));
 }
@@ -245,7 +237,9 @@ function selecionarIndice(indice) {
 // ---------------------------------------------------------------------------
 function renderCamposEntrada() {
   const container = document.getElementById("campos-entrada");
+  if (!container) return;
   container.innerHTML = "";
+  if (!zonaPrincipalSelecionada()) return;
   const campos = camposDaEspecie();
   campos.forEach((campo) => {
     const meta = CONFIG_APP.campoMetadados[campo];
@@ -285,6 +279,9 @@ function camposDoIndiceAtual() {
   if (campos.includes("tbs") && campos.includes("tbu") && !campos.includes("ur")) {
     campos.push("ur");
   }
+  if (campos.includes("tbs") && campos.includes("tbu") && pontoOrvalhoCalculado() && !campos.includes("tpo")) {
+    campos.push("tpo");
+  }
   if (!umidadeRelativaCalculada() && !campos.includes("ur")) {
     campos.push("ur");
   }
@@ -311,19 +308,29 @@ function atualizarCamposEntrada() {
   });
 }
 
-function atualizarCamposCalculados() {
+function atualizarCamposCalculados(opcoes = {}) {
   const tbs = lerNumeroEntrada("tbs");
   const tbu = lerNumeroEntrada("tbu");
   const altitude = lerAltitudeMetros();
   const urInput = document.getElementById("campo-ur");
   const tpoInput = document.getElementById("campo-tpo");
   const podeCalcular = tbs !== null && tbu !== null && tbu <= tbs;
+  const preservarValoresExistentes = !!opcoes.preservarValoresExistentes;
 
-  if (urInput && !urInput.disabled && umidadeRelativaCalculada()) {
+  if (
+    urInput &&
+    !urInput.disabled &&
+    umidadeRelativaCalculada() &&
+    !(preservarValoresExistentes && urInput.value !== "")
+  ) {
     urInput.value = podeCalcular ? calcularUmidadeRelativa(tbs, tbu, altitude).toFixed(1) : "";
   }
 
-  if (tpoInput && pontoOrvalhoCalculado()) {
+  if (
+    tpoInput &&
+    pontoOrvalhoCalculado() &&
+    !(preservarValoresExistentes && tpoInput.value !== "")
+  ) {
     tpoInput.value = podeCalcular ? calcularPontoOrvalho(tbs, tbu, altitude).toFixed(1) : "";
   }
 }
@@ -338,12 +345,21 @@ function coletarEntradas(incluirDesabilitados = false) {
   return entradas;
 }
 
-function preencherEntradas(dados) {
-  Object.entries(dados).forEach(([campo, valor]) => {
+function preencherEntradas(dados, opcoes = {}) {
+  const entradas = dados || {};
+  Object.entries(entradas).forEach(([campo, valor]) => {
     const input = document.getElementById("campo-" + campo);
     if (input) input.value = valor;
   });
+  if (opcoes.recalcularDerivados === false) return;
   atualizarCamposCalculados();
+}
+
+function preencherEntradasDoResultado(dados) {
+  if (!dados || !dados.entradas) return;
+  renderCamposEntrada();
+  preencherEntradas(dados.entradas, { recalcularDerivados: false });
+  atualizarCamposCalculados({ preservarValoresExistentes: true });
 }
 
 function lerNumeroConfiguracao(id, padrao, minimo) {
@@ -458,7 +474,6 @@ function aplicarConfiguracoes(config) {
     "oculto",
     !document.getElementById("cfg-emails").checked
   );
-  document.getElementById("btn-simular").disabled = !document.getElementById("cfg-coletar").checked;
 
   smtpSenhaJaConfigurada = !!config.smtpSenhaConfigurada;
   refletirStatusSmtp();
@@ -504,16 +519,26 @@ function agendarSalvarConfiguracoes() {
 // ---------------------------------------------------------------------------
 async function calcular(opcoes = {}) {
   esconderErro();
-  const entradas = coletarEntradas(!!opcoes.incluirCamposDesabilitados);
-  const config = coletarConfig();
+  const zona = zonaPrincipalSelecionada();
+  if (!zona) {
+    mostrarErro("Selecione uma zona ativa antes de calcular.");
+    return;
+  }
+  await salvarConfiguracoesPersistidas();
+  const usarSensores = document.getElementById("cfg-coletar").checked || document.getElementById("cfg-auto").checked;
 
   let dados;
   try {
-    const resposta = await fetch("/api/calcular", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ especie: estado.especie, indice: estado.indice, entradas, config }),
-    });
+    let resposta;
+    if (usarSensores) {
+      resposta = await fetch("/api/zonas/calcular-ativas", { method: "POST" });
+    } else {
+      resposta = await fetch("/api/zonas/" + zona.id + "/calcular", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entradas: coletarEntradas(!!opcoes.incluirCamposDesabilitados) }),
+      });
+    }
     let corpo;
     try {
       corpo = await resposta.json();
@@ -527,12 +552,27 @@ async function calcular(opcoes = {}) {
       mostrarErro(corpo.erro || "Não foi possível calcular. Confira os dados informados.");
       return;
     }
-    dados = corpo;
+    if (usarSensores) {
+      const resultados = corpo.resultados || [];
+      const resultadoSelecionado = resultados.find((resultado) => resultado.zona_id === zona.id);
+      if (!resultadoSelecionado) {
+        mostrarErro("Nenhum resultado foi retornado para a zona selecionada.");
+        return;
+      }
+      if (resultadoSelecionado.erro) {
+        mostrarErro(resultadoSelecionado.erro);
+        await carregarHistorico();
+        return;
+      }
+      dados = resultadoSelecionado;
+    } else {
+      dados = corpo;
+    }
   } catch (erro) {
     // Esta captura e exclusivamente para falhas de rede (fetch nao completou,
     // ou a resposta nao era JSON valido) - nunca para erros ocorridos depois,
     // ao atualizar a tela.
-    console.error("Erro de comunicacao com /api/calcular:", erro);
+    console.error("Erro de comunicacao ao calcular zonas:", erro);
     mostrarErro(
       erro && erro.message && erro.message.includes("Flask")
         ? erro.message
@@ -567,16 +607,25 @@ async function simularSensor() {
 }
 
 async function carregarHistorico() {
+  const zona = zonaPrincipalSelecionada();
+  if (!zona) {
+    ultimosHistoricosGrafico = {};
+    graficosPorIndice.forEach((grafico) => grafico.destroy());
+    graficosPorIndice.clear();
+    if (graficoEntradas) {
+      graficoEntradas.destroy();
+      graficoEntradas = null;
+    }
+    document.getElementById("graficos-indices").textContent = "";
+    assinaturaGraficos = "";
+    atualizarTabela({});
+    return;
+  }
   try {
-    const query = "?especie=" + encodeURIComponent(estado.especie);
-    const [resposta, respostaGrafico] = await Promise.all([
-      fetch("/api/historico-todos" + query),
-      fetch("/api/historico-grafico-todos" + query),
-    ]);
+    const resposta = await fetch("/api/zonas/" + zona.id + "/historico");
     const historico = await resposta.json();
-    const historicoGrafico = respostaGrafico.ok ? await respostaGrafico.json() : historico;
-    ultimosHistoricosGrafico = historicoGrafico;
-    atualizarGraficos(historicoGrafico);
+    ultimosHistoricosGrafico = { [zona.indice]: historico };
+    atualizarGraficos(ultimosHistoricosGrafico);
     atualizarTabela(historico);
   } catch (erro) {
     /* nao critico */
@@ -584,19 +633,8 @@ async function carregarHistorico() {
 }
 
 async function limparHistorico() {
-  try {
-    await fetch("/api/reset", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ especie: estado.especie }),
-    });
-  } catch (erro) {
-    /* ignora */
-  }
+  mostrarErro("A limpeza do histórico por zona ainda não está disponível; as leituras persistidas são preservadas.");
   resetarPainelResultado();
-  ultimosHistoricosGrafico = {};
-  atualizarGraficos({});
-  atualizarTabela({});
 }
 
 // ---------------------------------------------------------------------------
@@ -643,9 +681,10 @@ function resetarPainelResultado() {
   document.getElementById("faixa-status-texto").textContent = "AGUARDANDO CÁLCULO";
 
   document.getElementById("mensagem-orientacao").innerHTML =
-    "Preencha os dados e clique em <strong>Calcular</strong> para ver o status do lote.";
+    "Selecione uma zona ativa e clique em <strong>Ler zona agora</strong> para ver o status do lote.";
 
-  atualizarEquipamento(null);
+  atualizarEquipamento(null, null);
+  atualizarSensorRemoto();
   atualizarEmail(null);
   esconderErro();
 }
@@ -673,8 +712,11 @@ function historicosDosResultados(resultados, tipo) {
 }
 
 function atualizarResultado(dados) {
-  ultimosResultados = dados.indices || { [estado.indice]: dados };
-  const selecionado = ultimosResultados[estado.indice] || dados;
+  estado.especie = dados.especie || estado.especie;
+  estado.indice = dados.indice || estado.indice;
+  preencherEntradasDoResultado(dados);
+  ultimosResultados = { [estado.indice]: dados };
+  const selecionado = dados;
   const classe = classeStatus(selecionado.status);
 
   // 1) Elementos essenciais primeiro - nunca dependem de bibliotecas externas,
@@ -682,7 +724,7 @@ function atualizarResultado(dados) {
   const readoutValor = document.getElementById("readout-valor");
   readoutValor.textContent = selecionado.valor.toFixed(2).replace(".", ",");
   readoutValor.className = "readout-valor cor-" + classe;
-  document.getElementById("readout-indice").textContent = estado.indice;
+  document.getElementById("readout-indice").textContent = selecionado.indice || estado.indice;
 
   const faixa = document.getElementById("faixa-status");
   faixa.className = "faixa-status faixa-" + classe;
@@ -690,14 +732,15 @@ function atualizarResultado(dados) {
 
   definirMensagemOrientacao(selecionado.status, selecionado.mensagem, dados.aviso);
 
-  atualizarEquipamento(dados.equipamento);
+  atualizarEquipamento(dados.equipamento, selecionado.status);
   atualizarEmail(dados.email);
 
   // 2) Graficos e tabela: isolados em try/catch proprios. Se a biblioteca de
   //    graficos nao carregar por qualquer motivo, o restante do painel acima
   //    ja esta atualizado e continua funcionando normalmente.
   try {
-    ultimosHistoricosGrafico = historicosDosResultados(ultimosResultados, "historico_grafico");
+    const historicoZona = selecionado.historico_grafico || [];
+    ultimosHistoricosGrafico = { [estado.indice]: historicoZona };
     atualizarGraficos(ultimosHistoricosGrafico);
   } catch (erro) {
     console.error("Erro ao desenhar os graficos:", erro);
@@ -709,7 +752,7 @@ function atualizarResultado(dados) {
   }
 
   try {
-    atualizarTabela(historicosDosResultados(ultimosResultados, "historico"));
+    atualizarTabela(selecionado.historico_grafico || []);
   } catch (erro) {
     console.error("Erro ao atualizar a tabela de historico:", erro);
   }
@@ -723,16 +766,43 @@ function atualizarResultado(dados) {
   }
 }
 
-function renderizarIconesEquipamento(containerId, svgIcone, nomeEquipamento, ligado, intensidade, quantidadeForcada) {
+function renderizarIconesEquipamento(
+  containerId,
+  svgIcone,
+  nomeEquipamento,
+  ligado,
+  intensidade,
+  status,
+  totalIcones,
+  quantidadeForcada
+) {
   const container = document.getElementById(containerId);
+  if (!container) return;
   container.innerHTML = "";
+  container.classList.remove(
+    "equip-intensidade-baixa",
+    "equip-intensidade-media",
+    "equip-intensidade-maxima",
+    "equip-status-conforto",
+    "equip-status-alerta",
+    "equip-status-perigo",
+    "equip-status-emergencia"
+  );
+  const classeDoStatus = classeStatus(status);
+  if (ligado && classeDoStatus) {
+    container.classList.add("equip-status-" + classeDoStatus);
+  }
+  const chaveIntensidade = normalizarChaveTexto(intensidade).toLowerCase();
+  if (ligado && ["baixa", "media", "maxima"].includes(chaveIntensidade)) {
+    container.classList.add("equip-intensidade-" + chaveIntensidade);
+  }
 
-  const quantidadeBase = Number.isFinite(quantidadeForcada)
-    ? quantidadeForcada
-    : quantidadePorIntensidade(intensidade);
-  const quantidadeAtiva = ligado ? Math.min(TOTAL_ICONES_EQUIPAMENTO, quantidadeBase) : 0;
+  const total = Math.max(0, Number.isFinite(totalIcones) ? totalIcones : 0);
+  const quantidadeAtiva = ligado
+    ? Math.min(total, Math.max(0, Number.isFinite(quantidadeForcada) ? quantidadeForcada : total))
+    : 0;
 
-  for (let i = 0; i < TOTAL_ICONES_EQUIPAMENTO; i++) {
+  for (let i = 0; i < total; i++) {
     const badge = document.createElement("span");
     badge.className = "icone-equip" + (i < quantidadeAtiva ? " ativo" : "");
     badge.innerHTML = svgIcone;
@@ -741,19 +811,39 @@ function renderizarIconesEquipamento(containerId, svgIcone, nomeEquipamento, lig
 
   const estadoTexto = ligado
     ? intensidade
-      ? `ligado (intensidade ${rotuloIntensidade(intensidade)}, ${quantidadeAtiva} de ${TOTAL_ICONES_EQUIPAMENTO} ativos)`
-      : `ligado (${quantidadeAtiva} de ${TOTAL_ICONES_EQUIPAMENTO} ativos)`
-    : `desligado, 0 de ${TOTAL_ICONES_EQUIPAMENTO} ativos`;
+      ? `ligado (intensidade ${rotuloIntensidade(intensidade)}, ${quantidadeAtiva} de ${total} ativos)`
+      : `ligado (${quantidadeAtiva} de ${total} ativos)`
+    : `desligado, 0 de ${total} ativos`;
   container.setAttribute("aria-label", `${nomeEquipamento} ${estadoTexto}`);
 }
 
-function atualizarEquipamento(equip) {
+function atualizarEquipamento(equip, status) {
   const ventiladorLigado = !!(equip && equip.ventilador);
   const nebulizadorLigado = !!(equip && equip.nebulizador);
   const intensidade = (equip && equip.intensidade) || null;
+  const totalVentiladores = equipamentosDaZonaSelecionada("ventilador").length * ICONES_POR_EQUIPAMENTO_ATUADOR;
+  const totalNebulizadores = equipamentosDaZonaSelecionada("nebulizador").length * ICONES_POR_EQUIPAMENTO_ATUADOR;
 
-  renderizarIconesEquipamento("icones-ventilador", ICONE_VENTILADOR, "Ventilador", ventiladorLigado, intensidade);
-  renderizarIconesEquipamento("icones-nebulizador", ICONE_NEBULIZADOR, "Nebulizador", nebulizadorLigado, intensidade);
+  renderizarIconesEquipamento(
+    "icones-ventilador",
+    ICONE_VENTILADOR,
+    "Ventilador",
+    ventiladorLigado,
+    intensidade,
+    status,
+    totalVentiladores,
+    ventiladorLigado ? totalVentiladores : 0
+  );
+  renderizarIconesEquipamento(
+    "icones-nebulizador",
+    ICONE_NEBULIZADOR,
+    "Nebulizador",
+    nebulizadorLigado,
+    intensidade,
+    status,
+    totalNebulizadores,
+    nebulizadorLigado ? totalNebulizadores : 0
+  );
 
   document.getElementById("intensidade-valor").textContent = intensidade ? rotuloIntensidade(intensidade) : "desligado";
 }
@@ -768,7 +858,9 @@ function atualizarSensorRemoto() {
     "Sensor",
     sensorLigado,
     null,
-    TOTAL_ICONES_EQUIPAMENTO
+    null,
+    equipamentosDaZonaSelecionada("sensor").length * ICONES_POR_SENSOR,
+    sensorLigado ? equipamentosDaZonaSelecionada("sensor").length * ICONES_POR_SENSOR : 0
   );
 }
 
@@ -840,6 +932,7 @@ function chavesCronologicas(historicosPorIndice) {
 
 function assinaturaDoHistorico(historicos) {
   return JSON.stringify({
+    zonaId: estado.zonaId,
     especie: estado.especie,
     indices: indicesDaEspecie(),
     historicos: normalizarHistoricosPorIndice(historicos),
@@ -1274,7 +1367,7 @@ function renderizarPaginaHistorico() {
     tabela.classList.add("oculto");
     vazio.textContent = historicoLeiturasBase.length
       ? "Nenhuma leitura encontrada para os filtros selecionados."
-      : "Nenhuma leitura registrada ainda para esta espécie.";
+      : "Nenhuma leitura registrada ainda para esta zona.";
     vazio.classList.remove("oculto");
     if (paginacao) paginacao.classList.add("oculto");
     return;
@@ -1515,8 +1608,7 @@ async function cicloAutomatico() {
   if (!autoAtivo) return;
   autoEmExecucao = true;
   try {
-    await simularSensor();
-    await calcular({ incluirCamposDesabilitados: true });
+    await calcular();
   } catch (erro) {
     console.error("Erro no ciclo do modo automatico:", erro);
   } finally {
@@ -1542,10 +1634,8 @@ async function cicloAutomatico() {
 let zonasCache = [];
 let zonaEmEdicaoId = null; // null = criando uma nova zona
 let equipamentoEmEdicao = null; // { zonaId, equipamentoId | null }
-let graficosPorZona = new Map(); // zona_id -> instância Chart.js
-let autoZonasAtivo = false;
-let autoZonasEmExecucao = false;
-let autoZonasTimeoutId = null;
+let zonaCadastroSelecionadaId = null;
+let filtroZonaCadastro = "todas";
 
 const ROTULOS_TIPO_EQUIPAMENTO = {
   sensor: "Sensores",
@@ -1553,12 +1643,156 @@ const ROTULOS_TIPO_EQUIPAMENTO = {
   nebulizador: "Nebulizadores",
 };
 
+function zonasAtivas() {
+  return zonasCache.filter((zona) => zona.ativa);
+}
+
+function zonaPrincipalSelecionada() {
+  return zonasCache.find((zona) => zona.id === estado.zonaId && zona.ativa) || null;
+}
+
+function equipamentosDaZonaSelecionada(tipo) {
+  const zona = zonaPrincipalSelecionada();
+  if (!zona) return [];
+  return (zona.equipamentos || []).filter((equipamento) => equipamento.tipo === tipo);
+}
+
+function atualizarResumoZonaPrincipal(zona) {
+  const resumo = document.getElementById("zona-principal-resumo");
+  if (!resumo) return;
+  if (!zona) {
+    resumo.textContent = "Nenhuma zona ativa selecionada.";
+    return;
+  }
+  const especie = CONFIG_APP.nomeEspecie[zona.especie] || zona.especie;
+  resumo.textContent = zona.nome + " · " + especie + " · " + zona.indice;
+}
+
+function renderizarSelectZonaPrincipal() {
+  const select = document.getElementById("zona-principal");
+  if (!select) return;
+
+  const ativas = zonasAtivas();
+  const zonaAtualAindaValida = ativas.some((zona) => zona.id === estado.zonaId);
+  if (!zonaAtualAindaValida) {
+    estado.zonaId = ativas.length ? ativas[0].id : null;
+  }
+
+  select.textContent = "";
+  if (!ativas.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "Nenhuma zona ativa cadastrada";
+    select.appendChild(option);
+    select.disabled = true;
+    document.getElementById("btn-calcular").disabled = true;
+    atualizarResumoZonaPrincipal(null);
+    renderCamposEntrada();
+    atualizarEquipamento(null, null);
+    atualizarSensorRemoto();
+    return;
+  }
+
+  select.disabled = false;
+  document.getElementById("btn-calcular").disabled = false;
+  ativas.forEach((zona) => {
+    const option = document.createElement("option");
+    option.value = String(zona.id);
+    option.textContent = zona.nome + " (" + zona.indice + ")";
+    select.appendChild(option);
+  });
+  select.value = String(estado.zonaId);
+
+  const zona = zonaPrincipalSelecionada();
+  if (zona) {
+    estado.especie = zona.especie;
+    estado.indice = zona.indice;
+  }
+  atualizarResumoZonaPrincipal(zona);
+  renderCamposEntrada();
+  resetarPainelResultado();
+}
+
+async function selecionarZonaPrincipal(zonaId) {
+  const id = Number(zonaId);
+  estado.zonaId = Number.isFinite(id) ? id : null;
+  const zona = zonaPrincipalSelecionada();
+  if (zona) {
+    estado.especie = zona.especie;
+    estado.indice = zona.indice;
+  }
+  assinaturaGraficos = "";
+  historicoPaginaAtual = 1;
+  atualizarResumoZonaPrincipal(zona);
+  renderCamposEntrada();
+  resetarPainelResultado();
+  await carregarHistorico();
+}
+
+function zonaCadastroSelecionada() {
+  return zonasCadastroFiltradas().find((zona) => zona.id === zonaCadastroSelecionadaId) || null;
+}
+
+function renderizarSelectZonaCadastro() {
+  const select = document.getElementById("zona-cadastro");
+  if (!select) return;
+
+  const filtro = document.getElementById("filtro-zona-cadastro");
+  if (filtro) filtro.value = filtroZonaCadastro;
+
+  const zonasFiltradas = zonasCadastroFiltradas();
+  const zonaAtualAindaExiste = zonasFiltradas.some((zona) => zona.id === zonaCadastroSelecionadaId);
+  if (!zonaAtualAindaExiste) {
+    zonaCadastroSelecionadaId = zonasFiltradas.length ? zonasFiltradas[0].id : null;
+  }
+
+  select.textContent = "";
+  if (!zonasFiltradas.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = zonasCache.length ? "Nenhuma zona neste filtro" : "Nenhuma zona cadastrada";
+    select.appendChild(option);
+    select.disabled = true;
+    return;
+  }
+
+  select.disabled = false;
+  zonasFiltradas.forEach((zona) => {
+    const option = document.createElement("option");
+    option.value = String(zona.id);
+    option.textContent = zona.nome + (zona.ativa ? "" : " (inativa)");
+    select.appendChild(option);
+  });
+  select.value = String(zonaCadastroSelecionadaId);
+}
+
+function zonasCadastroFiltradas() {
+  if (filtroZonaCadastro === "ativas") return zonasCache.filter((zona) => zona.ativa);
+  if (filtroZonaCadastro === "inativas") return zonasCache.filter((zona) => !zona.ativa);
+  return [...zonasCache];
+}
+
+function selecionarFiltroZonaCadastro(valor) {
+  filtroZonaCadastro = ["todas", "ativas", "inativas"].includes(valor) ? valor : "todas";
+  renderizarSelectZonaCadastro();
+  renderizarZonas();
+}
+
+function selecionarZonaCadastro(zonaId) {
+  const id = zonaId === "" ? null : Number(zonaId);
+  zonaCadastroSelecionadaId = Number.isFinite(id) ? id : null;
+  renderizarZonas();
+}
+
 async function carregarZonas() {
   try {
     const resposta = await fetch("/api/zonas");
     if (!resposta.ok) return;
     zonasCache = await resposta.json();
+    renderizarSelectZonaPrincipal();
+    renderizarSelectZonaCadastro();
     renderizarZonas();
+    await carregarHistorico();
   } catch (erro) {
     console.error("Não foi possível carregar as zonas:", erro);
   }
@@ -1568,18 +1802,16 @@ function renderizarZonas() {
   const lista = document.getElementById("zonas-lista");
   const vazio = document.getElementById("zonas-vazio");
 
-  graficosPorZona.forEach((grafico, zonaId) => {
-    grafico.destroy();
-  });
-  graficosPorZona.clear();
-
   lista.textContent = "";
-  vazio.classList.toggle("oculto", zonasCache.length > 0);
+  const zona = zonaCadastroSelecionada();
+  vazio.classList.toggle("oculto", !!zona);
+  vazio.textContent = zonasCache.length
+    ? "Nenhuma zona encontrada para o filtro selecionado."
+    : "Nenhuma zona cadastrada ainda.";
 
-  zonasCache.forEach((zona) => {
+  if (zona) {
     lista.appendChild(construirCartaoZona(zona));
-    carregarGraficoZona(zona.id);
-  });
+  }
 }
 
 function construirCartaoZona(zona) {
@@ -1600,8 +1832,7 @@ function construirCartaoZona(zona) {
 
   const badgeEspecie = document.createElement("span");
   badgeEspecie.className = "zona-badge";
-  badgeEspecie.textContent =
-    (CONFIG_APP.nomeEspecie[zona.especie] || zona.especie) + " · " + zona.indice;
+  badgeEspecie.textContent = CONFIG_APP.nomeEspecie[zona.especie] || zona.especie;
   tituloGrupo.appendChild(badgeEspecie);
 
   if (!zona.ativa) {
@@ -1614,13 +1845,6 @@ function construirCartaoZona(zona) {
 
   const acoes = document.createElement("div");
   acoes.className = "zona-acoes";
-
-  const btnCalcular = document.createElement("button");
-  btnCalcular.type = "button";
-  btnCalcular.className = "botao botao--primario botao--compacto";
-  btnCalcular.textContent = "Ler agora";
-  btnCalcular.addEventListener("click", () => calcularZona(zona.id));
-  acoes.appendChild(btnCalcular);
 
   const btnEditar = document.createElement("button");
   btnEditar.type = "button";
@@ -1639,25 +1863,6 @@ function construirCartaoZona(zona) {
   cabecalho.appendChild(acoes);
   cartao.appendChild(cabecalho);
 
-  const resultado = document.createElement("div");
-  resultado.className = "zona-resultado oculto";
-  resultado.id = "zona-resultado-" + zona.id;
-  cartao.appendChild(resultado);
-
-  const graficoWrap = document.createElement("div");
-  graficoWrap.className = "grafico-bloco grafico-bloco--sem-moldura zona-grafico-bloco";
-  const graficoTitulo = document.createElement("p");
-  graficoTitulo.className = "grafico-titulo";
-  graficoTitulo.textContent = "Histórico do índice calculado (últimas 20 leituras)";
-  graficoWrap.appendChild(graficoTitulo);
-  const canvasWrap = document.createElement("div");
-  canvasWrap.className = "grafico-canvas-wrap";
-  const canvas = document.createElement("canvas");
-  canvas.id = "zona-grafico-" + zona.id;
-  canvasWrap.appendChild(canvas);
-  graficoWrap.appendChild(canvasWrap);
-  cartao.appendChild(graficoWrap);
-
   const grade = document.createElement("div");
   grade.className = "zona-equipamentos";
   ["sensor", "ventilador", "nebulizador"].forEach((tipo) => {
@@ -1666,39 +1871,6 @@ function construirCartaoZona(zona) {
   cartao.appendChild(grade);
 
   return cartao;
-}
-
-async function carregarGraficoZona(zonaId) {
-  try {
-    const resposta = await fetch("/api/zonas/" + zonaId + "/historico");
-    if (!resposta.ok) return;
-    atualizarGraficoZona(zonaId, await resposta.json());
-  } catch (erro) {
-    console.error("Não foi possível carregar o histórico da zona " + zonaId + ":", erro);
-  }
-}
-
-function atualizarGraficoZona(zonaId, historico) {
-  const canvasId = "zona-grafico-" + zonaId;
-  if (!document.getElementById(canvasId) || typeof Chart === "undefined") return;
-
-  const dataset = {
-    label: "Índice calculado",
-    data: historico.map((h) => h.valor),
-    backgroundColor: historico.map((h) => corStatus(h.status)),
-    borderRadius: 3,
-    maxBarThickness: 22,
-  };
-
-  const grafico = criarOuAtualizarGrafico(graficosPorZona.get(zonaId), canvasId, {
-    type: "bar",
-    data: {
-      labels: historico.map((h) => formatarHora(h.criado_em)),
-      datasets: [dataset],
-    },
-    options: opcoesGrafico(false),
-  });
-  graficosPorZona.set(zonaId, grafico);
 }
 
 function construirGrupoEquipamento(zona, tipo) {
@@ -1791,109 +1963,6 @@ function construirItemEquipamento(zonaId, equipamento) {
   return item;
 }
 
-// --- Calculo por zona (le sensores Modbus, calcula, aciona atuadores) ------
-async function calcularZona(zonaId) {
-  const container = document.getElementById("zona-resultado-" + zonaId);
-  try {
-    const resposta = await fetch("/api/zonas/" + zonaId + "/calcular", { method: "POST" });
-    const dados = await resposta.json();
-    if (!resposta.ok) {
-      exibirResultadoZonaErro(container, dados.erro || "Falha ao calcular a zona.");
-      return;
-    }
-    exibirResultadoZona(container, dados);
-    if (Array.isArray(dados.historico_grafico)) {
-      atualizarGraficoZona(zonaId, dados.historico_grafico);
-    } else {
-      carregarGraficoZona(zonaId);
-    }
-  } catch (erro) {
-    exibirResultadoZonaErro(container, "Falha de comunicação com o servidor.");
-  }
-}
-
-// --- Modo automático das zonas: recalcula todas as zonas ATIVAS em
-// sequencia, a cada ciclo -- mesmo padrao de "nunca sobrepor ciclos" ja
-// usado no modo automatico da aba Principal (ver alternarModoAutomatico/
-// cicloAutomatico), soh que iterando uma lista de zonas em vez de uma
-// unica estacao.
-function alternarModoAutomaticoZonas(ativo) {
-  autoZonasAtivo = ativo;
-  if (autoZonasTimeoutId) {
-    clearTimeout(autoZonasTimeoutId);
-    autoZonasTimeoutId = null;
-  }
-  if (ativo && !autoZonasEmExecucao) {
-    cicloAutomaticoZonas();
-  }
-}
-
-async function cicloAutomaticoZonas() {
-  if (!autoZonasAtivo) return;
-  autoZonasEmExecucao = true;
-  try {
-    const zonasAtivas = zonasCache.filter((zona) => zona.ativa);
-    for (const zona of zonasAtivas) {
-      // Sequencial de proposito: um barramento RS-485 real e serial (um
-      // dispositivo por vez), entao calcular uma zona de cada vez tambem
-      // reflete melhor o funcionamento real do que disparar tudo em
-      // paralelo.
-      await calcularZona(zona.id);
-    }
-  } catch (erro) {
-    console.error("Erro no ciclo automático das zonas:", erro);
-  } finally {
-    autoZonasEmExecucao = false;
-  }
-  if (autoZonasAtivo) {
-    autoZonasTimeoutId = setTimeout(cicloAutomaticoZonas, obterIntervaloLeituraMs());
-  }
-}
-
-function exibirResultadoZonaErro(container, mensagem) {
-  if (!container) return;
-  container.textContent = "";
-  container.classList.remove("oculto");
-  const texto = document.createElement("span");
-  texto.className = "zona-resultado-detalhe";
-  texto.textContent = mensagem;
-  container.appendChild(texto);
-}
-
-function exibirResultadoZona(container, dados) {
-  if (!container) return;
-  container.textContent = "";
-  container.classList.remove("oculto");
-
-  const classe = classeStatus(dados.status);
-
-  const valor = document.createElement("span");
-  valor.className = "zona-resultado-valor cor-" + classe;
-  valor.textContent = dados.valor.toFixed(2).replace(".", ",");
-  container.appendChild(valor);
-
-  const status = document.createElement("span");
-  status.className = "zona-resultado-status faixa-" + classe;
-  status.textContent = dados.status.toUpperCase();
-  container.appendChild(status);
-
-  const detalhe = document.createElement("span");
-  detalhe.className = "zona-resultado-detalhe";
-  const partes = [
-    Object.entries(dados.entradas || {})
-      .map(([campo, valorCampo]) => campo + "=" + valorCampo)
-      .join(", "),
-  ];
-  if (dados.sensores_com_falha && dados.sensores_com_falha.length) {
-    partes.push("sensores sem resposta: " + dados.sensores_com_falha.join(", "));
-  }
-  if (dados.atuadores_com_falha && dados.atuadores_com_falha.length) {
-    partes.push("falha ao acionar: " + dados.atuadores_com_falha.join(", "));
-  }
-  detalhe.textContent = partes.join(" — ");
-  container.appendChild(detalhe);
-}
-
 // --- Dialog de zona ---------------------------------------------------------
 function esconderErroDialog(id) {
   const el = document.getElementById(id);
@@ -1973,6 +2042,8 @@ async function salvarZona(evento) {
       mostrarErroDialog("zona-form-erro", dados.erro || "Não foi possível salvar a zona.");
       return;
     }
+    zonaCadastroSelecionadaId = dados.id;
+    if (dados.ativa) estado.zonaId = dados.id;
     document.getElementById("dialog-zona").close();
     await carregarZonas();
   } catch (erro) {
@@ -1988,6 +2059,8 @@ async function excluirZona(zona) {
   if (!confirmado) return;
   try {
     await fetch("/api/zonas/" + zona.id, { method: "DELETE" });
+    if (zonaCadastroSelecionadaId === zona.id) zonaCadastroSelecionadaId = null;
+    if (estado.zonaId === zona.id) estado.zonaId = null;
     await carregarZonas();
   } catch (erro) {
     console.error("Falha ao excluir zona:", erro);
@@ -2189,19 +2262,23 @@ document.addEventListener("DOMContentLoaded", async () => {
   inicializarAbas();
   inicializarHistorico();
   await carregarConfiguracoesPersistidas();
-  renderSeletorEspecie();
-  renderSeletorIndice();
-  renderCamposEntrada();
-  carregarHistorico();
-  atualizarEquipamento(null);
+  atualizarEquipamento(null, null);
   atualizarSensorRemoto();
+  await carregarZonas();
 
   document.getElementById("btn-calcular").addEventListener("click", calcular);
-  document.getElementById("btn-simular").addEventListener("click", simularSensor);
   document.getElementById("btn-limpar").addEventListener("click", limparHistorico);
+  document.getElementById("zona-principal")?.addEventListener("change", (evento) => {
+    selecionarZonaPrincipal(evento.target.value);
+  });
+  document.getElementById("zona-cadastro")?.addEventListener("change", (evento) => {
+    selecionarZonaCadastro(evento.target.value);
+  });
+  document.getElementById("filtro-zona-cadastro")?.addEventListener("change", (evento) => {
+    selecionarFiltroZonaCadastro(evento.target.value);
+  });
 
   document.getElementById("cfg-coletar").addEventListener("change", (e) => {
-    document.getElementById("btn-simular").disabled = !e.target.checked;
     atualizarSensorRemoto();
   });
   document.getElementById("cfg-emails").addEventListener("change", (e) => {
@@ -2210,7 +2287,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("cfg-auto").addEventListener("change", (e) => {
     if (e.target.checked) {
       document.getElementById("cfg-coletar").checked = true;
-      document.getElementById("btn-simular").disabled = false;
       atualizarSensorRemoto();
     }
     alternarModoAutomatico(e.target.checked);
@@ -2222,11 +2298,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
   document.getElementById("cfg-ponto-orvalho").addEventListener("change", () => {
-    atualizarCamposEntrada();
+    renderCamposEntrada();
     atualizarCamposCalculados();
   });
   document.getElementById("cfg-umidade-relativa").addEventListener("change", () => {
-    atualizarCamposEntrada();
+    renderCamposEntrada();
     atualizarCamposCalculados();
   });
   document.getElementById("cfg-altitude").addEventListener("input", atualizarCamposCalculados);
@@ -2241,9 +2317,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (document.getElementById("cfg-auto").checked) {
     alternarModoAutomatico(true);
   }
-
-  // --- Zonas Modbus ---
-  carregarZonas();
 
   document.getElementById("btn-nova-zona").addEventListener("click", () => abrirDialogZona());
   document.getElementById("btn-cancelar-zona").addEventListener("click", () => {
@@ -2267,7 +2340,4 @@ document.addEventListener("DOMContentLoaded", async () => {
     .addEventListener("click", testarConexaoEquipamentoAtual);
 
   document.getElementById("cfg-zonas-simulado").addEventListener("change", agendarSalvarConfiguracoes);
-  document.getElementById("cfg-zonas-auto").addEventListener("change", (evento) => {
-    alternarModoAutomaticoZonas(evento.target.checked);
-  });
 });

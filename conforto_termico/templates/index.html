@@ -15,8 +15,8 @@
 
   <nav class="abas-app" role="tablist" aria-label="Navegação do app">
     <button class="aba-botao ativo" type="button" role="tab" data-aba="principal" aria-controls="aba-principal" aria-selected="true">Principal</button>
-    <button class="aba-botao" type="button" role="tab" data-aba="configuracoes" aria-controls="aba-configuracoes" aria-selected="false">Configuracoes</button>
     <button class="aba-botao" type="button" role="tab" data-aba="zonas" aria-controls="aba-zonas" aria-selected="false">Zonas</button>
+    <button class="aba-botao" type="button" role="tab" data-aba="configuracoes" aria-controls="aba-configuracoes" aria-selected="false">Configuracoes</button>
   </nav>
 
   <main id="aba-principal" class="grade aba-conteudo" data-aba-conteudo="principal">
@@ -31,16 +31,22 @@
       </div>
     </section>
 
-    <!-- Entrada de dados --------------------------------------------------------------->
+    <!-- Selecao da zona e leitura ------------------------------------------------------>
     <section class="painel entrada-painel">
+      <div class="campos-config">
+        <div class="campo-config">
+          <label for="zona-principal">Zona ativa monitorada</label>
+          <select id="zona-principal"></select>
+        </div>
+      </div>
+      <p id="zona-principal-resumo" class="zona-principal-resumo">
+        Selecione uma zona ativa para carregar os dados.
+      </p>
       <div id="campos-entrada" class="campos-entrada"></div>
 
       <div class="acao-linha">
-        <button id="btn-simular" class="botao botao--fantasma" type="button" disabled>
-          Simular leitura de sensor
-        </button>
         <button id="btn-calcular" class="botao botao--primario" type="button">
-          Calcular
+          Ler zona agora
         </button>
       </div>
 
@@ -83,7 +89,7 @@
       </div>
 
       <p id="mensagem-orientacao" class="mensagem-orientacao">
-        Preencha os dados e clique em <strong>Calcular</strong> para ver o status do lote.
+        Selecione uma zona ativa e clique em <strong>Ler zona agora</strong> para ver o status do lote.
       </p>
     </section>
 
@@ -160,28 +166,13 @@
           <button id="btn-historico-proximo" class="botao botao--fantasma botao--compacto" type="button">Próxima</button>
         </div>
       </div>
-      <p id="tabela-vazia" class="tabela-vazia">Nenhuma leitura registrada ainda para esta espécie.</p>
+      <p id="tabela-vazia" class="tabela-vazia">Nenhuma leitura registrada ainda para esta zona.</p>
     </section>
 
   </main>
 
   <section id="aba-configuracoes" class="grade grade-configuracoes aba-conteudo oculto" data-aba-conteudo="configuracoes" role="tabpanel">
-    <!-- Seletor de especie e indice (movido da aba Principal a pedido do -->
-    <!-- usuario: agora e mais um parametro persistido, como os demais -->
-    <!-- desta aba) --------------------------------------------------------->
-    <section class="painel seletor-painel">
-      <h2 class="painel-titulo">Espécie e índice</h2>
-      <div class="seletor-linha">
-        <span class="seletor-etiqueta">Espécie</span>
-        <div id="seletor-especie" class="rocker-grupo" role="tablist"></div>
-      </div>
-      <div class="seletor-linha">
-        <span class="seletor-etiqueta">Índice</span>
-        <div id="seletor-indice" class="rocker-grupo rocker-grupo--pequeno" role="tablist"></div>
-      </div>
-    </section>
-
-    <section class="painel configuracoes-painel">
+    <section class="painel configuracoes-painel configuracoes-painel--app">
       <h2 class="painel-titulo">Configurações do app</h2>
       <div id="configuracoes-app" class="configuracoes-bloco"></div>
     </section>
@@ -189,7 +180,7 @@
     <!-- E-mail: liga/desliga, destinatario e credenciais SMTP para envio -->
     <!-- de verdade (mesmos 4 parametros ja documentados no README como -->
     <!-- variaveis de ambiente SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS). -->
-    <section class="painel configuracoes-painel">
+    <section class="painel configuracoes-painel configuracoes-painel--email">
       <h2 class="painel-titulo">E-mail</h2>
       <div id="configuracoes-email" class="configuracoes-bloco"></div>
 
@@ -216,17 +207,24 @@
       </p>
     </section>
 
-    <section class="painel configuracoes-painel">
+    <section class="painel configuracoes-painel configuracoes-painel--sensores">
       <h2 class="painel-titulo">Sensores</h2>
-      <div id="configuracoes-sensores" class="configuracoes-bloco"></div>
+      <div id="configuracoes-sensores" class="configuracoes-bloco">
+        <div class="config-grade">
+          <label class="check">
+            <input type="checkbox" id="cfg-zonas-simulado" checked>
+            <span>Modo simulado (sem hardware Modbus real)</span>
+          </label>
+        </div>
+      </div>
     </section>
 
-    <section class="painel configuracoes-painel">
+    <section class="painel configuracoes-painel configuracoes-painel--calculos">
       <h2 class="painel-titulo">C&aacute;lculos dos par&acirc;metros</h2>
       <div id="configuracoes-calculos" class="configuracoes-bloco"></div>
     </section>
 
-    <section class="painel configuracoes-painel">
+    <section class="painel configuracoes-painel configuracoes-painel--banco">
       <h2 class="painel-titulo">Banco de dados</h2>
 
       <div class="campos-config">
@@ -267,29 +265,21 @@
 
   <!-- Zonas: cadastro de zonas Modbus (sensores/ventiladores/nebulizadores) -->
   <section id="aba-zonas" class="aba-conteudo oculto" data-aba-conteudo="zonas" role="tabpanel">
-    <section class="painel zonas-cabecalho-painel">
-      <div class="zonas-cabecalho">
-        <div>
-          <h2 class="painel-titulo">Zonas</h2>
-          <p class="zonas-descricao">
-            Cada zona agrupa sensores, ventiladores e nebulizadores conectados via
-            Modbus (TCP ou RTU/RS-485). Uma zona pode ter de 0 a N equipamentos de
-            cada tipo. Quando há mais de um sensor para o mesmo campo, o valor usado
-            no cálculo é a <strong>média</strong> das leituras. O cálculo do índice
-            passa a ser feito por zona, não mais numa única estação.
-          </p>
+    <section class="painel zonas-controles-painel">
+      <div class="zonas-controles">
+        <div class="campo-config">
+          <label for="filtro-zona-cadastro">Filtro de zonas</label>
+          <select id="filtro-zona-cadastro">
+            <option value="todas" selected>Todas as zonas</option>
+            <option value="ativas">Somente ativas</option>
+            <option value="inativas">Somente inativas</option>
+          </select>
+        </div>
+        <div class="campo-config">
+          <label for="zona-cadastro">Zona cadastrada</label>
+          <select id="zona-cadastro"></select>
         </div>
         <button id="btn-nova-zona" class="botao botao--primario" type="button">+ Nova zona</button>
-      </div>
-      <div class="config-grade zonas-alternadores">
-        <label class="check">
-          <input type="checkbox" id="cfg-zonas-simulado" checked>
-          <span>Modo simulado (sem hardware Modbus real)</span>
-        </label>
-        <label class="check check--automatico">
-          <input type="checkbox" id="cfg-zonas-auto">
-          <span>Modo automático (recalcula todas as zonas ativas periodicamente)</span>
-        </label>
       </div>
       <p id="zonas-aviso-pymodbus" class="smtp-status oculto"></p>
     </section>

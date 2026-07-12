@@ -126,6 +126,34 @@ class TestZonaService(unittest.TestCase):
         self.assertEqual(1, len(historico))
         self.assertEqual(zona["id"], historico[0]["zona_id"])
 
+    def test_itu_inclui_campos_derivados_no_historico_para_grafico(self):
+        zona = self._criar_zona_com_sensores(indice="ITU")
+        self._equipamento_sensor(zona["id"], "TBS-A", "tbs")
+        self._equipamento_sensor(zona["id"], "TBU-A", "tbu")
+        self.leituras_simuladas = {"TBS-A": 25.0, "TBU-A": 20.0}
+
+        resultado = self.servico.calcular(zona["id"])
+
+        self.assertIn("ur", resultado["entradas"])
+        self.assertIn("tpo", resultado["entradas"])
+        historico = db.obter_historico_por_zona(zona["id"])
+        self.assertIn("ur", historico[0]["entradas"])
+        self.assertIn("tpo", historico[0]["entradas"])
+
+    def test_calculo_manual_aceita_umidade_como_texto_no_limite_do_nebulizador(self):
+        zona = self._criar_zona_com_sensores(indice="ITU")
+        db.criar_equipamento(zona["id"], {
+            "tipo": "nebulizador", "nome": "NEB-1", "modo_conexao": "tcp", "host": "10.0.0.3",
+            "tipo_registrador": "coil", "endereco_registrador": 0,
+        })
+
+        resultado = self.servico.calcular_manual(
+            zona["id"], {"tbs": "45", "tbu": "25", "ur": "55,5"}
+        )
+
+        self.assertEqual("Emergência", resultado["status"])
+        self.assertTrue(resultado["equipamento"]["nebulizador"])
+
     def test_duas_zonas_tem_estado_de_resfriamento_independente(self):
         zona_quente = self._criar_zona_com_sensores()
         zona_fria = self._criar_zona_com_sensores()
