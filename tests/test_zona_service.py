@@ -37,8 +37,8 @@ class TestZonaService(unittest.TestCase):
             obter_zona=db.obter_zona,
             salvar_leitura=db.salvar_leitura,
             obter_configuracoes=db.obter_configuracoes,
-            ler_modbus=ler_mock,
-            escrever_modbus=escrever_mock,
+            ler_modbus_real=ler_mock,
+            escrever_modbus_real=escrever_mock,
         )
 
     def tearDown(self):
@@ -193,11 +193,146 @@ class TestZonaService(unittest.TestCase):
         def escrever_falho(equipamento, ligar):
             return False
 
-        self.servico._escrever_modbus = escrever_falho
+        self.servico._escrever_modbus_real = escrever_falho
         resultado = self.servico.calcular(zona["id"])
 
         self.assertIn("VENT-QUEBRADO", resultado["atuadores_com_falha"])
         self.assertIsNotNone(resultado["valor"])  # o calculo em si nao falhou
+
+
+class TestModoSimuladoZonaService(unittest.TestCase):
+    """Sem simulador injetado, o servico sempre usa as funcoes reais
+    (default). Com um simulador injetado, a escolha entre real e simulado
+    segue a configuracao `modoSimuladoZonas` persistida."""
+
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.db_path_original = db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
+        db.iniciar_banco()
+
+    def tearDown(self):
+        db.DB_PATH = self.db_path_original
+        self.tempdir.cleanup()
+
+    def test_sem_simulador_injetado_usa_sempre_a_funcao_real(self):
+        chamadas_real = []
+
+        def ler_real(equipamento):
+            chamadas_real.append(equipamento["nome"])
+            return 30.0
+
+        servico = ZonaService(
+            obter_zona=db.obter_zona,
+            salvar_leitura=db.salvar_leitura,
+            obter_configuracoes=db.obter_configuracoes,
+            ler_modbus_real=ler_real,
+        )
+        # mesmo com modoSimuladoZonas=True (padrao) persistido, sem
+        # simulador injetado o servico nao tem como simular -- usa real.
+        self.assertFalse(servico._em_modo_simulado())
+
+        zona = db.criar_zona({"nome": "Z", "especie": "frangos", "indice": "ITU"})
+        db.criar_equipamento(zona["id"], {
+            "tipo": "sensor", "nome": "TBS", "modo_conexao": "tcp", "host": "1",
+            "tipo_registrador": "input", "endereco_registrador": 1, "campo_medido": "tbs",
+        })
+        db.criar_equipamento(zona["id"], {
+            "tipo": "sensor", "nome": "TBU", "modo_conexao": "tcp", "host": "1",
+            "tipo_registrador": "input", "endereco_registrador": 2, "campo_medido": "tbu",
+        })
+        servico.calcular(zona["id"])
+        self.assertIn("TBS", chamadas_real)
+
+    def test_com_simulador_e_config_ligada_usa_simulado(self):
+        db.salvar_configuracoes({"modoSimuladoZonas": True})
+
+        class SimuladorFalso:
+            def __init__(self):
+                self.leituras_chamadas = []
+
+            def ler_valor(self, equipamento):
+                self.leituras_chamadas.append(equipamento["nome"])
+                return 25.0
+
+            def escrever_valor(self, equipamento, ligar):
+                return True
+
+            def registrar_calculo(self, *args, **kwargs):
+                pass
+
+        simulador = SimuladorFalso()
+        chamadas_real = []
+
+        def ler_real(equipamento):
+            chamadas_real.append(equipamento["nome"])
+            return 99.0
+
+        servico = ZonaService(
+            obter_zona=db.obter_zona,
+            salvar_leitura=db.salvar_leitura,
+            obter_configuracoes=db.obter_configuracoes,
+            ler_modbus_real=ler_real,
+        )
+        servico.definir_simulador(simulador)
+        self.assertTrue(servico._em_modo_simulado())
+
+        zona = db.criar_zona({"nome": "Z", "especie": "frangos", "indice": "ITU"})
+        db.criar_equipamento(zona["id"], {
+            "tipo": "sensor", "nome": "TBS", "modo_conexao": "tcp", "host": "1",
+            "tipo_registrador": "input", "endereco_registrador": 1, "campo_medido": "tbs",
+        })
+        db.criar_equipamento(zona["id"], {
+            "tipo": "sensor", "nome": "TBU", "modo_conexao": "tcp", "host": "1",
+            "tipo_registrador": "input", "endereco_registrador": 2, "campo_medido": "tbu",
+        })
+        resultado = servico.calcular(zona["id"])
+
+        self.assertIn("TBS", simulador.leituras_chamadas)
+        self.assertEqual([], chamadas_real)
+        self.assertTrue(resultado["modo_simulado"])
+
+    def test_com_simulador_mas_config_desligada_usa_real(self):
+        db.salvar_configuracoes({"modoSimuladoZonas": False})
+
+        class SimuladorFalso:
+            def ler_valor(self, equipamento):
+                return 25.0
+
+            def escrever_valor(self, equipamento, ligar):
+                return True
+
+            def registrar_calculo(self, *args, **kwargs):
+                pass
+
+        chamadas_real = []
+
+        def ler_real(equipamento):
+            chamadas_real.append(equipamento["nome"])
+            return 30.0
+
+        servico = ZonaService(
+            obter_zona=db.obter_zona,
+            salvar_leitura=db.salvar_leitura,
+            obter_configuracoes=db.obter_configuracoes,
+            ler_modbus_real=ler_real,
+        )
+        servico.definir_simulador(SimuladorFalso())
+        self.assertFalse(servico._em_modo_simulado())
+
+        zona = db.criar_zona({"nome": "Z", "especie": "frangos", "indice": "ITU"})
+        db.criar_equipamento(zona["id"], {
+            "tipo": "sensor", "nome": "TBS", "modo_conexao": "tcp", "host": "1",
+            "tipo_registrador": "input", "endereco_registrador": 1, "campo_medido": "tbs",
+        })
+        db.criar_equipamento(zona["id"], {
+            "tipo": "sensor", "nome": "TBU", "modo_conexao": "tcp", "host": "1",
+            "tipo_registrador": "input", "endereco_registrador": 2, "campo_medido": "tbu",
+        })
+        resultado = servico.calcular(zona["id"])
+
+        self.assertIn("TBS", chamadas_real)
+        self.assertFalse(resultado["modo_simulado"])
 
 
 if __name__ == "__main__":

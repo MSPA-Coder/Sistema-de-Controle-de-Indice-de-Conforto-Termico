@@ -674,6 +674,9 @@ td.status-emergencia { color: var(--status-emergencia); }
 .zonas-cabecalho { display: flex; align-items: flex-start; justify-content: space-between; gap: 1.5rem; flex-wrap: wrap; }
 .zonas-descricao { color: var(--cor-texto-mute); font-size: 0.85rem; line-height: 1.55; max-width: 640px; margin: 0.35rem 0 0; }
 .zonas-descricao strong { color: var(--cor-texto); }
+.zonas-alternadores { margin-top: 1rem; padding-top: 0.9rem; border-top: 1px solid var(--cor-borda); }
+
+.zona-grafico-bloco { margin-top: 1rem; }
 
 .zonas-lista { display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem; }
 

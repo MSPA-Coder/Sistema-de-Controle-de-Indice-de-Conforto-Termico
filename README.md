@@ -324,6 +324,33 @@ testes cresceu de 41 para 75 casos, todos verdes antes e depois):
       serviço de cálculo por zona (média, resiliência a falha de sensor,
       estado independente por zona).
 
+### Sexta rodada: modo simulado, dados de exemplo e gráficos por zona
+
+17. **5 zonas de exemplo cadastradas** (`seed_zonas.py`), com sensores/
+    ventiladores/nebulizadores em parâmetros Modbus plausíveis (RTU via
+    `/dev/ttyUSB0`/`/dev/ttyUSB1`, TCP em IPs de rede local, escala `int16`
+    ×10 típica de sensores baratos, atuadores via coil). Duas das cinco
+    zonas têm um sensor redundante no mesmo campo, justamente para
+    exercitar a média entre sensores. Script idempotente (roda de novo sem
+    duplicar, a menos que peça `--forcar`).
+18. **Modo simulado para as zonas** (`modbus_simulador.py`): sem hardware
+    Modbus real ainda conectado, cada zona pode operar com leituras
+    plausíveis — reaproveitando a mesma lógica de sorteio e resfriamento
+    gradual já usada pelo sensor simulado da aba Principal, só que com um
+    estado independente por zona. Liga por padrão (não há hardware real
+    ainda); um checkbox na própria aba Zonas (`modoSimuladoZonas`,
+    persistido) alterna para tentar Modbus de verdade quando o hardware
+    estiver conectado. "Testar conexão" também respeita esse modo.
+19. **Modo automático por zona**: novo checkbox na aba Zonas que recalcula
+    todas as zonas **ativas**, em sequência (como um barramento RS-485
+    real, um dispositivo por vez), no mesmo intervalo configurado para o
+    modo automático da aba Principal — reaproveitando o mesmo padrão de
+    "nunca sobrepor ciclos".
+20. **Gráfico por zona**: cada card de zona agora mostra seu próprio
+    histórico do índice calculado (Chart.js), em vez de um único gráfico
+    compartilhado para todo o sistema — uma zona por conjunto de dados,
+    como pedido.
+
 ## Variáveis de ambiente do servidor
 
 Todas opcionais — sem nenhuma configurada, o servidor roda com os mesmos
@@ -385,23 +412,46 @@ em Raspberry Pi). Cada zona pode ter de **0 a N** equipamentos de cada tipo.
 > clima para avicultura/pecuária (ex.: Rotem) para uma área com climatização
 > própria — foi mantido por já ser familiar ao mercado.
 
-**Como funciona o cálculo:** ao clicar em "Ler agora" (ou quando integrado a
-uma rotina automática futura), o sistema lê todos os sensores Modbus da
-zona. Quando há **mais de um sensor para o mesmo campo** (ex.: dois sensores
-de temperatura de bulbo seco), o valor usado no cálculo é a **média** das
-leituras. Um sensor que não responde é ignorado na média (e aparece como
-"sensor sem resposta"), mas não impede o cálculo a menos que seja o único
-sensor daquele campo. Se a zona tiver `tbs`+`tbu` mas não tiver sensor
-dedicado de umidade/ponto de orvalho, esses valores são **derivados**
-automaticamente (mesma fórmula psicrométrica usada no restante do sistema).
-O resultado é gravado no histórico e os ventiladores/nebulizadores da zona
-são acionados via Modbus conforme a gravidade — cada zona tem seu próprio
-estado de acionamento, independente das demais.
+**Como funciona o cálculo:** ao clicar em "Ler agora" (ou automaticamente, se
+o "Modo automático" da própria aba estiver ligado — ver abaixo), o sistema lê
+todos os sensores Modbus da zona. Quando há **mais de um sensor para o mesmo
+campo** (ex.: dois sensores de temperatura de bulbo seco), o valor usado no
+cálculo é a **média** das leituras. Um sensor que não responde é ignorado na
+média (e aparece como "sensor sem resposta"), mas não impede o cálculo a
+menos que seja o único sensor daquele campo. Se a zona tiver `tbs`+`tbu` mas
+não tiver sensor dedicado de umidade/ponto de orvalho, esses valores são
+**derivados** automaticamente (mesma fórmula psicrométrica usada no restante
+do sistema). O resultado é gravado no histórico — e exibido no gráfico
+próprio da zona (cada zona tem o seu, diferente da aba Principal, que mostra
+um único conjunto de dados) — e os ventiladores/nebulizadores da zona são
+acionados via Modbus conforme a gravidade — cada zona tem seu próprio estado
+de acionamento, independente das demais.
+
+**Modo automático das zonas:** o checkbox "Modo automático" na própria aba
+Zonas recalcula todas as zonas **ativas** periodicamente (mesmo intervalo
+configurado para o modo automático da aba Principal), uma de cada vez em
+sequência — como um barramento RS-485 real, onde só um dispositivo fala por
+vez.
+
+**Modo simulado (sem hardware ainda):** o checkbox "Modo simulado" (ligado
+por padrão, já que normalmente ainda não há hardware Modbus real conectado)
+faz a leitura de sensores, o acionamento de atuadores e o teste de conexão
+de cada zona funcionarem com valores plausíveis, sem nenhuma comunicação de
+rede de verdade — a mesma lógica de sorteio e resfriamento gradual já usada
+pelo sensor simulado da aba Principal, só que com um estado independente por
+zona. Desligue quando o hardware Modbus real estiver conectado.
+
+**Dados de exemplo:** rode `python seed_zonas.py` para cadastrar 5 zonas de
+exemplo (aviários, confinamento bovino, maternidade/creche de suínos) com
+parâmetros Modbus realistas, prontas para testar o modo simulado sem
+precisar cadastrar nada manualmente. O script não duplica se já houver
+zonas cadastradas (a menos que rode com `--forcar`).
 
 **Instalação:** a integração Modbus depende da biblioteca opcional
 `pymodbus`. Sem ela instalada, o resto do app funciona normalmente — só as
-zonas não conseguem ler/escrever equipamentos de verdade (a interface avisa
-isso ao tentar testar uma conexão). Para habilitar:
+zonas não conseguem ler/escrever equipamentos de verdade quando o modo
+simulado estiver desligado (a interface avisa isso ao tentar testar uma
+conexão). Para habilitar:
 
 ```
 pip install pymodbus

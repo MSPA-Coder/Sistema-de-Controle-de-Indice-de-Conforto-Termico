@@ -25,6 +25,7 @@ agents.md, "Stability Rules").
 
 from __future__ import annotations
 
+import datetime
 import threading
 from typing import Callable
 
@@ -72,24 +73,131 @@ class ZonaService:
         obter_zona: Callable[[int], dict | None],
         salvar_leitura: Callable,
         obter_configuracoes: Callable,
-        ler_modbus: Callable = modbus_client.ler_valor,
-        escrever_modbus: Callable = modbus_client.escrever_valor,
+        obter_historico: Callable | None = None,
+        ler_modbus_real: Callable = modbus_client.ler_valor,
+        escrever_modbus_real: Callable = modbus_client.escrever_valor,
+        simulador=None,
+        limite_historico_grafico: int = 20,
     ):
         self._obter_zona = obter_zona
         self._salvar_leitura = salvar_leitura
         self._obter_configuracoes = obter_configuracoes
-        self._ler_modbus = ler_modbus
-        self._escrever_modbus = escrever_modbus
+        self._obter_historico = obter_historico
+        self._ler_modbus_real = ler_modbus_real
+        self._escrever_modbus_real = escrever_modbus_real
+        # `simulador` (um `modbus_simulador.SimuladorModbusZonas`, opcional)
+        # substitui a comunicacao Modbus real por valores simulados quando
+        # a configuracao `modoSimuladoZonas` estiver ligada (ver
+        # `_em_modo_simulado`). Sem um simulador injetado, o servico sempre
+        # usa as funcoes "reais" (uteis em testes que querem controlar
+        # exatamente o que cada leitura devolve).
+        self._simulador = simulador
         # Uma instancia de Resfriamento por zona: cada zona tem seu proprio
         # estado de intensidade/histerese, independente das demais.
         self._resfriadores: dict[int, Resfriamento] = {}
+        self._historicos_grafico: dict[int, list[dict]] = {}
+        self._limite_historico_grafico = limite_historico_grafico
         self._lock = threading.Lock()
+
+    @staticmethod
+    def _copiar_leitura(leitura: dict) -> dict:
+        copia = dict(leitura)
+        copia["entradas"] = dict(leitura["entradas"])
+        return copia
 
     def resfriador_da_zona(self, zona_id: int) -> Resfriamento:
         with self._lock:
             if zona_id not in self._resfriadores:
                 self._resfriadores[zona_id] = Resfriamento()
             return self._resfriadores[zona_id]
+
+    def definir_simulador(self, simulador) -> None:
+        """Wiring pos-construcao: o simulador (`modbus_simulador.
+        SimuladorModbusZonas`) precisa de uma forma de consultar o estado
+        de resfriamento atual de uma zona, que so existe DEPOIS que este
+        `ZonaService` ja foi criado (`resfriador_da_zona`). Por isso o
+        simulador e injetado aqui, em vez de no construtor -- evita uma
+        dependencia circular na composicao (ver web.py)."""
+        self._simulador = simulador
+
+    def obter_historico_grafico(self, zona_id: int) -> list[dict]:
+        with self._lock:
+            if zona_id in self._historicos_grafico:
+                return [
+                    self._copiar_leitura(leitura)
+                    for leitura in self._historicos_grafico[zona_id]
+                ]
+
+        if not self._obter_historico:
+            return []
+        return [
+            self._copiar_leitura(leitura)
+            for leitura in self._obter_historico(
+                zona_id, limite=self._limite_historico_grafico
+            )
+        ]
+
+    def limpar_historico_grafico(self, zona_id: int | None = None) -> None:
+        with self._lock:
+            if zona_id is None:
+                self._historicos_grafico.clear()
+            else:
+                self._historicos_grafico.pop(zona_id, None)
+
+    def _registrar_historico_grafico(
+        self, zona: dict, valor: float, status: str, entradas: dict, logger
+    ) -> list[dict]:
+        leitura = {
+            "zona_id": zona["id"],
+            "especie": zona["especie"],
+            "indice": zona["indice"],
+            "criado_em": datetime.datetime.now().isoformat(timespec="seconds"),
+            "valor": valor,
+            "status": status,
+            "entradas": dict(entradas),
+        }
+        try:
+            with self._lock:
+                if zona["id"] not in self._historicos_grafico:
+                    historico_base = []
+                    if self._obter_historico:
+                        historico_base = self._obter_historico(
+                            zona["id"], limite=self._limite_historico_grafico - 1
+                        )
+                    self._historicos_grafico[zona["id"]] = historico_base
+                self._historicos_grafico[zona["id"]].append(leitura)
+                self._historicos_grafico[zona["id"]] = self._historicos_grafico[
+                    zona["id"]
+                ][-self._limite_historico_grafico:]
+                return [
+                    self._copiar_leitura(item)
+                    for item in self._historicos_grafico[zona["id"]]
+                ]
+        except Exception:
+            if logger:
+                logger.exception("Falha ao atualizar historico visual da zona %s", zona["id"])
+            return []
+
+    def _em_modo_simulado(self) -> bool:
+        if not self._simulador:
+            return False
+        try:
+            return bool(self._obter_configuracoes().get("modoSimuladoZonas", True))
+        except Exception:
+            # Falha ao ler a configuracao: assume simulado por seguranca
+            # (evita tentar falar com hardware real por engano quando nao
+            # se sabe ao certo qual modo esta configurado).
+            return True
+
+    def _ler_modbus(self, equipamento: dict):
+        if self._em_modo_simulado():
+            return self._simulador.ler_valor(equipamento)
+        return self._ler_modbus_real(equipamento)
+
+    def _escrever_modbus(self, equipamento: dict, ligar: bool) -> bool:
+        if self._em_modo_simulado():
+            return self._simulador.escrever_valor(equipamento, ligar)
+        return self._escrever_modbus_real(equipamento, ligar)
 
     def ler_sensores(self, equipamentos: list[dict]) -> dict:
         """Le todos os sensores informados via Modbus e devolve a MEDIA das
@@ -143,6 +251,9 @@ class ZonaService:
 
         temperatura = Temperatura(zona["especie"], zona["indice"])
         valor, status = temperatura.calcular_ict(entradas)
+        historico_grafico = self._registrar_historico_grafico(
+            zona, valor, status, temperatura.entradas, logger
+        )
 
         gravado = False
         try:
@@ -170,6 +281,15 @@ class ZonaService:
 
         atuadores_com_falha = self._aplicar_atuadores(equipamentos, resfriador, logger)
 
+        if self._em_modo_simulado() and self._simulador:
+            # Mantem o estado interno do simulador (resfriamento gradual)
+            # em sincronia com o resultado real deste ciclo, exatamente
+            # como o sensor simulado da aba Principal faz apos cada
+            # calculo (ver services.CalculoIctService._calcular_indice).
+            self._simulador.registrar_calculo(
+                zona_id, zona["especie"], zona["indice"], temperatura.entradas, valor, status
+            )
+
         return {
             "zona_id": zona_id,
             "zona_nome": zona["nome"],
@@ -180,10 +300,12 @@ class ZonaService:
             "cor": ti.cor_do_status(status),
             "mensagem": ti.mensagem_do_status(status),
             "entradas": temperatura.entradas,
+            "historico_grafico": historico_grafico,
             "leitura_gravada": gravado,
             "sensores_com_falha": leitura["sensores_com_falha"],
             "equipamento": resfriador.estado(),
             "atuadores_com_falha": atuadores_com_falha,
+            "modo_simulado": self._em_modo_simulado(),
         }
 
     def _aplicar_atuadores(

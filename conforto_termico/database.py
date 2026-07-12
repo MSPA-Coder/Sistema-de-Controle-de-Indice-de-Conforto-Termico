@@ -90,6 +90,13 @@ CONFIGURACOES_PADRAO = {
     "smtpPorta": 587,
     "smtpUsuario": "",
     "smtpSenha": "",
+    # Modo simulado para as Zonas Modbus: quando ligado (padrao, ja que
+    # normalmente ainda nao ha hardware Modbus real conectado), leitura de
+    # sensor/escrita em atuador/teste de conexao das zonas nao tocam a rede
+    # de verdade -- geram valores plausiveis do mesmo jeito que o sensor
+    # simulado da aba Principal ja faz (ver modbus_simulador.py). Desligue
+    # quando o hardware Modbus real estiver conectado.
+    "modoSimuladoZonas": True,
 }
 
 # Regex pragmatica (nao e uma validacao RFC 5322 completa) para pegar os
@@ -747,6 +754,7 @@ def _sanitizar_configuracoes(configuracoes: dict) -> dict:
         "smtpPorta": _coagir_numero(bruto["smtpPorta"], padrao["smtpPorta"], 1, 65535),
         "smtpUsuario": _coagir_texto_livre(bruto["smtpUsuario"], padrao["smtpUsuario"]),
         "smtpSenha": _coagir_texto_livre(bruto["smtpSenha"], padrao["smtpSenha"]),
+        "modoSimuladoZonas": _coagir_booleano(bruto["modoSimuladoZonas"], padrao["modoSimuladoZonas"]),
     }
 
 

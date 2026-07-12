@@ -38,6 +38,7 @@ from werkzeug.exceptions import HTTPException
 from . import database as db
 from . import modbus_client
 from . import thermal_indices as ti
+from .modbus_simulador import SimuladorModbusZonas
 from .models import Resfriamento
 from .services import CalculoIctService, HistoricoGraficoService, SensorSimuladoService
 from .zona_service import ZonaCalculoError, ZonaService
@@ -140,7 +141,18 @@ zona_service = ZonaService(
     obter_zona=db.obter_zona,
     salvar_leitura=db.salvar_leitura,
     obter_configuracoes=db.obter_configuracoes,
+    obter_historico=db.obter_historico_por_zona,
 )
+# `SimuladorModbusZonas` precisa poder perguntar ao proprio zona_service
+# qual e o estado de resfriamento atual de uma zona (para decidir se a
+# proxima leitura simulada deve reduzir gradualmente ou sortear um valor
+# novo) -- por isso e conectado depois da criacao de zona_service, via
+# `definir_simulador`, em vez de no construtor.
+zona_simulador = SimuladorModbusZonas(
+    obter_zona=db.obter_zona,
+    obter_resfriamento_ativo=lambda zona_id: zona_service.resfriador_da_zona(zona_id).estado()["ativo"],
+)
+zona_service.definir_simulador(zona_simulador)
 
 
 @app.after_request
@@ -419,6 +431,7 @@ def atualizar_zona(zona_id):
 def excluir_zona(zona_id):
     if not db.excluir_zona(zona_id):
         return jsonify({"erro": f"Zona {zona_id} não encontrada."}), 404
+    zona_service.limpar_historico_grafico(zona_id)
     return jsonify({"ok": True})
 
 
@@ -461,8 +474,12 @@ def testar_conexao_equipamento(zona_id, equipamento_id):
     if equipamento is None or equipamento["zona_id"] != zona_id:
         return jsonify({"erro": f"Equipamento {equipamento_id} não encontrado na zona {zona_id}."}), 404
 
+    modo_simulado = bool(db.obter_configuracoes().get("modoSimuladoZonas", True))
+    if modo_simulado:
+        return jsonify({"conectado": zona_simulador.testar_conexao(equipamento), "modo_simulado": True})
+
     conectado = modbus_client.testar_conexao(equipamento)
-    resposta = {"conectado": conectado}
+    resposta = {"conectado": conectado, "modo_simulado": False}
     if not modbus_client.PYMODBUS_DISPONIVEL:
         resposta["aviso"] = (
             "A biblioteca pymodbus não está instalada neste servidor "
@@ -484,7 +501,7 @@ def calcular_zona(zona_id):
 def historico_zona(zona_id):
     if db.obter_zona(zona_id) is None:
         return jsonify({"erro": f"Zona {zona_id} não encontrada."}), 404
-    return jsonify(db.obter_historico_por_zona(zona_id, limite=20))
+    return jsonify(zona_service.obter_historico_grafico(zona_id))
 
 
 def executar_servidor_local(config: AppConfig | None = None) -> None:

@@ -385,6 +385,7 @@ function coletarConfig() {
     // branco significa "nao mexer na senha ja salva" - tratado do lado do
     // servidor em database.salvar_configuracoes.
     smtpSenha: document.getElementById("cfg-smtp-senha")?.value || "",
+    modoSimuladoZonas: document.getElementById("cfg-zonas-simulado")?.checked ?? true,
   };
 }
 
@@ -433,6 +434,7 @@ function aplicarConfiguracoes(config) {
   definirValorConfiguracao("cfg-smtp-host", config.smtpHost);
   definirValorConfiguracao("cfg-smtp-porta", config.smtpPorta);
   definirValorConfiguracao("cfg-smtp-usuario", config.smtpUsuario);
+  definirValorConfiguracao("cfg-zonas-simulado", config.modoSimuladoZonas);
   // cfg-smtp-senha propositalmente NAO e preenchido aqui: o servidor nunca
   // devolve a senha real, entao o campo fica vazio ate o usuario digitar
   // uma senha nova.
@@ -1540,6 +1542,10 @@ async function cicloAutomatico() {
 let zonasCache = [];
 let zonaEmEdicaoId = null; // null = criando uma nova zona
 let equipamentoEmEdicao = null; // { zonaId, equipamentoId | null }
+let graficosPorZona = new Map(); // zona_id -> instância Chart.js
+let autoZonasAtivo = false;
+let autoZonasEmExecucao = false;
+let autoZonasTimeoutId = null;
 
 const ROTULOS_TIPO_EQUIPAMENTO = {
   sensor: "Sensores",
@@ -1561,9 +1567,19 @@ async function carregarZonas() {
 function renderizarZonas() {
   const lista = document.getElementById("zonas-lista");
   const vazio = document.getElementById("zonas-vazio");
+
+  graficosPorZona.forEach((grafico, zonaId) => {
+    grafico.destroy();
+  });
+  graficosPorZona.clear();
+
   lista.textContent = "";
   vazio.classList.toggle("oculto", zonasCache.length > 0);
-  zonasCache.forEach((zona) => lista.appendChild(construirCartaoZona(zona)));
+
+  zonasCache.forEach((zona) => {
+    lista.appendChild(construirCartaoZona(zona));
+    carregarGraficoZona(zona.id);
+  });
 }
 
 function construirCartaoZona(zona) {
@@ -1628,6 +1644,20 @@ function construirCartaoZona(zona) {
   resultado.id = "zona-resultado-" + zona.id;
   cartao.appendChild(resultado);
 
+  const graficoWrap = document.createElement("div");
+  graficoWrap.className = "grafico-bloco grafico-bloco--sem-moldura zona-grafico-bloco";
+  const graficoTitulo = document.createElement("p");
+  graficoTitulo.className = "grafico-titulo";
+  graficoTitulo.textContent = "Histórico do índice calculado (últimas 20 leituras)";
+  graficoWrap.appendChild(graficoTitulo);
+  const canvasWrap = document.createElement("div");
+  canvasWrap.className = "grafico-canvas-wrap";
+  const canvas = document.createElement("canvas");
+  canvas.id = "zona-grafico-" + zona.id;
+  canvasWrap.appendChild(canvas);
+  graficoWrap.appendChild(canvasWrap);
+  cartao.appendChild(graficoWrap);
+
   const grade = document.createElement("div");
   grade.className = "zona-equipamentos";
   ["sensor", "ventilador", "nebulizador"].forEach((tipo) => {
@@ -1636,6 +1666,39 @@ function construirCartaoZona(zona) {
   cartao.appendChild(grade);
 
   return cartao;
+}
+
+async function carregarGraficoZona(zonaId) {
+  try {
+    const resposta = await fetch("/api/zonas/" + zonaId + "/historico");
+    if (!resposta.ok) return;
+    atualizarGraficoZona(zonaId, await resposta.json());
+  } catch (erro) {
+    console.error("Não foi possível carregar o histórico da zona " + zonaId + ":", erro);
+  }
+}
+
+function atualizarGraficoZona(zonaId, historico) {
+  const canvasId = "zona-grafico-" + zonaId;
+  if (!document.getElementById(canvasId) || typeof Chart === "undefined") return;
+
+  const dataset = {
+    label: "Índice calculado",
+    data: historico.map((h) => h.valor),
+    backgroundColor: historico.map((h) => corStatus(h.status)),
+    borderRadius: 3,
+    maxBarThickness: 22,
+  };
+
+  const grafico = criarOuAtualizarGrafico(graficosPorZona.get(zonaId), canvasId, {
+    type: "bar",
+    data: {
+      labels: historico.map((h) => formatarHora(h.criado_em)),
+      datasets: [dataset],
+    },
+    options: opcoesGrafico(false),
+  });
+  graficosPorZona.set(zonaId, grafico);
 }
 
 function construirGrupoEquipamento(zona, tipo) {
@@ -1739,8 +1802,51 @@ async function calcularZona(zonaId) {
       return;
     }
     exibirResultadoZona(container, dados);
+    if (Array.isArray(dados.historico_grafico)) {
+      atualizarGraficoZona(zonaId, dados.historico_grafico);
+    } else {
+      carregarGraficoZona(zonaId);
+    }
   } catch (erro) {
     exibirResultadoZonaErro(container, "Falha de comunicação com o servidor.");
+  }
+}
+
+// --- Modo automático das zonas: recalcula todas as zonas ATIVAS em
+// sequencia, a cada ciclo -- mesmo padrao de "nunca sobrepor ciclos" ja
+// usado no modo automatico da aba Principal (ver alternarModoAutomatico/
+// cicloAutomatico), soh que iterando uma lista de zonas em vez de uma
+// unica estacao.
+function alternarModoAutomaticoZonas(ativo) {
+  autoZonasAtivo = ativo;
+  if (autoZonasTimeoutId) {
+    clearTimeout(autoZonasTimeoutId);
+    autoZonasTimeoutId = null;
+  }
+  if (ativo && !autoZonasEmExecucao) {
+    cicloAutomaticoZonas();
+  }
+}
+
+async function cicloAutomaticoZonas() {
+  if (!autoZonasAtivo) return;
+  autoZonasEmExecucao = true;
+  try {
+    const zonasAtivas = zonasCache.filter((zona) => zona.ativa);
+    for (const zona of zonasAtivas) {
+      // Sequencial de proposito: um barramento RS-485 real e serial (um
+      // dispositivo por vez), entao calcular uma zona de cada vez tambem
+      // reflete melhor o funcionamento real do que disparar tudo em
+      // paralelo.
+      await calcularZona(zona.id);
+    }
+  } catch (erro) {
+    console.error("Erro no ciclo automático das zonas:", erro);
+  } finally {
+    autoZonasEmExecucao = false;
+  }
+  if (autoZonasAtivo) {
+    autoZonasTimeoutId = setTimeout(cicloAutomaticoZonas, obterIntervaloLeituraMs());
   }
 }
 
@@ -2159,4 +2265,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   document
     .getElementById("btn-testar-conexao-equipamento")
     .addEventListener("click", testarConexaoEquipamentoAtual);
+
+  document.getElementById("cfg-zonas-simulado").addEventListener("change", agendarSalvarConfiguracoes);
+  document.getElementById("cfg-zonas-auto").addEventListener("change", (evento) => {
+    alternarModoAutomaticoZonas(evento.target.checked);
+  });
 });

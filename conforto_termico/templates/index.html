@@ -281,6 +281,16 @@
         </div>
         <button id="btn-nova-zona" class="botao botao--primario" type="button">+ Nova zona</button>
       </div>
+      <div class="config-grade zonas-alternadores">
+        <label class="check">
+          <input type="checkbox" id="cfg-zonas-simulado" checked>
+          <span>Modo simulado (sem hardware Modbus real)</span>
+        </label>
+        <label class="check check--automatico">
+          <input type="checkbox" id="cfg-zonas-auto">
+          <span>Modo automático (recalcula todas as zonas ativas periodicamente)</span>
+        </label>
+      </div>
       <p id="zonas-aviso-pymodbus" class="smtp-status oculto"></p>
     </section>
 

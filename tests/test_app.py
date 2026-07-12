@@ -101,6 +101,7 @@ class TestHistoricoGraficoApi(unittest.TestCase):
             "smtpPorta": 465,
             "smtpUsuario": "sistema@fazenda.com.br",
             "smtpSenha": "segredo-app-password",
+            "modoSimuladoZonas": False,
         }
 
         salvar = self.client.post("/api/configuracoes", json=payload)
@@ -542,9 +543,11 @@ class TestZonasApi(unittest.TestCase):
         self.db_path_original = db.DB_PATH
         db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
         db.iniciar_banco()
+        flask_app.zona_service.limpar_historico_grafico()
         self.client = flask_app.app.test_client()
 
     def tearDown(self):
+        flask_app.zona_service.limpar_historico_grafico()
         db.DB_PATH = self.db_path_original
         self.tempdir.cleanup()
 
@@ -692,6 +695,48 @@ class TestZonasApi(unittest.TestCase):
         resposta = self.client.get(f"/api/zonas/{zona_id}/historico")
         self.assertEqual(200, resposta.status_code)
         self.assertEqual([], resposta.json)
+
+    def test_grafico_de_zona_atualiza_a_cada_calculo_mesmo_sem_gravar_no_banco(self):
+        zona_id = self._criar_zona().json["id"]
+        for campo in ("tbs", "tbu"):
+            self.client.post(
+                f"/api/zonas/{zona_id}/equipamentos",
+                json={
+                    "tipo": "sensor",
+                    "nome": f"Sensor {campo.upper()}",
+                    "modo_conexao": "tcp",
+                    "host": "127.0.0.1",
+                    "porta": 502,
+                    "tipo_registrador": "input",
+                    "endereco_registrador": 1,
+                    "campo_medido": campo,
+                },
+            )
+
+        ciclos = [{"tbs": 25.0, "tbu": 20.0}, {"tbs": 26.0, "tbu": 21.0}]
+        chamadas = []
+
+        def ler_modbus(equipamento):
+            ciclo = min(len(chamadas) // 2, len(ciclos) - 1)
+            chamadas.append(equipamento["campo_medido"])
+            return ciclos[ciclo][equipamento["campo_medido"]]
+
+        with patch.object(flask_app.zona_service, "_ler_modbus", side_effect=ler_modbus):
+            primeira = self.client.post(f"/api/zonas/{zona_id}/calcular")
+            segunda = self.client.post(f"/api/zonas/{zona_id}/calcular")
+
+        self.assertEqual(200, primeira.status_code)
+        self.assertTrue(primeira.json["leitura_gravada"])
+        self.assertEqual(1, len(primeira.json["historico_grafico"]))
+
+        self.assertEqual(200, segunda.status_code)
+        self.assertFalse(segunda.json["leitura_gravada"])
+        self.assertEqual(2, len(segunda.json["historico_grafico"]))
+
+        historico_endpoint = self.client.get(f"/api/zonas/{zona_id}/historico")
+        self.assertEqual(200, historico_endpoint.status_code)
+        self.assertEqual(2, len(historico_endpoint.json))
+        self.assertEqual(1, len(db.obter_historico_por_zona(zona_id)))
 
     def test_testar_conexao_de_equipamento_inexistente_devolve_404(self):
         zona_id = self._criar_zona().json["id"]

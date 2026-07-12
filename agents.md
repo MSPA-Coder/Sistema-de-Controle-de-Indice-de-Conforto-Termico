@@ -225,6 +225,43 @@ Use ASCII identifiers and internal values such as `especie`, `indice`,
   into one service -- they have different input sources (manual/simulated
   vs. averaged Modbus reads) and different equipment-state scopes (one
   global `Resfriamento` vs. one per zone).
+- **Simulated Modbus mode.** `modbus_simulador.SimuladorModbusZonas`
+  provides drop-in replacements for `modbus_client.ler_valor`/
+  `escrever_valor`/`testar_conexao`, generating plausible readings by
+  reusing `services.SensorSimuladoService` (one instance per zone, so the
+  gradual-cooling behavior is independent per zone, same as
+  `Resfriamento`). Which one `ZonaService` actually calls is decided PER
+  CALL by `_em_modo_simulado()`, reading the persisted `modoSimuladoZonas`
+  config flag (default `True`) -- not fixed at construction time. This is
+  deliberate: it lets `web.py` wire one `ZonaService` instance for the
+  whole app lifetime while the person freely flips real/simulated from the
+  UI at any moment. `ZonaService.definir_simulador(...)` exists (instead of
+  a constructor parameter) specifically to break a circular dependency: the
+  simulator needs `zona_service.resfriador_da_zona` to know current cooling
+  state, which only exists after `ZonaService` itself is constructed (see
+  the wiring in `web.py`).
+- **Seeding example zones.** `seed_zonas.py` (project root, not part of the
+  running app) creates 5 example zones with realistic Modbus parameters
+  for demonstration/testing. It's idempotent by default (does nothing if
+  zones already exist; `--forcar` overrides). If you change
+  `thermal_indices.CAMPOS_POR_INDICE` or add a species/index combination,
+  keep this script's sensor sets covering whatever fields the configured
+  índice actually needs -- a zone that can never calculate its own índice
+  is a bad example, not a realistic one.
+- **Per-zone automatic mode and charts (frontend only).** The Zonas tab has
+  its own "modo automático" toggle (`cfg-zonas-auto`,
+  `alternarModoAutomaticoZonas`/`cicloAutomaticoZonas` in app.js) that
+  cycles through active zones SEQUENTIALLY (mirrors a real RS-485 bus:
+  one device at a time), reusing the exact same non-overlapping-cycle
+  pattern as the Principal tab's automatic mode (`autoZonasEmExecucao`/
+  `autoZonasTimeoutId` mirror `autoEmExecucao`/`autoTimeoutId`). Each zone
+  card renders its own Chart.js chart of that zone's calculated index over
+  time (`atualizarGraficoZona`, fed by `/api/zonas/<id>/historico`) --
+  replacing the single shared chart the Principal tab shows for one
+  dataset. `cfg-zonas-simulado` persists to the `modoSimuladoZonas` config
+  key through the same `coletarConfig`/`aplicarConfiguracoes` pipeline as
+  every other config checkbox, even though it physically lives in the
+  Zonas tab rather than Configurações.
 
 ## Verification
 
