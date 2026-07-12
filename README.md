@@ -33,6 +33,13 @@ funcionalidades como uma aplicação web local.
   voltar à faixa de Conforto; depois disso, retorna à geração aleatória.
 - Mantém um **histórico das últimas 20 leituras** (SQLite) e o exibe em dois
   gráficos (valor do índice / variáveis de entrada) e em uma tabela.
+- **Zonas** (aba dedicada): agrupam sensores, ventiladores e nebulizadores
+  reais conectados via **Modbus** (TCP ou RTU/RS-485), de 0 a N equipamentos
+  de cada tipo por zona. O cálculo do índice passa a ser feito por zona —
+  quando há mais de um sensor para o mesmo campo, o valor usado é a
+  **média** das leituras. Cada zona tem sua própria espécie/índice e seu
+  próprio estado de ventilador/nebulizador, independente das demais. Ver
+  "Zonas Modbus" abaixo.
 
 ## Estrutura do projeto
 
@@ -284,6 +291,39 @@ testes cresceu de 41 para 75 casos, todos verdes antes e depois):
     chega vazio de propósito). As variáveis de ambiente continuam
     funcionando como estavam, como alternativa a esse card.
 
+### Quinta rodada: Zonas Modbus
+
+16. **Nova aba "Zonas"**: cadastro de zonas (grupos de sensores/
+    ventiladores/nebulizadores conectados via Modbus TCP/RTU, 0 a N de
+    cada por zona) e o cálculo do índice passou a poder ser feito **por
+    zona**, com **média** das leituras quando há mais de um sensor para o
+    mesmo campo. Detalhes completos na seção "Zonas Modbus" acima. Resumo
+    técnico:
+    - Novo módulo `modbus_client.py`: abstração sobre `pymodbus` (dependência
+      opcional) que nunca lança exceção — biblioteca ausente, equipamento
+      sem resposta ou erro Modbus sempre viram `None`/`False`, o mesmo
+      princípio já usado para SMTP.
+    - Novo módulo `zona_service.py`: lê os sensores de uma zona, tira a
+      média por campo, deriva ur/ponto de orvalho quando aplicável, calcula
+      o índice (reaproveitando `Temperatura`/`Resfriamento` de
+      `models.py`) e aciona os atuadores da zona — com uma instância de
+      `Resfriamento` **por zona** (estado de acionamento independente entre
+      zonas).
+    - Novas tabelas `zonas` e `equipamentos`, e uma coluna `zona_id`
+      (nula, `ON DELETE SET NULL`) em `leituras` — leituras antigas e o
+      fluxo manual continuam com `zona_id` nulo, sem nenhuma mudança de
+      comportamento.
+    - Validação de zona/equipamento **rejeita** entrada inválida em vez de
+      cair para um padrão seguro (diferente das demais configurações do
+      app) — um endereço Modbus errado não deve ser "corrigido"
+      silenciosamente.
+    - Nova API REST (`/api/zonas`, `/api/zonas/<id>/equipamentos`,
+      `/api/zonas/<id>/calcular`, `/api/zonas/<id>/historico`, etc.).
+    - 72 novos testes automatizados cobrindo CRUD, validação, o cliente
+      Modbus (com cliente falso, sem depender de hardware real) e o
+      serviço de cálculo por zona (média, resiliência a falha de sensor,
+      estado independente por zona).
+
 ## Variáveis de ambiente do servidor
 
 Todas opcionais — sem nenhuma configurada, o servidor roda com os mesmos
@@ -334,6 +374,51 @@ SMTP_USER=usuario@seudominio.com
 SMTP_PASS=sua-senha-ou-senha-de-app
 ```
 
+## Zonas Modbus
+
+A aba **Zonas** permite cadastrar áreas de produção (galpões, baias, etc.)
+com seus próprios sensores, ventiladores e nebulizadores conectados via
+**Modbus TCP** ou **Modbus RTU** (serial, típico de redes RS-485 com um HAT
+em Raspberry Pi). Cada zona pode ter de **0 a N** equipamentos de cada tipo.
+
+> **Sobre o nome "zona":** é o termo já usado por controladores comerciais de
+> clima para avicultura/pecuária (ex.: Rotem) para uma área com climatização
+> própria — foi mantido por já ser familiar ao mercado.
+
+**Como funciona o cálculo:** ao clicar em "Ler agora" (ou quando integrado a
+uma rotina automática futura), o sistema lê todos os sensores Modbus da
+zona. Quando há **mais de um sensor para o mesmo campo** (ex.: dois sensores
+de temperatura de bulbo seco), o valor usado no cálculo é a **média** das
+leituras. Um sensor que não responde é ignorado na média (e aparece como
+"sensor sem resposta"), mas não impede o cálculo a menos que seja o único
+sensor daquele campo. Se a zona tiver `tbs`+`tbu` mas não tiver sensor
+dedicado de umidade/ponto de orvalho, esses valores são **derivados**
+automaticamente (mesma fórmula psicrométrica usada no restante do sistema).
+O resultado é gravado no histórico e os ventiladores/nebulizadores da zona
+são acionados via Modbus conforme a gravidade — cada zona tem seu próprio
+estado de acionamento, independente das demais.
+
+**Instalação:** a integração Modbus depende da biblioteca opcional
+`pymodbus`. Sem ela instalada, o resto do app funciona normalmente — só as
+zonas não conseguem ler/escrever equipamentos de verdade (a interface avisa
+isso ao tentar testar uma conexão). Para habilitar:
+
+```
+pip install pymodbus
+```
+
+**Parâmetros de cada equipamento:** tipo (sensor/ventilador/nebulizador),
+conexão (TCP: host + porta; RTU: porta serial + baud rate), ID do
+dispositivo (slave/unit id, 1–247), tipo de registrador (holding/input para
+sensores; holding/coil para atuadores), endereço do registrador, e — só
+para sensores — o campo medido (tbs, tbu, ur, v, tgn ou tpo) e o fator de
+escala (ex.: `0.1` para um sensor que reporta a temperatura como inteiro
+`x10`). Um endereço ou parâmetro de conexão inválido é **rejeitado** no
+cadastro (ao contrário das demais configurações do app, que sempre caem
+para um padrão seguro) — um erro de digitação num endereço Modbus não deve
+ser "corrigido" silenciosamente, já que isso arriscaria ler/escrever no
+registrador errado de um equipamento real.
+
 ## Rodando os testes
 
 ```
@@ -358,8 +443,11 @@ os fluxos de API, persistência e serviços de simulação.
   `/api/sensor` em `app.py` — troque a geração aleatória pela chamada ao
   driver do fabricante do sensor (seção 3.4.3 da dissertação já descreve
   essa interface).
-- O histórico fica em SQLite local (um único "posto de controle"), como no
-  programa original (aplicação desktop de estação única).
+- O histórico fica em SQLite local. O fluxo manual/simulado da aba
+  Principal continua sendo um único "posto de controle", como no programa
+  original (aplicação desktop de estação única) — mas a aba **Zonas**
+  adiciona suporte a múltiplas estações reais (uma por zona), cada uma com
+  seu próprio estado de equipamento, mantendo o fluxo original intacto.
 
 ## Ideias para evolução futura
 

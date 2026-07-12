@@ -536,5 +536,168 @@ class TestErroInternoNaoVazaDetalhe(unittest.TestCase):
         self.assertEqual(flask_app.MENSAGEM_ERRO_INTERNO, resposta.json["erro"])
 
 
+class TestZonasApi(unittest.TestCase):
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.db_path_original = db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
+        db.iniciar_banco()
+        self.client = flask_app.app.test_client()
+
+    def tearDown(self):
+        db.DB_PATH = self.db_path_original
+        self.tempdir.cleanup()
+
+    def _criar_zona(self, **sobrescritas):
+        payload = {"nome": "Aviário 1", "especie": "frangos", "indice": "ITU"}
+        payload.update(sobrescritas)
+        return self.client.post("/api/zonas", json=payload)
+
+    def test_criar_e_listar_zona(self):
+        resposta = self._criar_zona()
+        self.assertEqual(201, resposta.status_code)
+        zona_id = resposta.json["id"]
+
+        lista = self.client.get("/api/zonas")
+        self.assertEqual(200, lista.status_code)
+        self.assertEqual(1, len(lista.json))
+        self.assertEqual(zona_id, lista.json[0]["id"])
+
+    def test_criar_zona_invalida_devolve_400(self):
+        resposta = self._criar_zona(nome="")
+        self.assertEqual(400, resposta.status_code)
+        self.assertIn("erro", resposta.json)
+
+    def test_obter_zona_inexistente_devolve_404(self):
+        resposta = self.client.get("/api/zonas/9999")
+        self.assertEqual(404, resposta.status_code)
+
+    def test_atualizar_zona(self):
+        zona_id = self._criar_zona().json["id"]
+        resposta = self.client.put(
+            f"/api/zonas/{zona_id}",
+            json={"nome": "Renomeada", "especie": "frangos", "indice": "IGNU"},
+        )
+        self.assertEqual(200, resposta.status_code)
+        self.assertEqual("Renomeada", resposta.json["nome"])
+        self.assertEqual("IGNU", resposta.json["indice"])
+
+    def test_atualizar_zona_inexistente_devolve_404(self):
+        resposta = self.client.put(
+            "/api/zonas/9999", json={"nome": "x", "especie": "frangos", "indice": "ITU"}
+        )
+        self.assertEqual(404, resposta.status_code)
+
+    def test_excluir_zona(self):
+        zona_id = self._criar_zona().json["id"]
+        resposta = self.client.delete(f"/api/zonas/{zona_id}")
+        self.assertEqual(200, resposta.status_code)
+        self.assertEqual(404, self.client.get(f"/api/zonas/{zona_id}").status_code)
+
+    def test_criar_equipamento_na_zona(self):
+        zona_id = self._criar_zona().json["id"]
+        resposta = self.client.post(
+            f"/api/zonas/{zona_id}/equipamentos",
+            json={
+                "tipo": "sensor",
+                "nome": "Sensor TBS",
+                "modo_conexao": "tcp",
+                "host": "192.168.0.10",
+                "tipo_registrador": "input",
+                "endereco_registrador": 100,
+                "campo_medido": "tbs",
+            },
+        )
+        self.assertEqual(201, resposta.status_code)
+        self.assertEqual(zona_id, resposta.json["zona_id"])
+
+    def test_criar_equipamento_em_zona_inexistente_devolve_404(self):
+        resposta = self.client.post(
+            "/api/zonas/9999/equipamentos",
+            json={
+                "tipo": "sensor", "nome": "x", "modo_conexao": "tcp", "host": "1",
+                "tipo_registrador": "input", "endereco_registrador": 1, "campo_medido": "tbs",
+            },
+        )
+        self.assertEqual(404, resposta.status_code)
+
+    def test_criar_equipamento_invalido_devolve_400(self):
+        zona_id = self._criar_zona().json["id"]
+        resposta = self.client.post(
+            f"/api/zonas/{zona_id}/equipamentos",
+            json={"tipo": "aspirador", "nome": "x", "modo_conexao": "tcp", "host": "1",
+                  "tipo_registrador": "input", "endereco_registrador": 1},
+        )
+        self.assertEqual(400, resposta.status_code)
+
+    def test_excluir_equipamento(self):
+        zona_id = self._criar_zona().json["id"]
+        equipamento_id = self.client.post(
+            f"/api/zonas/{zona_id}/equipamentos",
+            json={
+                "tipo": "sensor", "nome": "Sensor TBS", "modo_conexao": "tcp", "host": "1",
+                "tipo_registrador": "input", "endereco_registrador": 1, "campo_medido": "tbs",
+            },
+        ).json["id"]
+
+        resposta = self.client.delete(f"/api/zonas/{zona_id}/equipamentos/{equipamento_id}")
+        self.assertEqual(200, resposta.status_code)
+
+        zona = self.client.get(f"/api/zonas/{zona_id}").json
+        self.assertEqual([], zona["equipamentos"])
+
+    def test_excluir_equipamento_de_outra_zona_devolve_404(self):
+        zona_a = self._criar_zona(nome="Zona A").json["id"]
+        zona_b = self._criar_zona(nome="Zona B").json["id"]
+        equipamento_id = self.client.post(
+            f"/api/zonas/{zona_a}/equipamentos",
+            json={
+                "tipo": "sensor", "nome": "Sensor", "modo_conexao": "tcp", "host": "1",
+                "tipo_registrador": "input", "endereco_registrador": 1, "campo_medido": "tbs",
+            },
+        ).json["id"]
+
+        resposta = self.client.delete(f"/api/zonas/{zona_b}/equipamentos/{equipamento_id}")
+        self.assertEqual(404, resposta.status_code)
+
+    def test_calcular_zona_sem_sensores_respondendo_devolve_400(self):
+        zona_id = self._criar_zona().json["id"]
+        self.client.post(
+            f"/api/zonas/{zona_id}/equipamentos",
+            json={
+                "tipo": "sensor", "nome": "Sensor Inatingível", "modo_conexao": "tcp",
+                "host": "203.0.113.1", "porta": 502, "tipo_registrador": "input",
+                "endereco_registrador": 1, "campo_medido": "tbs",
+            },
+        )
+        # Mocka a leitura Modbus (em vez de bater numa rede real) para o
+        # teste ser rapido e deterministico -- o objetivo aqui e validar o
+        # tratamento de erro da rota, nao o cliente Modbus em si (isso ja
+        # e coberto em test_modbus_client.py).
+        with patch.object(flask_app.zona_service, "_ler_modbus", return_value=None):
+            resposta = self.client.post(f"/api/zonas/{zona_id}/calcular")
+        self.assertEqual(400, resposta.status_code)
+        self.assertIn("erro", resposta.json)
+
+    def test_calcular_zona_inexistente_devolve_400(self):
+        resposta = self.client.post("/api/zonas/9999/calcular")
+        self.assertEqual(400, resposta.status_code)
+
+    def test_historico_de_zona_inexistente_devolve_404(self):
+        resposta = self.client.get("/api/zonas/9999/historico")
+        self.assertEqual(404, resposta.status_code)
+
+    def test_historico_de_zona_vazio_inicialmente(self):
+        zona_id = self._criar_zona().json["id"]
+        resposta = self.client.get(f"/api/zonas/{zona_id}/historico")
+        self.assertEqual(200, resposta.status_code)
+        self.assertEqual([], resposta.json)
+
+    def test_testar_conexao_de_equipamento_inexistente_devolve_404(self):
+        zona_id = self._criar_zona().json["id"]
+        resposta = self.client.post(f"/api/zonas/{zona_id}/equipamentos/9999/testar-conexao")
+        self.assertEqual(404, resposta.status_code)
+
+
 if __name__ == "__main__":
     unittest.main()

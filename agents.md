@@ -8,12 +8,24 @@ master dissertation by Mariano Sergio Pacheco de Angelo and currently cover:
 
 - ITU, ITUV and IGNU thermal comfort indexes.
 - Species-specific index availability.
-- Sensor simulation and automatic monitoring.
-- Remote equipment control for fans and nebulizers.
-- SQLite persistence for readings and chart history.
+- Sensor simulation and automatic monitoring (single-station manual flow,
+  "Principal" tab).
+- Zones ("Zonas" tab): groups of Modbus-connected sensors, fans
+  (ventiladores) and misters (nebulizadores), 0 to N of each per zone. The
+  index calculation for a zone averages readings across all sensors that
+  measure the same field, then drives that zone's own fan/mister state.
+  This is a second, independent calculation path alongside the original
+  manual/simulated flow -- both remain fully supported.
+- Remote equipment control for fans and nebulizers, both for the single
+  manual station and per-zone.
+- SQLite persistence for readings, chart history, zones and equipment.
 
 The main runtime is Python 3 + Flask. The frontend is plain HTML, CSS and
-JavaScript, with Chart.js bundled locally.
+JavaScript, with Chart.js bundled locally. Modbus connectivity (TCP and
+RTU/serial) is an optional dependency (`pymodbus`, see requirements.txt) --
+the rest of the app works fully without it installed; only zone sensor
+reads/actuator writes are affected (they return a clear "not connected"
+state instead of raising).
 
 ## Engineering Priorities
 
@@ -22,12 +34,21 @@ stability:
 
 - Keep domain formulas and thresholds centralized in `conforto_termico/thermal_indices.py`.
 - Keep HTTP concerns in `conforto_termico/web.py`.
-- Keep orchestration and stateful application behavior in `conforto_termico/services.py`.
+- Keep orchestration and stateful application behavior in `conforto_termico/services.py`
+  (single-station manual/simulated flow) and `conforto_termico/zona_service.py`
+  (per-zone Modbus flow) -- these are deliberately separate services; do not
+  merge them into one class (see "Zonas Modbus" below for why).
 - Keep persistence details in `conforto_termico/database.py`.
+- Keep the Modbus TCP/RTU client abstraction in `conforto_termico/modbus_client.py`;
+  nothing else in the codebase should import `pymodbus` directly.
 - Keep UI behavior in `conforto_termico/static/js/app.js`.
 - Add tests for changes that affect calculations, persistence, sensor
-  simulation, equipment control, automatic mode or public API responses.
-- Prefer deterministic tests over timing-sensitive tests.
+  simulation, equipment control, automatic mode, zones/Modbus, or public API
+  responses.
+- Prefer deterministic tests over timing-sensitive tests. Zone/Modbus tests
+  must never depend on real hardware or real network reachability -- always
+  fake/mock the Modbus client (see `tests/test_modbus_client.py`,
+  `tests/test_zona_service.py`).
 - Preserve backward-compatible JSON fields unless an API contract update is
   explicitly required.
 
@@ -153,6 +174,57 @@ Use ASCII identifiers and internal values such as `especie`, `indice`,
   again where it is actually used to build the message (`models.Email`).
   Treat this as two independent checks, not one shared one -- see
   `test_models.py` / `test_database.py` for the expected behavior.
+
+## Zonas Modbus
+
+- Terminology: "zona" was kept as-is -- it already matches common industry
+  usage for a climate-controlled area with its own sensors/actuators (e.g.
+  commercial poultry/livestock controllers commonly call this a "zone").
+  No need to rename it.
+- **Fail-loud validation, on purpose.** `database._validar_zona` /
+  `_validar_equipamento` REJECT invalid input with `ZonaInvalidaError`
+  instead of silently falling back to a default, unlike
+  `_sanitizar_configuracoes`. This is deliberate: a Modbus register
+  address, unit ID, or connection setting identifies a specific physical
+  device. Silently substituting a "safe default" here would mean reading
+  or writing the WRONG real equipment, which is worse than a rejected
+  request. Do not change this to a silent-sanitize pattern.
+- **Averaging is the core requirement.** `ZonaService.ler_sensores` reads
+  every sensor equipment in a zone via Modbus and averages readings that
+  share the same `campo_medido` (e.g., two `tbs` sensors become one
+  averaged `tbs` value) before calculating the index. A sensor that fails
+  to respond is excluded from the average and reported in
+  `sensores_com_falha`, but does not block the calculation unless it was
+  the only sensor for a required field.
+- **Per-zone equipment state.** `ZonaService` keeps one `Resfriamento`
+  instance per `zona_id` (in-memory dict), so zones have fully independent
+  intensity/hysteresis state -- one zone can be in "Perigo" while another
+  is in "Conforto". This reuses the exact same `Resfriamento` class as the
+  manual flow; do not fork the intensity/hysteresis logic.
+- **Humidity-derived fields.** `zona_service._derivar_campos_calculaveis`
+  derives `ur`/`tpo` from `tbs`+`tbu` (same psychrometric formulas as the
+  manual flow) whenever the zone has no dedicated sensor for that field.
+  Unlike the manual flow's "medido"/"calculado" toggle, this is always
+  automatic for zones: sensor value wins if present, otherwise derive if
+  possible. Altitude for this derivation comes from the global app config
+  (`altitudeMetros`), not a per-zone field.
+- **SMTP-like graceful degradation.** `modbus_client.py` never raises: a
+  missing `pymodbus` install, an unreachable device, or a Modbus exception
+  response all just produce `None` (read) / `False` (write) / `False`
+  (connectivity test), the same resilience pattern already used for
+  SMTP/email. Any new Modbus operation must follow this pattern.
+- **Historical data survives zone deletion.** `leituras.zona_id` is
+  `ON DELETE SET NULL` (not CASCADE) -- deleting a zone removes its
+  `equipamentos` rows (CASCADE) but keeps previously recorded `leituras`
+  rows, just without a zone reference. Do not change this to CASCADE.
+- **Two independent calculation paths, on purpose.** `services.CalculoIctService`
+  (manual/simulated, single station, `especie`+`indice` scoped) and
+  `zona_service.ZonaService` (per-zone, Modbus-driven) are separate
+  services that both end up writing to the same `leituras` table (the
+  zone-scoped rows just also carry a `zona_id`). Do not try to unify them
+  into one service -- they have different input sources (manual/simulated
+  vs. averaged Modbus reads) and different equipment-state scopes (one
+  global `Resfriamento` vs. one per zone).
 
 ## Verification
 

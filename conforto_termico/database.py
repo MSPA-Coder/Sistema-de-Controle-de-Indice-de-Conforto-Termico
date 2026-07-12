@@ -120,6 +120,11 @@ def _conexao() -> Iterator[sqlite3.Connection]:
             conn.close()
 
 
+def _coluna_existe(conn: sqlite3.Connection, tabela: str, coluna: str) -> bool:
+    linhas = conn.execute(f"PRAGMA table_info({tabela})").fetchall()
+    return any(linha["name"] == coluna for linha in linhas)
+
+
 def iniciar_banco() -> None:
     with _conexao() as conn:
         conn.execute(
@@ -144,6 +149,65 @@ def iniciar_banco() -> None:
             )
             """
         )
+
+        # --- Zonas Modbus -------------------------------------------------
+        # Uma zona agrupa N sensores + N ventiladores + N nebulizadores
+        # (0 a N de cada) conectados via Modbus, e tem sua propria
+        # especie/indice configurados -- o calculo do indice passa a ser
+        # por zona, com a leitura de cada campo sendo a MEDIA de todos os
+        # sensores daquela zona que medem aquele campo (ver ZonaService).
+        # Criadas ANTES da migracao de `leituras.zona_id` logo abaixo, ja
+        # que essa coluna referencia `zonas(id)`.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS zonas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nome TEXT NOT NULL,
+                especie TEXT NOT NULL,
+                indice TEXT NOT NULL,
+                ativa INTEGER NOT NULL DEFAULT 1,
+                criado_em TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS equipamentos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                zona_id INTEGER NOT NULL REFERENCES zonas(id) ON DELETE CASCADE,
+                tipo TEXT NOT NULL,
+                nome TEXT NOT NULL,
+                modo_conexao TEXT NOT NULL,
+                host TEXT,
+                porta INTEGER,
+                porta_serial TEXT,
+                baud_rate INTEGER,
+                unidade_id INTEGER NOT NULL DEFAULT 1,
+                tipo_registrador TEXT NOT NULL,
+                endereco_registrador INTEGER NOT NULL,
+                tipo_dado TEXT NOT NULL DEFAULT 'int16',
+                fator_escala REAL NOT NULL DEFAULT 1.0,
+                campo_medido TEXT,
+                criado_em TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_equipamentos_zona_id ON equipamentos (zona_id)"
+        )
+
+        # MIGRACAO: `zona_id` foi adicionado depois que a tabela `leituras`
+        # ja existia em instalacoes anteriores (recurso de Zonas Modbus).
+        # SQLite nao tem "ADD COLUMN IF NOT EXISTS", entao checamos manual.
+        # Nulo para todas as leituras antigas (entrada manual/simulada, sem
+        # zona associada) -- e para qualquer leitura fora do fluxo de zonas,
+        # que continua existindo exatamente como antes.
+        if not _coluna_existe(conn, "leituras", "zona_id"):
+            conn.execute(
+                "ALTER TABLE leituras ADD COLUMN zona_id INTEGER "
+                "REFERENCES zonas(id) ON DELETE SET NULL"
+            )
+
         # Indice composto: toda consulta de historico e toda checagem do
         # intervalo minimo de gravacao filtram por (especie, indice) e
         # ordenam por id. Sem este indice, cada uma dessas consultas varre
@@ -152,6 +216,10 @@ def iniciar_banco() -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_leituras_especie_indice_id "
             "ON leituras (especie, indice, id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_leituras_zona_indice_id "
+            "ON leituras (zona_id, indice, id)"
         )
 
 
@@ -174,23 +242,39 @@ def salvar_leitura(
     status: str,
     entradas: dict,
     intervalo_minutos: float | int | str | None = None,
+    zona_id: int | None = None,
 ) -> bool:
+    """Grava uma leitura no historico. `zona_id` e opcional (None para o
+    fluxo manual/simulado original -- Principal). Quando informado, o
+    intervalo minimo entre gravacoes e verificado por (zona_id, indice),
+    nao por (especie, indice): duas zonas com a mesma especie/indice nao
+    devem se bloquear mutuamente, e uma leitura manual feita entre duas
+    leituras automaticas da zona tambem nao deve interferir no intervalo
+    da zona (por isso o fluxo manual so olha para linhas com
+    `zona_id IS NULL` ao checar seu proprio intervalo)."""
     agora = datetime.datetime.now().replace(microsecond=0)
     intervalo_minimo = _intervalo_minimo_leituras(intervalo_minutos)
     with _conexao() as conn:
-        ultima = conn.execute(
-            "SELECT criado_em FROM leituras WHERE especie = ? AND indice = ? "
-            "ORDER BY id DESC LIMIT 1",
-            (especie, indice),
-        ).fetchone()
+        if zona_id is not None:
+            ultima = conn.execute(
+                "SELECT criado_em FROM leituras WHERE zona_id = ? AND indice = ? "
+                "ORDER BY id DESC LIMIT 1",
+                (zona_id, indice),
+            ).fetchone()
+        else:
+            ultima = conn.execute(
+                "SELECT criado_em FROM leituras WHERE especie = ? AND indice = ? "
+                "AND zona_id IS NULL ORDER BY id DESC LIMIT 1",
+                (especie, indice),
+            ).fetchone()
         if ultima:
             ultima_data = datetime.datetime.fromisoformat(ultima["criado_em"])
             if agora - ultima_data < intervalo_minimo:
                 return False
 
         conn.execute(
-            "INSERT INTO leituras (especie, indice, valor, status, entradas, criado_em) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO leituras (especie, indice, valor, status, entradas, criado_em, zona_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 especie,
                 indice,
@@ -198,6 +282,7 @@ def salvar_leitura(
                 status,
                 json.dumps(entradas),
                 agora.isoformat(timespec="seconds"),
+                zona_id,
             ),
         )
     return True
@@ -212,6 +297,23 @@ def obter_historico(especie: str, indice: str, limite: int = 20) -> list[dict]:
         ).fetchall()
     dados = [dict(linha) for linha in linhas]
     dados.reverse()  # ordem cronologica (mais antigo -> mais recente) para os graficos
+    for item in dados:
+        item["entradas"] = json.loads(item["entradas"])
+    return dados
+
+
+def obter_historico_por_zona(zona_id: int, limite: int = 20) -> list[dict]:
+    """Mesma consulta de `obter_historico`, mas filtrando pela zona (em vez
+    de por especie/indice) -- usado pela aba Zonas para mostrar o
+    historico de uma zona especifica, isolado de leituras manuais/de
+    outras zonas que porventura compartilhem a mesma especie/indice."""
+    with _conexao() as conn:
+        linhas = conn.execute(
+            "SELECT * FROM leituras WHERE zona_id = ? ORDER BY id DESC LIMIT ?",
+            (zona_id, limite),
+        ).fetchall()
+    dados = [dict(linha) for linha in linhas]
+    dados.reverse()
     for item in dados:
         item["entradas"] = json.loads(item["entradas"])
     return dados
@@ -234,6 +336,296 @@ def contar_leituras() -> int:
     with _conexao() as conn:
         (total,) = conn.execute("SELECT COUNT(*) FROM leituras").fetchone()
     return total
+
+
+# ---------------------------------------------------------------------------
+# Zonas Modbus: cadastro de zonas (grupos de sensores/ventiladores/
+# nebulizadores conectados via Modbus) e seus equipamentos.
+#
+# NOTA DE DESIGN: diferente de `_sanitizar_configuracoes` (que sempre cai
+# para um padrao seguro em caso de valor invalido), a validacao aqui
+# REJEITA com erro claro em vez de adivinhar um substituto. Um endereco de
+# registrador Modbus errado nao e um "valor de configuracao ligeiramente
+# fora do ideal" -- e o endereco de um equipamento FISICO real; "corrigir"
+# silenciosamente para um padrao arriscaria ler ou escrever no registrador
+# ERRADO de um sensor/atuador de verdade. Cadastro de hardware deve falhar
+# alto (400 na API) quando o que foi informado esta incorreto.
+# ---------------------------------------------------------------------------
+
+TIPOS_EQUIPAMENTO = ("sensor", "ventilador", "nebulizador")
+MODOS_CONEXAO = ("tcp", "rtu")
+TIPOS_DADO = ("int16", "uint16", "float32")
+CAMPOS_MEDIVEIS = tuple(ti.CAMPO_METADADOS.keys())
+
+
+class ZonaInvalidaError(ValueError):
+    """Erro de validacao ao criar/atualizar uma zona ou equipamento Modbus."""
+
+
+def _validar_inteiro(valor, nome_campo: str, minimo: int, maximo: int) -> int:
+    try:
+        numero = int(float(str(valor).replace(",", ".")))
+    except (TypeError, ValueError):
+        raise ZonaInvalidaError(f"O campo '{nome_campo}' precisa ser um número inteiro.")
+    if not (minimo <= numero <= maximo):
+        raise ZonaInvalidaError(f"O campo '{nome_campo}' precisa estar entre {minimo} e {maximo}.")
+    return numero
+
+
+def _validar_numero(valor, nome_campo: str) -> float:
+    try:
+        return float(str(valor).replace(",", "."))
+    except (TypeError, ValueError):
+        raise ZonaInvalidaError(f"O campo '{nome_campo}' precisa ser numérico.")
+
+
+def _validar_zona(dados: dict) -> dict:
+    nome = str(dados.get("nome", "")).strip()
+    if not nome:
+        raise ZonaInvalidaError("Informe um nome para a zona.")
+
+    especie = dados.get("especie")
+    if especie not in ti.ESPECIES_VALIDAS:
+        raise ZonaInvalidaError(f"Espécie inválida: {especie!r}.")
+
+    indice = dados.get("indice")
+    if indice not in ti.INDICES_POR_ESPECIE.get(especie, ()):
+        raise ZonaInvalidaError(
+            f"Índice {indice!r} não está disponível para a espécie {especie!r}."
+        )
+
+    return {
+        "nome": nome[:255],
+        "especie": especie,
+        "indice": indice,
+        "ativa": _coagir_booleano(dados.get("ativa", True), True),
+    }
+
+
+def _validar_equipamento(dados: dict) -> dict:
+    tipo = dados.get("tipo")
+    if tipo not in TIPOS_EQUIPAMENTO:
+        raise ZonaInvalidaError(
+            f"Tipo de equipamento inválido: {tipo!r} (esperado um de {TIPOS_EQUIPAMENTO})."
+        )
+
+    nome = str(dados.get("nome", "")).strip()
+    if not nome:
+        raise ZonaInvalidaError("Informe um nome para o equipamento.")
+
+    modo_conexao = dados.get("modo_conexao")
+    if modo_conexao not in MODOS_CONEXAO:
+        raise ZonaInvalidaError(
+            f"Modo de conexão inválido: {modo_conexao!r} (esperado 'tcp' ou 'rtu')."
+        )
+
+    host = porta = porta_serial = baud_rate = None
+    if modo_conexao == "tcp":
+        host = str(dados.get("host", "")).strip()
+        if not host:
+            raise ZonaInvalidaError("Informe o host/IP para conexão Modbus TCP.")
+        porta = _validar_inteiro(dados.get("porta", 502), "porta", 1, 65535)
+    else:
+        porta_serial = str(dados.get("porta_serial", "")).strip()
+        if not porta_serial:
+            raise ZonaInvalidaError(
+                "Informe a porta serial (ex.: /dev/ttyUSB0 ou COM3) para conexão Modbus RTU."
+            )
+        baud_rate = _validar_inteiro(dados.get("baud_rate", 9600), "baud_rate", 300, 921600)
+
+    unidade_id = _validar_inteiro(dados.get("unidade_id", 1), "unidade_id", 1, 247)
+
+    registradores_validos = ("holding", "input") if tipo == "sensor" else ("holding", "coil")
+    tipo_registrador = dados.get("tipo_registrador")
+    if tipo_registrador not in registradores_validos:
+        raise ZonaInvalidaError(
+            f"Tipo de registrador inválido para {tipo}: {tipo_registrador!r} "
+            f"(esperado um de {registradores_validos})."
+        )
+
+    endereco_registrador = _validar_inteiro(
+        dados.get("endereco_registrador"), "endereco_registrador", 0, 65535
+    )
+
+    tipo_dado = dados.get("tipo_dado", "int16")
+    if tipo_dado not in TIPOS_DADO:
+        raise ZonaInvalidaError(f"Tipo de dado inválido: {tipo_dado!r} (esperado um de {TIPOS_DADO}).")
+
+    fator_escala = _validar_numero(dados.get("fator_escala", 1.0), "fator_escala")
+    if fator_escala == 0:
+        raise ZonaInvalidaError("O fator de escala não pode ser zero.")
+
+    campo_medido = dados.get("campo_medido")
+    if tipo == "sensor":
+        if campo_medido not in CAMPOS_MEDIVEIS:
+            raise ZonaInvalidaError(
+                f"Campo medido inválido para sensor: {campo_medido!r} "
+                f"(esperado um de {CAMPOS_MEDIVEIS})."
+            )
+    else:
+        campo_medido = None
+
+    return {
+        "tipo": tipo,
+        "nome": nome[:255],
+        "modo_conexao": modo_conexao,
+        "host": host,
+        "porta": porta,
+        "porta_serial": porta_serial,
+        "baud_rate": baud_rate,
+        "unidade_id": unidade_id,
+        "tipo_registrador": tipo_registrador,
+        "endereco_registrador": endereco_registrador,
+        "tipo_dado": tipo_dado,
+        "fator_escala": fator_escala,
+        "campo_medido": campo_medido,
+    }
+
+
+def criar_zona(dados: dict) -> dict:
+    validado = _validar_zona(dados)
+    agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+    with _conexao() as conn:
+        cursor = conn.execute(
+            "INSERT INTO zonas (nome, especie, indice, ativa, criado_em) VALUES (?, ?, ?, ?, ?)",
+            (validado["nome"], validado["especie"], validado["indice"], int(validado["ativa"]), agora),
+        )
+        zona_id = cursor.lastrowid
+    return obter_zona(zona_id)
+
+
+def listar_zonas() -> list[dict]:
+    with _conexao() as conn:
+        linhas = conn.execute("SELECT * FROM zonas ORDER BY id").fetchall()
+    zonas = [dict(linha) for linha in linhas]
+    for zona in zonas:
+        zona["ativa"] = bool(zona["ativa"])
+        zona["equipamentos"] = listar_equipamentos_da_zona(zona["id"])
+    return zonas
+
+
+def obter_zona(zona_id: int) -> dict | None:
+    with _conexao() as conn:
+        linha = conn.execute("SELECT * FROM zonas WHERE id = ?", (zona_id,)).fetchone()
+    if not linha:
+        return None
+    zona = dict(linha)
+    zona["ativa"] = bool(zona["ativa"])
+    zona["equipamentos"] = listar_equipamentos_da_zona(zona_id)
+    return zona
+
+
+def atualizar_zona(zona_id: int, dados: dict) -> dict | None:
+    if obter_zona(zona_id) is None:
+        return None
+    validado = _validar_zona(dados)
+    with _conexao() as conn:
+        conn.execute(
+            "UPDATE zonas SET nome = ?, especie = ?, indice = ?, ativa = ? WHERE id = ?",
+            (validado["nome"], validado["especie"], validado["indice"], int(validado["ativa"]), zona_id),
+        )
+    return obter_zona(zona_id)
+
+
+def excluir_zona(zona_id: int) -> bool:
+    """Remove a zona e (via ON DELETE CASCADE) seus equipamentos. O
+    historico de leituras ja gravado permanece -- perder o registro
+    historico so porque a zona foi reconfigurada/removida seria pior do
+    que manter uma referencia a uma zona que não existe mais."""
+    with _conexao() as conn:
+        cursor = conn.execute("DELETE FROM zonas WHERE id = ?", (zona_id,))
+    return cursor.rowcount > 0
+
+
+def criar_equipamento(zona_id: int, dados: dict) -> dict:
+    if obter_zona(zona_id) is None:
+        raise ZonaInvalidaError(f"Zona {zona_id} não encontrada.")
+    validado = _validar_equipamento(dados)
+    agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+    with _conexao() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO equipamentos (
+                zona_id, tipo, nome, modo_conexao, host, porta, porta_serial, baud_rate,
+                unidade_id, tipo_registrador, endereco_registrador, tipo_dado, fator_escala,
+                campo_medido, criado_em
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                zona_id,
+                validado["tipo"],
+                validado["nome"],
+                validado["modo_conexao"],
+                validado["host"],
+                validado["porta"],
+                validado["porta_serial"],
+                validado["baud_rate"],
+                validado["unidade_id"],
+                validado["tipo_registrador"],
+                validado["endereco_registrador"],
+                validado["tipo_dado"],
+                validado["fator_escala"],
+                validado["campo_medido"],
+                agora,
+            ),
+        )
+        equipamento_id = cursor.lastrowid
+    return obter_equipamento(equipamento_id)
+
+
+def listar_equipamentos_da_zona(zona_id: int) -> list[dict]:
+    with _conexao() as conn:
+        linhas = conn.execute(
+            "SELECT * FROM equipamentos WHERE zona_id = ? ORDER BY tipo, id", (zona_id,)
+        ).fetchall()
+    return [dict(linha) for linha in linhas]
+
+
+def obter_equipamento(equipamento_id: int) -> dict | None:
+    with _conexao() as conn:
+        linha = conn.execute(
+            "SELECT * FROM equipamentos WHERE id = ?", (equipamento_id,)
+        ).fetchone()
+    return dict(linha) if linha else None
+
+
+def atualizar_equipamento(equipamento_id: int, dados: dict) -> dict | None:
+    if obter_equipamento(equipamento_id) is None:
+        return None
+    validado = _validar_equipamento(dados)
+    with _conexao() as conn:
+        conn.execute(
+            """
+            UPDATE equipamentos SET
+                tipo = ?, nome = ?, modo_conexao = ?, host = ?, porta = ?, porta_serial = ?,
+                baud_rate = ?, unidade_id = ?, tipo_registrador = ?, endereco_registrador = ?,
+                tipo_dado = ?, fator_escala = ?, campo_medido = ?
+            WHERE id = ?
+            """,
+            (
+                validado["tipo"],
+                validado["nome"],
+                validado["modo_conexao"],
+                validado["host"],
+                validado["porta"],
+                validado["porta_serial"],
+                validado["baud_rate"],
+                validado["unidade_id"],
+                validado["tipo_registrador"],
+                validado["endereco_registrador"],
+                validado["tipo_dado"],
+                validado["fator_escala"],
+                validado["campo_medido"],
+                equipamento_id,
+            ),
+        )
+    return obter_equipamento(equipamento_id)
+
+
+def excluir_equipamento(equipamento_id: int) -> bool:
+    with _conexao() as conn:
+        cursor = conn.execute("DELETE FROM equipamentos WHERE id = ?", (equipamento_id,))
+    return cursor.rowcount > 0
 
 
 def _coagir_booleano(valor, padrao: bool) -> bool:

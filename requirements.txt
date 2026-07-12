@@ -1,1 +1,10 @@
 Flask>=3.0,<4.0
+
+# Opcional: necessario apenas para as Zonas Modbus (aba "Zonas"). O app
+# inteiro funciona sem esta dependencia instalada -- zonas cadastradas
+# simplesmente nao conseguem ler/escrever nos equipamentos ate a biblioteca
+# estar disponivel no ambiente onde o servidor roda (ex.: o Raspberry Pi
+# conectado ao barramento RS-485 de verdade). Instale com:
+#   pip install pymodbus
+# pymodbus>=3.8,<4.0
+

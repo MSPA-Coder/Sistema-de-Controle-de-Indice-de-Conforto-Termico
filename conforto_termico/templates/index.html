@@ -16,6 +16,7 @@
   <nav class="abas-app" role="tablist" aria-label="Navegação do app">
     <button class="aba-botao ativo" type="button" role="tab" data-aba="principal" aria-controls="aba-principal" aria-selected="true">Principal</button>
     <button class="aba-botao" type="button" role="tab" data-aba="configuracoes" aria-controls="aba-configuracoes" aria-selected="false">Configuracoes</button>
+    <button class="aba-botao" type="button" role="tab" data-aba="zonas" aria-controls="aba-zonas" aria-selected="false">Zonas</button>
   </nav>
 
   <main id="aba-principal" class="grade aba-conteudo" data-aba-conteudo="principal">
@@ -264,7 +265,133 @@
     </section>
   </section>
 
+  <!-- Zonas: cadastro de zonas Modbus (sensores/ventiladores/nebulizadores) -->
+  <section id="aba-zonas" class="aba-conteudo oculto" data-aba-conteudo="zonas" role="tabpanel">
+    <section class="painel zonas-cabecalho-painel">
+      <div class="zonas-cabecalho">
+        <div>
+          <h2 class="painel-titulo">Zonas</h2>
+          <p class="zonas-descricao">
+            Cada zona agrupa sensores, ventiladores e nebulizadores conectados via
+            Modbus (TCP ou RTU/RS-485). Uma zona pode ter de 0 a N equipamentos de
+            cada tipo. Quando há mais de um sensor para o mesmo campo, o valor usado
+            no cálculo é a <strong>média</strong> das leituras. O cálculo do índice
+            passa a ser feito por zona, não mais numa única estação.
+          </p>
+        </div>
+        <button id="btn-nova-zona" class="botao botao--primario" type="button">+ Nova zona</button>
+      </div>
+      <p id="zonas-aviso-pymodbus" class="smtp-status oculto"></p>
+    </section>
+
+    <div id="zonas-lista" class="zonas-lista"></div>
+    <p id="zonas-vazio" class="tabela-vazia oculto">Nenhuma zona cadastrada ainda.</p>
+  </section>
+
 </div>
+
+<dialog id="dialog-zona" class="dialog-app">
+  <form id="form-zona" method="dialog" novalidate>
+    <h3 id="dialog-zona-titulo" class="painel-titulo">Nova zona</h3>
+    <div class="campos-config">
+      <div class="campo-config">
+        <label for="zona-nome">Nome da zona</label>
+        <input type="text" id="zona-nome" maxlength="255" placeholder="Ex.: Aviário 1 - Galpão A" required>
+      </div>
+      <div class="campo-config">
+        <label for="zona-especie">Espécie</label>
+        <select id="zona-especie"></select>
+      </div>
+      <div class="campo-config">
+        <label for="zona-indice">Índice</label>
+        <select id="zona-indice"></select>
+      </div>
+    </div>
+    <label class="check"><input type="checkbox" id="zona-ativa" checked><span>Zona ativa</span></label>
+    <p id="zona-form-erro" class="mensagem-erro oculto" role="alert"></p>
+    <div class="acao-linha">
+      <button type="button" class="botao botao--fantasma" id="btn-cancelar-zona">Cancelar</button>
+      <button type="submit" class="botao botao--primario" id="btn-salvar-zona">Salvar zona</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dialog-equipamento" class="dialog-app">
+  <form id="form-equipamento" method="dialog" novalidate>
+    <h3 id="dialog-equipamento-titulo" class="painel-titulo">Novo equipamento</h3>
+    <div class="campos-config">
+      <div class="campo-config">
+        <label for="equip-tipo">Tipo</label>
+        <select id="equip-tipo">
+          <option value="sensor">Sensor</option>
+          <option value="ventilador">Ventilador</option>
+          <option value="nebulizador">Nebulizador</option>
+        </select>
+      </div>
+      <div class="campo-config">
+        <label for="equip-nome">Nome / identificação</label>
+        <input type="text" id="equip-nome" maxlength="255" placeholder="Ex.: Sensor TBS 1" required>
+      </div>
+      <div class="campo-config" id="wrap-equip-campo-medido">
+        <label for="equip-campo-medido">Campo medido</label>
+        <select id="equip-campo-medido"></select>
+      </div>
+      <div class="campo-config">
+        <label for="equip-modo-conexao">Conexão</label>
+        <select id="equip-modo-conexao">
+          <option value="tcp">Modbus TCP</option>
+          <option value="rtu">Modbus RTU (serial / RS-485)</option>
+        </select>
+      </div>
+      <div class="campo-config" id="wrap-equip-host">
+        <label for="equip-host">Host / IP</label>
+        <input type="text" id="equip-host" placeholder="192.168.0.10">
+      </div>
+      <div class="campo-config" id="wrap-equip-porta">
+        <label for="equip-porta">Porta</label>
+        <input type="number" id="equip-porta" min="1" max="65535" value="502">
+      </div>
+      <div class="campo-config oculto" id="wrap-equip-porta-serial">
+        <label for="equip-porta-serial">Porta serial</label>
+        <input type="text" id="equip-porta-serial" placeholder="/dev/ttyUSB0 ou COM3">
+      </div>
+      <div class="campo-config oculto" id="wrap-equip-baud-rate">
+        <label for="equip-baud-rate">Baud rate</label>
+        <input type="number" id="equip-baud-rate" min="300" max="921600" value="9600">
+      </div>
+      <div class="campo-config">
+        <label for="equip-unidade-id">ID do dispositivo (slave/unit)</label>
+        <input type="number" id="equip-unidade-id" min="1" max="247" value="1">
+      </div>
+      <div class="campo-config">
+        <label for="equip-tipo-registrador">Tipo de registrador</label>
+        <select id="equip-tipo-registrador"></select>
+      </div>
+      <div class="campo-config">
+        <label for="equip-endereco-registrador">Endereço do registrador</label>
+        <input type="number" id="equip-endereco-registrador" min="0" max="65535" value="0">
+      </div>
+      <div class="campo-config" id="wrap-equip-tipo-dado">
+        <label for="equip-tipo-dado">Tipo de dado</label>
+        <select id="equip-tipo-dado">
+          <option value="int16">int16 (com sinal)</option>
+          <option value="uint16">uint16 (sem sinal)</option>
+        </select>
+      </div>
+      <div class="campo-config" id="wrap-equip-fator-escala">
+        <label for="equip-fator-escala">Fator de escala</label>
+        <input type="number" id="equip-fator-escala" step="0.001" value="1">
+      </div>
+    </div>
+    <p id="equipamento-teste-resultado" class="smtp-status oculto"></p>
+    <p id="equipamento-form-erro" class="mensagem-erro oculto" role="alert"></p>
+    <div class="acao-linha">
+      <button type="button" class="botao botao--fantasma" id="btn-testar-conexao-equipamento">Testar conexão</button>
+      <button type="button" class="botao botao--fantasma" id="btn-cancelar-equipamento">Cancelar</button>
+      <button type="submit" class="botao botao--primario" id="btn-salvar-equipamento">Salvar equipamento</button>
+    </div>
+  </form>
+</dialog>
 
 <script>
   window.CONFIG_APP = {

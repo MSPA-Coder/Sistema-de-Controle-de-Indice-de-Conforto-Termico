@@ -36,9 +36,11 @@ from flask.json.provider import DefaultJSONProvider
 from werkzeug.exceptions import HTTPException
 
 from . import database as db
+from . import modbus_client
 from . import thermal_indices as ti
 from .models import Resfriamento
 from .services import CalculoIctService, HistoricoGraficoService, SensorSimuladoService
+from .zona_service import ZonaCalculoError, ZonaService
 
 # Mensagem generica devolvida ao cliente para qualquer excecao nao tratada.
 # O detalhe real (stack trace, tipo da excecao, mensagem interna) so vai
@@ -132,6 +134,11 @@ calculo_ict_service = CalculoIctService(
     sensor_simulado_service,
     db.salvar_leitura,
     db.obter_historico,
+    obter_configuracoes=db.obter_configuracoes,
+)
+zona_service = ZonaService(
+    obter_zona=db.obter_zona,
+    salvar_leitura=db.salvar_leitura,
     obter_configuracoes=db.obter_configuracoes,
 )
 
@@ -367,6 +374,117 @@ def reset():
     sensor_simulado_service.limpar(especie, indice)
     _resfriador.desativar()
     return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------------------
+# Zonas Modbus: cadastro de zonas e seus equipamentos (sensores, ventiladores,
+# nebulizadores), e o disparo do ciclo de leitura+calculo+acionamento.
+# ---------------------------------------------------------------------------
+
+@app.route("/api/zonas", methods=["GET"])
+def listar_zonas():
+    return jsonify(db.listar_zonas())
+
+
+@app.route("/api/zonas", methods=["POST"])
+def criar_zona():
+    dados = request.get_json(force=True, silent=True) or {}
+    try:
+        return jsonify(db.criar_zona(dados)), 201
+    except db.ZonaInvalidaError as erro:
+        return jsonify({"erro": str(erro)}), 400
+
+
+@app.route("/api/zonas/<int:zona_id>", methods=["GET"])
+def obter_zona(zona_id):
+    zona = db.obter_zona(zona_id)
+    if zona is None:
+        return jsonify({"erro": f"Zona {zona_id} não encontrada."}), 404
+    return jsonify(zona)
+
+
+@app.route("/api/zonas/<int:zona_id>", methods=["PUT"])
+def atualizar_zona(zona_id):
+    dados = request.get_json(force=True, silent=True) or {}
+    try:
+        zona = db.atualizar_zona(zona_id, dados)
+    except db.ZonaInvalidaError as erro:
+        return jsonify({"erro": str(erro)}), 400
+    if zona is None:
+        return jsonify({"erro": f"Zona {zona_id} não encontrada."}), 404
+    return jsonify(zona)
+
+
+@app.route("/api/zonas/<int:zona_id>", methods=["DELETE"])
+def excluir_zona(zona_id):
+    if not db.excluir_zona(zona_id):
+        return jsonify({"erro": f"Zona {zona_id} não encontrada."}), 404
+    return jsonify({"ok": True})
+
+
+@app.route("/api/zonas/<int:zona_id>/equipamentos", methods=["POST"])
+def criar_equipamento(zona_id):
+    dados = request.get_json(force=True, silent=True) or {}
+    try:
+        return jsonify(db.criar_equipamento(zona_id, dados)), 201
+    except db.ZonaInvalidaError as erro:
+        status = 404 if db.obter_zona(zona_id) is None else 400
+        return jsonify({"erro": str(erro)}), status
+
+
+@app.route("/api/zonas/<int:zona_id>/equipamentos/<int:equipamento_id>", methods=["PUT"])
+def atualizar_equipamento(zona_id, equipamento_id):
+    dados = request.get_json(force=True, silent=True) or {}
+    try:
+        equipamento = db.atualizar_equipamento(equipamento_id, dados)
+    except db.ZonaInvalidaError as erro:
+        return jsonify({"erro": str(erro)}), 400
+    if equipamento is None or equipamento["zona_id"] != zona_id:
+        return jsonify({"erro": f"Equipamento {equipamento_id} não encontrado na zona {zona_id}."}), 404
+    return jsonify(equipamento)
+
+
+@app.route("/api/zonas/<int:zona_id>/equipamentos/<int:equipamento_id>", methods=["DELETE"])
+def excluir_equipamento(zona_id, equipamento_id):
+    equipamento = db.obter_equipamento(equipamento_id)
+    if equipamento is None or equipamento["zona_id"] != zona_id:
+        return jsonify({"erro": f"Equipamento {equipamento_id} não encontrado na zona {zona_id}."}), 404
+    db.excluir_equipamento(equipamento_id)
+    return jsonify({"ok": True})
+
+
+@app.route(
+    "/api/zonas/<int:zona_id>/equipamentos/<int:equipamento_id>/testar-conexao", methods=["POST"]
+)
+def testar_conexao_equipamento(zona_id, equipamento_id):
+    equipamento = db.obter_equipamento(equipamento_id)
+    if equipamento is None or equipamento["zona_id"] != zona_id:
+        return jsonify({"erro": f"Equipamento {equipamento_id} não encontrado na zona {zona_id}."}), 404
+
+    conectado = modbus_client.testar_conexao(equipamento)
+    resposta = {"conectado": conectado}
+    if not modbus_client.PYMODBUS_DISPONIVEL:
+        resposta["aviso"] = (
+            "A biblioteca pymodbus não está instalada neste servidor "
+            "(pip install pymodbus). Sem ela, nenhuma zona consegue ler ou "
+            "acionar equipamentos de verdade."
+        )
+    return jsonify(resposta)
+
+
+@app.route("/api/zonas/<int:zona_id>/calcular", methods=["POST"])
+def calcular_zona(zona_id):
+    try:
+        return jsonify(zona_service.calcular(zona_id, logger=app.logger))
+    except ZonaCalculoError as erro:
+        return jsonify({"erro": str(erro)}), 400
+
+
+@app.route("/api/zonas/<int:zona_id>/historico", methods=["GET"])
+def historico_zona(zona_id):
+    if db.obter_zona(zona_id) is None:
+        return jsonify({"erro": f"Zona {zona_id} não encontrada."}), 404
+    return jsonify(db.obter_historico_por_zona(zona_id, limite=20))
 
 
 def executar_servidor_local(config: AppConfig | None = None) -> None:
