@@ -2,38 +2,13 @@
 """
 database.py
 ============
-Persistencia simples em SQLite (biblioteca padrao do Python, sem
-dependencias extras) do historico de leituras, para alimentar os graficos
-de "ultimos 20 indices calculados" descritos na secao 3.4.1 (Area 04) da
-dissertacao.
+Persistencia SQLite do historico de leituras, configuracoes, zonas Modbus e
+equipamentos.
 
-NOTA DE CORRECAO: a versao anterior deste modulo usava
-`with _lock, sqlite3.connect(...) as conn:` para cada operacao. O
-`sqlite3.Connection` como context manager apenas comita/desfaz a transacao
-ao sair do bloco -- ele NAO fecha a conexao sozinho (isso e documentado no
-proprio modulo sqlite3 da biblioteca padrao). Como resultado, cada chamada
-abria uma conexao nova que nunca era fechada, vazando conexoes/descritores
-de arquivo ao longo do tempo (principalmente com o modo automatico, que
-calcula a cada 1s). Agora todas as operacoes passam pelo gerenciador de
-contexto `_conexao()` abaixo, que garante `close()` mesmo se ocorrer erro.
-
-NOTA DE PERFORMANCE/ESTABILIDADE: `_conexao()` agora tambem liga o modo WAL
-(melhor throughput e menor chance de bloqueio entre leitores/escritores),
-define um timeout de espera por lock e cria um indice composto em
-(especie, indice, id) -- sem ele, toda leitura de historico e toda
-verificacao de "ultima leitura gravada ha menos de X minutos" fazia uma
-varredura completa da tabela `leituras`, que so piora com o tempo em modo
-automatico (uma escrita a cada poucos minutos, para sempre).
-
-NOTA DE SEGURANCA/ESTABILIDADE: `salvar_configuracoes`/`obter_configuracoes`
-agora passam por `_sanitizar_configuracoes`, que valida tipo, faixa e
-formato de cada campo (ex.: `emailDestino` precisa parecer um e-mail e nao
-pode conter quebras de linha, o que evitaria injecao de cabecalhos SMTP se
-esse valor chegasse a ser usado para montar um e-mail malicioso). Um valor
-invalido nunca derruba a rota -- ele apenas volta a usar o padrao seguro
-daquele campo especifico, seguindo o mesmo principio adotado no resto do
-projeto (nunca deixar uma falha de um aspecto secundario quebrar o
-restante do sistema).
+Todas as operacoes passam por `_conexao()`, que serializa o acesso no processo,
+ativa WAL, aplica timeout de lock, garante commit/rollback e fecha a conexao.
+Configuracoes persistidas sao sempre sanitizadas em leitura e escrita; valores
+invalidos voltam ao padrao seguro da chave.
 """
 
 from __future__ import annotations
@@ -74,18 +49,13 @@ CONFIGURACOES_PADRAO = {
     "modoUmidadeRelativa": "calculado",
     "altitudeMetros": 0,
     "limiteUmidadeNebulizador": 70,
-    # Especie/indice selecionados na interface (movidos do card "Principal"
-    # para a aba "Configuracoes" a pedido do usuario): agora persistem como
-    # mais um parametro do sistema, assim como os demais acima.
+    # Especie/indice selecionados na interface e persistidos como parametro
+    # do sistema, validados em conjunto.
     "especie": "frangos",
     "indice": "ITU",
-    # Parametros de SMTP para envio de e-mail de verdade -- mesmos quatro
-    # valores ja documentados no README ("Envio de e-mails de verdade") como
-    # variaveis de ambiente SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS. Aqui
-    # viram configuracao editavel pela interface e persistida no banco;
-    # continuam funcionando como fallback caso as variaveis de ambiente
-    # tambem estejam definidas (ver models.Email.enviar). "" (vazio) para
-    # host/usuario/senha significa "nao configurado" -- nao e um erro.
+    # Parametros SMTP editaveis pela interface. Variaveis de ambiente SMTP_*
+    # continuam como fallback por campo (ver models.Email.enviar). "" (vazio)
+    # para host/usuario/senha significa "nao configurado".
     "smtpHost": "",
     "smtpPorta": 587,
     "smtpUsuario": "",
@@ -206,9 +176,8 @@ def iniciar_banco() -> None:
         # MIGRACAO: `zona_id` foi adicionado depois que a tabela `leituras`
         # ja existia em instalacoes anteriores (recurso de Zonas Modbus).
         # SQLite nao tem "ADD COLUMN IF NOT EXISTS", entao checamos manual.
-        # Nulo para todas as leituras antigas (entrada manual/simulada, sem
-        # zona associada) -- e para qualquer leitura fora do fluxo de zonas,
-        # que continua existindo exatamente como antes.
+        # Nulo para leituras existentes sem zona associada e para qualquer
+        # leitura fora do fluxo de zonas.
         if not _coluna_existe(conn, "leituras", "zona_id"):
             conn.execute(
                 "ALTER TABLE leituras ADD COLUMN zona_id INTEGER "

@@ -7,7 +7,7 @@ Sistema de Controle dos Indices de Conforto Termico - aplicacao Flask.
 Baseado na dissertacao de mestrado "Programa Computacional para o Calculo de
 Indices de Conforto Termico na Producao Industrial de Animais para Carne e
 Leite" (Mariano Sergio Pacheco de Angelo, UNIP, 2013), reimplementado em
-Python/Flask a pedido do autor.
+Python/Flask.
 
 Para rodar:
     pip install -r requirements.txt

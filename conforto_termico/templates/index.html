@@ -21,9 +21,7 @@
 
   <main id="aba-principal" class="grade aba-conteudo" data-aba-conteudo="principal">
 
-    <!-- Valores de entrada (antiga posicao do seletor de especie/indice, -->
-    <!-- que agora mora na aba Configuracoes - ver secao "seletor-painel" -->
-    <!-- la embaixo) ------------------------------------------------------->
+    <!-- Valores de entrada ------------------------------------------------->
     <section class="painel entradas-grafico-painel">
       <div class="grafico-bloco grafico-bloco--sem-moldura">
         <p class="grafico-titulo">Valores de entrada por leitura</p>
@@ -77,8 +75,10 @@
       <p id="mensagem-erro" class="mensagem-erro oculto" role="alert"></p>
     </section>
 
+    <div id="linhas-zonas-principal" class="linhas-zonas-principal"></div>
+
     <!-- Leitura / readout ---------------------------------------------------------------->
-    <section class="painel leitura-painel">
+    <section class="painel leitura-painel oculto" aria-hidden="true">
       <div class="readout">
         <span id="readout-indice" class="readout-etiqueta">ITU</span>
         <span id="readout-valor" class="readout-valor">--,--</span>
@@ -93,8 +93,13 @@
       </p>
     </section>
 
+    <!-- Graficos dos indices ---------------------------------------------------------------->
+    <section class="graficos-painel oculto" aria-hidden="true">
+      <div id="graficos-indices" class="graficos-indices"></div>
+    </section>
+
     <!-- Equipamentos remotos ------------------------------------------------------------->
-    <section class="painel equipamentos-painel">
+    <section class="painel equipamentos-painel oculto" aria-hidden="true">
       <h2 class="painel-titulo">Equipamentos remotos</h2>
       <div class="intensidade-info">
         <span class="intensidade-etiqueta">Intensidade</span>
@@ -114,11 +119,6 @@
           <div id="icones-sensor" class="icones-equipamento" role="img" aria-label="Sensor desligado"></div>
         </div>
       </div>
-    </section>
-
-    <!-- Graficos dos indices ---------------------------------------------------------------->
-    <section class="graficos-painel">
-      <div id="graficos-indices" class="graficos-indices"></div>
     </section>
 
     <!-- E-mail simulado -------------------------------------------------------------------->

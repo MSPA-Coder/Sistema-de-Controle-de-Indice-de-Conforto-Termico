@@ -192,13 +192,9 @@ class Email:
         """Envia o e-mail via SMTP.
 
         `smtp_config` (opcional) traz host/porta/usuario/senha vindos da
-        configuracao persistida no banco (card "E-mail" da aba
-        Configuracoes). Quando um campo especifico vem vazio ali (ex.:
-        SMTP nunca configurado pela interface), cai de volta para a
-        respectiva variavel de ambiente (`SMTP_HOST`/`SMTP_PORT`/
-        `SMTP_USER`/`SMTP_PASS`) -- mantendo funcionando, sem nenhuma
-        mudanca, quem configurava o envio so por variavel de ambiente
-        antes deste campo existir na interface."""
+        configuracao persistida no banco. Quando um campo especifico vem
+        vazio, a respectiva variavel de ambiente (`SMTP_HOST`/`SMTP_PORT`/
+        `SMTP_USER`/`SMTP_PASS`) e usada como fallback."""
         smtp_config = smtp_config or {}
         host = smtp_config.get("host") or os.environ.get("SMTP_HOST")
         if not host:

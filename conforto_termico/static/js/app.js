@@ -95,6 +95,8 @@ const estado = { especie: "frangos", indice: "ITU", zonaId: null };
 let graficosPorIndice = new Map();
 let graficoEntradas = null;
 let assinaturaGraficos = "";
+let graficosIndicePrincipalPorZona = new Map();
+let assinaturasIndicePrincipalPorZona = new Map();
 let ultimosResultados = null;
 let ultimosHistoricosGrafico = {};
 let historicoLeiturasBase = [];
@@ -108,43 +110,6 @@ let autoTimeoutId = null; // id do proximo ciclo agendado (setTimeout), se houve
 let salvamentoConfigTimeoutId = null;
 let smtpSenhaJaConfigurada = false;
 let audioCtx = null;
-
-// ---------------------------------------------------------------------------
-// Seletores de especie / indice
-// ---------------------------------------------------------------------------
-function renderSeletorEspecie() {
-  const container = document.getElementById("seletor-especie");
-  if (!container) return;
-  container.innerHTML = "";
-  Object.keys(CONFIG_APP.indicesPorEspecie).forEach((especie) => {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "rocker-botao" + (especie === estado.especie ? " ativo" : "");
-    btn.textContent = CONFIG_APP.nomeEspecie[especie].split(" (")[0];
-    btn.title = CONFIG_APP.nomeEspecie[especie];
-    btn.addEventListener("click", () => selecionarEspecie(especie));
-    container.appendChild(btn);
-  });
-}
-
-function renderSeletorIndice() {
-  const container = document.getElementById("seletor-indice");
-  if (!container) return;
-  container.innerHTML = "";
-  const indices = CONFIG_APP.indicesPorEspecie[estado.especie];
-  if (!indices.includes(estado.indice)) {
-    estado.indice = indices[0];
-  }
-  indices.forEach((indice) => {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "rocker-botao" + (indice === estado.indice ? " ativo" : "");
-    btn.textContent = indice;
-    btn.title = CONFIG_APP.nomeIndice[indice];
-    btn.addEventListener("click", () => selecionarIndice(indice));
-    container.appendChild(btn);
-  });
-}
 
 function indicesDaEspecie() {
   return estado.indice ? [estado.indice] : [];
@@ -204,32 +169,6 @@ function calcularUmidadeRelativa(tbs, tbu, altitudeM) {
 function calcularPontoOrvalho(tbs, tbu, altitudeM) {
   const fator = Math.log(pressaoVaporAtual(tbs, tbu, altitudeM) / 0.61078);
   return (237.3 * fator) / (17.27 - fator);
-}
-
-function selecionarEspecie(especie) {
-  estado.especie = especie;
-  ultimosResultados = null;
-  historicoPaginaAtual = 1;
-  renderSeletorEspecie();
-  renderSeletorIndice();
-  renderCamposEntrada();
-  resetarPainelResultado();
-  carregarHistorico();
-  agendarSalvarConfiguracoes();
-}
-
-function selecionarIndice(indice) {
-  estado.indice = indice;
-  renderSeletorIndice();
-  atualizarCamposEntrada();
-  atualizarCamposCalculados();
-  if (ultimosResultados && ultimosResultados[estado.indice]) {
-    atualizarPainelIndiceSelecionado(ultimosResultados[estado.indice]);
-  } else {
-    resetarPainelResultado();
-  }
-  atualizarGraficos(ultimosHistoricosGrafico);
-  agendarSalvarConfiguracoes();
 }
 
 // ---------------------------------------------------------------------------
@@ -549,22 +488,27 @@ async function calcular(opcoes = {}) {
       );
     }
     if (!resposta.ok) {
+      atualizarErroLinhaZonaPrincipal(zona, corpo.erro || "Nao foi possivel calcular. Confira os dados informados.");
       mostrarErro(corpo.erro || "Não foi possível calcular. Confira os dados informados.");
       return;
     }
     if (usarSensores) {
       const resultados = corpo.resultados || [];
       const resultadoSelecionado = resultados.find((resultado) => resultado.zona_id === zona.id);
+      resultados.forEach((resultado) => {
+        const zonaResultado = zonaPorId(resultado.zona_id);
+        if (resultado.erro) {
+          atualizarErroLinhaZonaPrincipal(zonaResultado, resultado.erro);
+        } else {
+          atualizarResultado(resultado);
+        }
+      });
       if (!resultadoSelecionado) {
         mostrarErro("Nenhum resultado foi retornado para a zona selecionada.");
-        return;
-      }
-      if (resultadoSelecionado.erro) {
+      } else if (resultadoSelecionado.erro) {
         mostrarErro(resultadoSelecionado.erro);
-        await carregarHistorico();
-        return;
       }
-      dados = resultadoSelecionado;
+      return;
     } else {
       dados = corpo;
     }
@@ -587,29 +531,11 @@ async function calcular(opcoes = {}) {
   atualizarResultado(dados);
 }
 
-async function simularSensor() {
-  try {
-    const respostas = await Promise.all(
-      indicesDaEspecie().map((indice) =>
-        fetch(
-          "/api/sensor?especie=" + encodeURIComponent(estado.especie) +
-          "&indice=" + encodeURIComponent(indice)
-        )
-      )
-    );
-    const leituras = await Promise.all(respostas.map((resposta) => resposta.json()));
-    if (respostas.every((resposta) => resposta.ok)) {
-      preencherEntradas(Object.assign({}, ...leituras));
-    }
-  } catch (erro) {
-    mostrarErro("Não foi possível simular a leitura do sensor.");
-  }
-}
-
 async function carregarHistorico() {
   const zona = zonaPrincipalSelecionada();
-  if (!zona) {
+  if (!zonasCache.length) {
     ultimosHistoricosGrafico = {};
+    destruirGraficosZonasPrincipal();
     graficosPorIndice.forEach((grafico) => grafico.destroy());
     graficosPorIndice.clear();
     if (graficoEntradas) {
@@ -622,11 +548,27 @@ async function carregarHistorico() {
     return;
   }
   try {
-    const resposta = await fetch("/api/zonas/" + zona.id + "/historico");
-    const historico = await resposta.json();
-    ultimosHistoricosGrafico = { [zona.indice]: historico };
-    atualizarGraficos(ultimosHistoricosGrafico);
-    atualizarTabela(historico);
+    const historicos = new Map();
+    await Promise.all(
+      zonasCache.map(async (zonaItem) => {
+        const resposta = await fetch("/api/zonas/" + zonaItem.id + "/historico");
+        if (!resposta.ok) return;
+        const historico = await resposta.json();
+        historicos.set(zonaItem.id, historico);
+        atualizarLinhaComHistoricoZonaPrincipal(zonaItem, historico);
+        atualizarGraficoIndiceZonaPrincipal(zonaItem, historico);
+      })
+    );
+
+    if (zona) {
+      const historicoSelecionado = historicos.get(zona.id) || [];
+      ultimosHistoricosGrafico = { [zona.indice]: historicoSelecionado };
+      atualizarGraficoEntradas(ultimosHistoricosGrafico);
+      atualizarTabela(historicoSelecionado);
+    } else {
+      ultimosHistoricosGrafico = {};
+      atualizarTabela({});
+    }
   } catch (erro) {
     /* nao critico */
   }
@@ -641,25 +583,15 @@ async function limparHistorico() {
 // Atualizacao da interface
 // ---------------------------------------------------------------------------
 
-// NOTA DE SEGURANCA: `resultado.status`, `resultado.mensagem` e o texto de
-// aviso vem da resposta JSON do servidor. Hoje sao sempre valores fixos
-// (um enum de status e mensagens pre-definidas em thermal_indices.py), mas
-// concatena-los direto em `innerHTML` como estava antes e um padrao fragil:
-// se qualquer um desses campos um dia passar a incluir texto proveniente
-// de uma configuracao editavel pelo usuario, isso abriria uma injecao de
-// HTML/script (XSS) sem que nada no front-end precisasse mudar para
-// "ativar" o problema. `definirMensagemOrientacao` monta os mesmos
-// elementos (<strong>, <br>, <em>) via DOM real com `textContent`, que
-// nunca interpreta o conteudo como marcacao, entao o resultado visual e
-// identico mas nao ha superficie de injecao.
-function definirMensagemOrientacao(status, mensagem, aviso) {
-  const container = document.getElementById("mensagem-orientacao");
+// NOTA DE SEGURANCA: `resultado.mensagem` e o texto de aviso sao recebidos
+// da resposta JSON do servidor. Mesmo sendo valores controlados pelo backend,
+// esta funcao monta os elementos via DOM real com `textContent`, sem
+// interpretar conteudo como HTML.
+function definirMensagemOrientacao(mensagem, aviso, container) {
+  container = container || document.getElementById("mensagem-orientacao");
+  if (!container) return;
   container.textContent = "";
-
-  const destaque = document.createElement("strong");
-  destaque.textContent = status + ":";
-  container.appendChild(destaque);
-  container.appendChild(document.createTextNode(" " + mensagem));
+  container.appendChild(document.createTextNode(mensagem));
 
   if (aviso) {
     container.appendChild(document.createElement("br"));
@@ -669,8 +601,42 @@ function definirMensagemOrientacao(status, mensagem, aviso) {
   }
 }
 
+function resetarLinhaZonaPrincipal(zona) {
+  const linha = linhaZonaPrincipal(zona.id);
+  if (!linha) return;
+
+  const readoutValor = elementoLinhaZonaPrincipal(zona.id, "readout-valor");
+  if (readoutValor) {
+    readoutValor.textContent = "--,--";
+    readoutValor.className = "readout-valor";
+  }
+  const readoutIndice = elementoLinhaZonaPrincipal(zona.id, "readout-indice");
+  if (readoutIndice) readoutIndice.textContent = zona.indice;
+
+  const faixa = elementoLinhaZonaPrincipal(zona.id, "faixa-status");
+  const faixaTexto = elementoLinhaZonaPrincipal(zona.id, "faixa-status-texto");
+  if (faixa) faixa.className = "faixa-status faixa-status--vazio";
+  if (faixaTexto) faixaTexto.textContent = zona.ativa ? "AGUARDANDO CALCULO" : "ZONA INATIVA";
+
+  const mensagem = elementoLinhaZonaPrincipal(zona.id, "mensagem-orientacao");
+  if (mensagem) {
+    mensagem.textContent = zona.ativa
+      ? "Aguardando leitura desta zona."
+      : "Zona inativa. O historico permanece disponivel, mas ela nao entra no monitoramento automatico.";
+  }
+
+  atualizarEquipamento(null, null, zona);
+  atualizarSensorRemotoZona(zona);
+}
+
 function resetarPainelResultado() {
   ultimosResultados = null;
+  if (document.getElementById("linhas-zonas-principal")) {
+    zonasCache.forEach((zona) => resetarLinhaZonaPrincipal(zona));
+    atualizarEmail(null);
+    esconderErro();
+    return;
+  }
   const readoutValor = document.getElementById("readout-valor");
   readoutValor.textContent = "--,--";
   readoutValor.className = "readout-valor";
@@ -689,59 +655,84 @@ function resetarPainelResultado() {
   esconderErro();
 }
 
-function atualizarPainelIndiceSelecionado(resultado, avisoGeral) {
-  const classe = classeStatus(resultado.status);
-  const readoutValor = document.getElementById("readout-valor");
-  readoutValor.textContent = resultado.valor.toFixed(2).replace(".", ",");
-  readoutValor.className = "readout-valor cor-" + classe;
-  document.getElementById("readout-indice").textContent = estado.indice;
-
-  const faixa = document.getElementById("faixa-status");
-  faixa.className = "faixa-status faixa-" + classe;
-  document.getElementById("faixa-status-texto").textContent = resultado.status.toUpperCase();
-
-  definirMensagemOrientacao(resultado.status, resultado.mensagem, avisoGeral);
+function atualizarErroLinhaZonaPrincipal(zona, mensagemErro) {
+  if (!zona) return;
+  const faixa = elementoLinhaZonaPrincipal(zona.id, "faixa-status");
+  const faixaTexto = elementoLinhaZonaPrincipal(zona.id, "faixa-status-texto");
+  if (faixa) faixa.className = "faixa-status faixa-status--vazio";
+  if (faixaTexto) faixaTexto.textContent = "SEM LEITURA";
+  const mensagem = elementoLinhaZonaPrincipal(zona.id, "mensagem-orientacao");
+  if (mensagem) mensagem.textContent = mensagemErro || "Nao foi possivel calcular esta zona.";
+  atualizarEquipamento(null, null, zona);
 }
 
-function historicosDosResultados(resultados, tipo) {
-  const historicos = {};
-  Object.entries(resultados || {}).forEach(([indice, resultado]) => {
-    historicos[indice] = resultado[tipo] || resultado.historico || [];
-  });
-  return historicos;
+function atualizarLinhaComHistoricoZonaPrincipal(zona, historico) {
+  if (!zona || !Array.isArray(historico) || !historico.length) return;
+  const ultima = historico[historico.length - 1];
+  const classe = classeStatus(ultima.status);
+
+  const readoutValor = elementoLinhaZonaPrincipal(zona.id, "readout-valor");
+  if (readoutValor) {
+    readoutValor.textContent = Number(ultima.valor).toFixed(2).replace(".", ",");
+    readoutValor.className = "readout-valor cor-" + classe;
+  }
+  const readoutIndice = elementoLinhaZonaPrincipal(zona.id, "readout-indice");
+  if (readoutIndice) readoutIndice.textContent = ultima.indice || zona.indice;
+
+  const faixa = elementoLinhaZonaPrincipal(zona.id, "faixa-status");
+  const faixaTexto = elementoLinhaZonaPrincipal(zona.id, "faixa-status-texto");
+  if (faixa) faixa.className = "faixa-status faixa-" + classe;
+  if (faixaTexto) faixaTexto.textContent = String(ultima.status || "").toUpperCase();
+
+  const mensagem = elementoLinhaZonaPrincipal(zona.id, "mensagem-orientacao");
+  if (mensagem) mensagem.textContent = "Ultima leitura registrada as " + formatarHora(ultima.criado_em) + ".";
 }
 
 function atualizarResultado(dados) {
-  estado.especie = dados.especie || estado.especie;
-  estado.indice = dados.indice || estado.indice;
-  preencherEntradasDoResultado(dados);
-  ultimosResultados = { [estado.indice]: dados };
+  const zona = zonaPorId(dados.zona_id) || zonaPrincipalSelecionada();
+  if (!zona) return;
+  const zonaSelecionada = zona.id === estado.zonaId;
+  if (zonaSelecionada) {
+    estado.especie = dados.especie || zona.especie || estado.especie;
+    estado.indice = dados.indice || zona.indice || estado.indice;
+    preencherEntradasDoResultado(dados);
+    ultimosResultados = { [estado.indice]: dados };
+  }
   const selecionado = dados;
   const classe = classeStatus(selecionado.status);
 
   // 1) Elementos essenciais primeiro - nunca dependem de bibliotecas externas,
   //    entao sempre devem atualizar mesmo se algo mais adiante falhar.
-  const readoutValor = document.getElementById("readout-valor");
+  const readoutValor = elementoLinhaZonaPrincipal(zona.id, "readout-valor") || document.getElementById("readout-valor");
   readoutValor.textContent = selecionado.valor.toFixed(2).replace(".", ",");
   readoutValor.className = "readout-valor cor-" + classe;
-  document.getElementById("readout-indice").textContent = selecionado.indice || estado.indice;
+  const readoutIndice = elementoLinhaZonaPrincipal(zona.id, "readout-indice") || document.getElementById("readout-indice");
+  if (readoutIndice) readoutIndice.textContent = selecionado.indice || zona.indice;
 
-  const faixa = document.getElementById("faixa-status");
+  const faixa = elementoLinhaZonaPrincipal(zona.id, "faixa-status") || document.getElementById("faixa-status");
   faixa.className = "faixa-status faixa-" + classe;
-  document.getElementById("faixa-status-texto").textContent = selecionado.status.toUpperCase();
+  const faixaTexto = elementoLinhaZonaPrincipal(zona.id, "faixa-status-texto") || document.getElementById("faixa-status-texto");
+  if (faixaTexto) faixaTexto.textContent = selecionado.status.toUpperCase();
 
-  definirMensagemOrientacao(selecionado.status, selecionado.mensagem, dados.aviso);
+  definirMensagemOrientacao(
+    selecionado.mensagem,
+    dados.aviso,
+    elementoLinhaZonaPrincipal(zona.id, "mensagem-orientacao")
+  );
 
-  atualizarEquipamento(dados.equipamento, selecionado.status);
-  atualizarEmail(dados.email);
+  atualizarEquipamento(dados.equipamento, selecionado.status, zona);
+  if (zonaSelecionada) atualizarEmail(dados.email);
 
   // 2) Graficos e tabela: isolados em try/catch proprios. Se a biblioteca de
   //    graficos nao carregar por qualquer motivo, o restante do painel acima
   //    ja esta atualizado e continua funcionando normalmente.
   try {
     const historicoZona = selecionado.historico_grafico || [];
-    ultimosHistoricosGrafico = { [estado.indice]: historicoZona };
-    atualizarGraficos(ultimosHistoricosGrafico);
+    atualizarGraficoIndiceZonaPrincipal(zona, historicoZona);
+    if (zonaSelecionada) {
+      ultimosHistoricosGrafico = { [zona.indice]: historicoZona };
+      atualizarGraficoEntradas(ultimosHistoricosGrafico);
+    }
   } catch (erro) {
     console.error("Erro ao desenhar os graficos:", erro);
     mostrarErro(
@@ -751,13 +742,15 @@ function atualizarResultado(dados) {
     );
   }
 
-  try {
-    atualizarTabela(selecionado.historico_grafico || []);
-  } catch (erro) {
-    console.error("Erro ao atualizar a tabela de historico:", erro);
+  if (zonaSelecionada) {
+    try {
+      atualizarTabela(selecionado.historico_grafico || []);
+    } catch (erro) {
+      console.error("Erro ao atualizar a tabela de historico:", erro);
+    }
   }
 
-  if (dados.tocarSom && selecionado.status !== "Conforto") {
+  if (zonaSelecionada && dados.tocarSom && selecionado.status !== "Conforto") {
     try {
       tocarSom(selecionado.status);
     } catch (erro) {
@@ -776,7 +769,7 @@ function renderizarIconesEquipamento(
   totalIcones,
   quantidadeForcada
 ) {
-  const container = document.getElementById(containerId);
+  const container = typeof containerId === "string" ? document.getElementById(containerId) : containerId;
   if (!container) return;
   container.innerHTML = "";
   container.classList.remove(
@@ -817,15 +810,15 @@ function renderizarIconesEquipamento(
   container.setAttribute("aria-label", `${nomeEquipamento} ${estadoTexto}`);
 }
 
-function atualizarEquipamento(equip, status) {
+function atualizarEquipamento(equip, status, zona = zonaPrincipalSelecionada()) {
   const ventiladorLigado = !!(equip && equip.ventilador);
   const nebulizadorLigado = !!(equip && equip.nebulizador);
   const intensidade = (equip && equip.intensidade) || null;
-  const totalVentiladores = equipamentosDaZonaSelecionada("ventilador").length * ICONES_POR_EQUIPAMENTO_ATUADOR;
-  const totalNebulizadores = equipamentosDaZonaSelecionada("nebulizador").length * ICONES_POR_EQUIPAMENTO_ATUADOR;
+  const totalVentiladores = equipamentosDaZona(zona, "ventilador").length * ICONES_POR_EQUIPAMENTO_ATUADOR;
+  const totalNebulizadores = equipamentosDaZona(zona, "nebulizador").length * ICONES_POR_EQUIPAMENTO_ATUADOR;
 
   renderizarIconesEquipamento(
-    "icones-ventilador",
+    elementoLinhaZonaPrincipal(zona?.id, "icones-ventilador") || "icones-ventilador",
     ICONE_VENTILADOR,
     "Ventilador",
     ventiladorLigado,
@@ -835,7 +828,7 @@ function atualizarEquipamento(equip, status) {
     ventiladorLigado ? totalVentiladores : 0
   );
   renderizarIconesEquipamento(
-    "icones-nebulizador",
+    elementoLinhaZonaPrincipal(zona?.id, "icones-nebulizador") || "icones-nebulizador",
     ICONE_NEBULIZADOR,
     "Nebulizador",
     nebulizadorLigado,
@@ -845,23 +838,34 @@ function atualizarEquipamento(equip, status) {
     nebulizadorLigado ? totalNebulizadores : 0
   );
 
-  document.getElementById("intensidade-valor").textContent = intensidade ? rotuloIntensidade(intensidade) : "desligado";
+  const intensidadeValor = elementoLinhaZonaPrincipal(zona?.id, "intensidade-valor") || document.getElementById("intensidade-valor");
+  if (intensidadeValor) {
+    intensidadeValor.textContent = intensidade ? rotuloIntensidade(intensidade) : "desligado";
+  }
 }
 
-function atualizarSensorRemoto() {
+function atualizarSensorRemotoZona(zona) {
   const checkboxColeta = document.getElementById("cfg-coletar");
-  const sensorLigado = !!(checkboxColeta && checkboxColeta.checked);
+  const sensorLigado = !!(checkboxColeta && checkboxColeta.checked && zona && zona.ativa);
 
   renderizarIconesEquipamento(
-    "icones-sensor",
+    elementoLinhaZonaPrincipal(zona?.id, "icones-sensor") || "icones-sensor",
     ICONE_SENSOR,
     "Sensor",
     sensorLigado,
     null,
     null,
-    equipamentosDaZonaSelecionada("sensor").length * ICONES_POR_SENSOR,
-    sensorLigado ? equipamentosDaZonaSelecionada("sensor").length * ICONES_POR_SENSOR : 0
+    equipamentosDaZona(zona, "sensor").length * ICONES_POR_SENSOR,
+    sensorLigado ? equipamentosDaZona(zona, "sensor").length * ICONES_POR_SENSOR : 0
   );
+}
+
+function atualizarSensorRemoto() {
+  if (document.getElementById("linhas-zonas-principal")) {
+    zonasCache.forEach((zona) => atualizarSensorRemotoZona(zona));
+    return;
+  }
+  atualizarSensorRemotoZona(zonaPrincipalSelecionada());
 }
 
 function atualizarEmail(emailInfo) {
@@ -951,150 +955,50 @@ function criarOuAtualizarGrafico(grafico, canvasId, configuracao) {
   return grafico;
 }
 
-function atualizarGraficosLegado(historico) {
-  if (typeof Chart === "undefined") {
-    throw new Error(
-      "A biblioteca Chart.js não foi carregada (conforto_termico/static/js/vendor/chart.umd.js). " +
-      "Confira se a pasta 'conforto_termico/static/js/vendor' foi copiada junto com o projeto."
-    );
-  }
+function tituloGraficoZonaPrincipal(zona) {
+  return zona.nome + " - " + zona.indice;
+}
 
-  const novaAssinatura = assinaturaDoHistorico(historico);
-  if (novaAssinatura === assinaturaGraficos && graficoIndice && graficoEntradas) {
+function atualizarGraficoIndiceZonaPrincipal(zona, historico) {
+  if (!zona || typeof Chart === "undefined") return;
+  const canvas = elementoLinhaZonaPrincipal(zona.id, "grafico-indice");
+  if (!canvas) return;
+
+  const titulo = elementoLinhaZonaPrincipal(zona.id, "grafico-titulo");
+  if (titulo) titulo.textContent = tituloGraficoZonaPrincipal(zona);
+
+  const leituras = Array.isArray(historico) ? historico : [];
+  const assinatura = JSON.stringify({ indice: zona.indice, leituras });
+  if (
+    assinaturasIndicePrincipalPorZona.get(zona.id) === assinatura &&
+    graficosIndicePrincipalPorZona.has(zona.id)
+  ) {
     return;
   }
-  assinaturaGraficos = novaAssinatura;
+  assinaturasIndicePrincipalPorZona.set(zona.id, assinatura);
 
-  const rotulos = historico.map((h) => formatarHora(h.criado_em));
-  const valores = historico.map((h) => h.valor);
-  const cores = historico.map((h) => corStatus(h.status));
-  const datasetIndice = graficoIndice ? graficoIndice.data.datasets[0] : {};
-  Object.assign(datasetIndice, {
-    label: estado.indice,
-    data: valores,
-    backgroundColor: cores,
+  const graficoAtual = graficosIndicePrincipalPorZona.get(zona.id);
+  const dataset = graficoAtual?.data.datasets[0] || {};
+  Object.assign(dataset, {
+    label: zona.indice,
+    data: leituras.map((h) => h.valor),
+    backgroundColor: leituras.map((h) => corStatus(h.status)),
     borderRadius: 3,
     maxBarThickness: 26,
   });
 
-  graficoIndice = criarOuAtualizarGrafico(graficoIndice, "grafico-indice", {
+  const opcoes = opcoesGrafico(false);
+  opcoes.plugins.legend.display = false;
+
+  const grafico = criarOuAtualizarGrafico(graficoAtual, canvas.id, {
     type: "bar",
     data: {
-      labels: rotulos,
-      datasets: [datasetIndice],
+      labels: leituras.map((h) => formatarHora(h.criado_em)),
+      datasets: [dataset],
     },
-    options: opcoesGrafico(false),
+    options: opcoes,
   });
-
-  const campos = CONFIG_APP.camposPorIndice[estado.indice];
-  const paleta = ["#4F8A93", "#D9A441", "#8FBF9F"];
-  const temEixoSecundario = campos.some((campo) => campo === "v" || campo === "ur");
-  const datasetsAtuaisEntradas = new Map(
-    graficoEntradas ? graficoEntradas.data.datasets.map((dataset) => [dataset.campo, dataset]) : []
-  );
-  const datasetsEntradas = campos.map((campo, i) => {
-    const cor = paleta[i % paleta.length];
-    const dataset = datasetsAtuaisEntradas.get(campo) || {};
-    Object.assign(dataset, {
-      campo,
-      label: CONFIG_APP.campoMetadados[campo].label,
-      data: historico.map((h) => h.entradas[campo]),
-      borderColor: cor,
-      backgroundColor: cor + "33",
-      tension: 0.35,
-      cubicInterpolationMode: "monotone",
-      pointRadius: 2,
-      pointHoverRadius: 4,
-      fill: campo !== "v" && campo !== "ur",
-      yAxisID: campo === "v" || campo === "ur" ? "y1" : "y",
-    });
-    return dataset;
-  });
-
-  graficoEntradas = criarOuAtualizarGrafico(graficoEntradas, "grafico-entradas", {
-    type: "line",
-    data: { labels: rotulos, datasets: datasetsEntradas },
-    options: opcoesGrafico(temEixoSecundario),
-  });
-}
-
-function atualizarGraficosCombinadoLegado(historicos) {
-  if (typeof Chart === "undefined") {
-    throw new Error(
-      "A biblioteca Chart.js não foi carregada (conforto_termico/static/js/vendor/chart.umd.js). " +
-      "Confira se a pasta 'conforto_termico/static/js/vendor' foi copiada junto com o projeto."
-    );
-  }
-
-  const historicosPorIndice = normalizarHistoricosPorIndice(historicos);
-  const novaAssinatura = assinaturaDoHistorico(historicosPorIndice);
-  if (novaAssinatura === assinaturaGraficos && graficoIndice && graficoEntradas) {
-    return;
-  }
-  assinaturaGraficos = novaAssinatura;
-
-  const chaves = chavesCronologicas(historicosPorIndice);
-  const rotulos = chaves.map((chave) => formatarHora(chave));
-  const datasetsAtuaisIndice = new Map(
-    graficoIndice ? graficoIndice.data.datasets.map((dataset) => [dataset.indice, dataset]) : []
-  );
-  const datasetsIndice = indicesDaEspecie().map((indice) => {
-    const leiturasPorChave = new Map((historicosPorIndice[indice] || []).map((h) => [h.criado_em, h]));
-    const dataset = datasetsAtuaisIndice.get(indice) || {};
-    Object.assign(dataset, {
-      indice,
-      label: indice,
-      data: chaves.map((chave) => leiturasPorChave.get(chave)?.valor ?? null),
-      backgroundColor: chaves.map((chave) => corStatus(leiturasPorChave.get(chave)?.status)),
-      borderRadius: 3,
-      maxBarThickness: 24,
-    });
-    return dataset;
-  });
-
-  graficoIndice = criarOuAtualizarGrafico(graficoIndice, "grafico-indice", {
-    type: "bar",
-    data: { labels: rotulos, datasets: datasetsIndice },
-    options: opcoesGrafico(false),
-  });
-
-  const entradasPorChave = new Map();
-  Object.values(historicosPorIndice).flat().forEach((leitura) => {
-    const entradas = entradasPorChave.get(leitura.criado_em) || {};
-    Object.assign(entradas, leitura.entradas);
-    entradasPorChave.set(leitura.criado_em, entradas);
-  });
-
-  const campos = camposDaEspecie();
-  const paleta = ["#4F8A93", "#D9A441", "#8FBF9F", "#C1443C", "#9E7BB5"];
-  const temEixoSecundario = campos.some((campo) => campo === "v" || campo === "ur");
-  const datasetsAtuaisEntradas = new Map(
-    graficoEntradas ? graficoEntradas.data.datasets.map((dataset) => [dataset.campo, dataset]) : []
-  );
-  const datasetsEntradas = campos.map((campo, i) => {
-    const cor = paleta[i % paleta.length];
-    const dataset = datasetsAtuaisEntradas.get(campo) || {};
-    Object.assign(dataset, {
-      campo,
-      label: CONFIG_APP.campoMetadados[campo].label,
-      data: chaves.map((chave) => entradasPorChave.get(chave)?.[campo] ?? null),
-      borderColor: cor,
-      backgroundColor: cor + "33",
-      tension: 0.35,
-      cubicInterpolationMode: "monotone",
-      pointRadius: 2,
-      pointHoverRadius: 4,
-      fill: campo !== "v" && campo !== "ur",
-      yAxisID: campo === "v" || campo === "ur" ? "y1" : "y",
-    });
-    return dataset;
-  });
-
-  graficoEntradas = criarOuAtualizarGrafico(graficoEntradas, "grafico-entradas", {
-    type: "line",
-    data: { labels: rotulos, datasets: datasetsEntradas },
-    options: opcoesGrafico(temEixoSecundario),
-  });
+  graficosIndicePrincipalPorZona.set(zona.id, grafico);
 }
 
 function indicesOrdenadosParaGraficos() {
@@ -1243,42 +1147,6 @@ function atualizarGraficos(historicos) {
       options: opcoesGrafico(false),
     });
     graficosPorIndice.set(indice, grafico);
-  });
-}
-
-function atualizarTabelaLegado(historico) {
-  const tbody = document.querySelector("#tabela-historico tbody");
-  const tabela = document.getElementById("tabela-historico");
-  const vazio = document.getElementById("tabela-vazia");
-  tbody.innerHTML = "";
-
-  if (!historico.length) {
-    tabela.classList.add("oculto");
-    vazio.classList.remove("oculto");
-    return;
-  }
-  tabela.classList.remove("oculto");
-  vazio.classList.add("oculto");
-
-  [...historico].reverse().forEach((h) => {
-    const tr = document.createElement("tr");
-    const entradasTexto = Object.entries(h.entradas)
-      .map(([k, v]) => k + "=" + v)
-      .join(", ");
-    const classe = "status-" + classeStatus(h.status);
-
-    const tdHora = document.createElement("td");
-    tdHora.textContent = formatarHora(h.criado_em);
-    const tdEntradas = document.createElement("td");
-    tdEntradas.textContent = entradasTexto;
-    const tdValor = document.createElement("td");
-    tdValor.textContent = h.valor.toFixed(2).replace(".", ",");
-    const tdStatus = document.createElement("td");
-    tdStatus.textContent = h.status;
-    tdStatus.className = classe;
-
-    tr.append(tdHora, tdEntradas, tdValor, tdStatus);
-    tbody.appendChild(tr);
   });
 }
 
@@ -1493,6 +1361,7 @@ function inicializarAbas() {
       if (aba === "principal") {
         setTimeout(() => {
           graficosPorIndice.forEach((grafico) => grafico.resize());
+          graficosIndicePrincipalPorZona.forEach((grafico) => grafico.resize());
           if (graficoEntradas) graficoEntradas.resize();
         }, 0);
       }
@@ -1572,19 +1441,6 @@ function moverControlesParaConfiguracoes() {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Relogio e modo automatico
-// ---------------------------------------------------------------------------
-function iniciarRelogio() {
-  const el = document.getElementById("relogio");
-  if (!el) return;
-  const atualizar = () => {
-    el.textContent = new Date().toLocaleTimeString("pt-BR");
-  };
-  atualizar();
-  setInterval(atualizar, 1000);
-}
-
 function alternarModoAutomatico(ativo) {
   autoAtivo = ativo;
 
@@ -1643,6 +1499,10 @@ const ROTULOS_TIPO_EQUIPAMENTO = {
   nebulizador: "Nebulizadores",
 };
 
+function zonaPorId(zonaId) {
+  return zonasCache.find((zona) => zona.id === Number(zonaId)) || null;
+}
+
 function zonasAtivas() {
   return zonasCache.filter((zona) => zona.ativa);
 }
@@ -1651,10 +1511,151 @@ function zonaPrincipalSelecionada() {
   return zonasCache.find((zona) => zona.id === estado.zonaId && zona.ativa) || null;
 }
 
-function equipamentosDaZonaSelecionada(tipo) {
-  const zona = zonaPrincipalSelecionada();
+function zonasOrdenadasPrincipal() {
+  const selecionadaId = Number(estado.zonaId);
+  return [...zonasCache].sort((a, b) => {
+    if (a.id === selecionadaId) return -1;
+    if (b.id === selecionadaId) return 1;
+    return a.id - b.id;
+  });
+}
+
+function equipamentosDaZona(zona, tipo) {
   if (!zona) return [];
   return (zona.equipamentos || []).filter((equipamento) => equipamento.tipo === tipo);
+}
+
+function equipamentosDaZonaSelecionada(tipo) {
+  return equipamentosDaZona(zonaPrincipalSelecionada(), tipo);
+}
+
+function linhaZonaPrincipal(zonaId) {
+  return document.querySelector(`.principal-zona-linha[data-zona-id="${Number(zonaId)}"]`);
+}
+
+function elementoLinhaZonaPrincipal(zonaId, papel) {
+  return linhaZonaPrincipal(zonaId)?.querySelector(`[data-role="${papel}"]`) || null;
+}
+
+function destruirGraficosZonasPrincipal() {
+  graficosIndicePrincipalPorZona.forEach((grafico) => grafico.destroy());
+  graficosIndicePrincipalPorZona.clear();
+  assinaturasIndicePrincipalPorZona.clear();
+}
+
+function construirLinhaZonaPrincipal(zona) {
+  const linha = document.createElement("div");
+  linha.className = "principal-zona-linha";
+  linha.dataset.zonaId = zona.id;
+
+  const leitura = document.createElement("section");
+  leitura.className = "painel leitura-painel";
+
+  const readout = document.createElement("div");
+  readout.className = "readout";
+  const etiqueta = document.createElement("span");
+  etiqueta.className = "readout-etiqueta";
+  etiqueta.dataset.role = "readout-indice";
+  etiqueta.textContent = zona.indice;
+  const valor = document.createElement("span");
+  valor.className = "readout-valor";
+  valor.dataset.role = "readout-valor";
+  valor.textContent = "--,--";
+  readout.append(etiqueta, valor);
+  leitura.appendChild(readout);
+
+  const faixa = document.createElement("div");
+  faixa.className = "faixa-status faixa-status--vazio";
+  faixa.dataset.role = "faixa-status";
+  const faixaTexto = document.createElement("span");
+  faixaTexto.dataset.role = "faixa-status-texto";
+  faixaTexto.textContent = zona.ativa ? "AGUARDANDO CALCULO" : "ZONA INATIVA";
+  faixa.appendChild(faixaTexto);
+  leitura.appendChild(faixa);
+
+  const mensagem = document.createElement("p");
+  mensagem.className = "mensagem-orientacao";
+  mensagem.dataset.role = "mensagem-orientacao";
+  mensagem.textContent = zona.ativa
+    ? "Aguardando leitura desta zona."
+    : "Zona inativa. O historico permanece disponivel, mas ela nao entra no monitoramento automatico.";
+  leitura.appendChild(mensagem);
+  linha.appendChild(leitura);
+
+  const painelGrafico = document.createElement("section");
+  painelGrafico.className = "graficos-painel";
+  const graficos = document.createElement("div");
+  graficos.className = "graficos-indices";
+  const bloco = document.createElement("div");
+  bloco.className = "grafico-bloco grafico-bloco-indice";
+  const tituloGrafico = document.createElement("p");
+  tituloGrafico.className = "grafico-titulo";
+  tituloGrafico.dataset.role = "grafico-titulo";
+  tituloGrafico.textContent = tituloGraficoZonaPrincipal(zona);
+  const wrap = document.createElement("div");
+  wrap.className = "grafico-canvas-wrap";
+  const canvas = document.createElement("canvas");
+  canvas.id = "grafico-zona-principal-" + zona.id;
+  canvas.dataset.role = "grafico-indice";
+  wrap.appendChild(canvas);
+  bloco.append(tituloGrafico, wrap);
+  graficos.appendChild(bloco);
+  painelGrafico.appendChild(graficos);
+  linha.appendChild(painelGrafico);
+
+  const equipamentos = document.createElement("section");
+  equipamentos.className = "painel equipamentos-painel";
+  const tituloEquipamentos = document.createElement("h2");
+  tituloEquipamentos.className = "painel-titulo";
+  tituloEquipamentos.textContent = "Equipamentos remotos";
+  equipamentos.appendChild(tituloEquipamentos);
+  const intensidade = document.createElement("div");
+  intensidade.className = "intensidade-info";
+  const intensidadeEtiqueta = document.createElement("span");
+  intensidadeEtiqueta.className = "intensidade-etiqueta";
+  intensidadeEtiqueta.textContent = "Intensidade";
+  const intensidadeValor = document.createElement("span");
+  intensidadeValor.dataset.role = "intensidade-valor";
+  intensidadeValor.textContent = "desligado";
+  intensidade.append(intensidadeEtiqueta, intensidadeValor);
+  equipamentos.appendChild(intensidade);
+
+  const gradeEquipamentos = document.createElement("div");
+  gradeEquipamentos.className = "equipamentos";
+  [
+    ["Ventilador", "icones-ventilador"],
+    ["Nebulizador", "icones-nebulizador"],
+    ["Sensor", "icones-sensor"],
+  ].forEach(([rotulo, papel]) => {
+    const grupo = document.createElement("div");
+    grupo.className = "lampada-grupo";
+    const legenda = document.createElement("span");
+    legenda.className = "lampada-legenda";
+    legenda.textContent = rotulo;
+    const icones = document.createElement("div");
+    icones.className = "icones-equipamento";
+    icones.dataset.role = papel;
+    icones.setAttribute("role", "img");
+    icones.setAttribute("aria-label", rotulo + " desligado");
+    grupo.append(legenda, icones);
+    gradeEquipamentos.appendChild(grupo);
+  });
+  equipamentos.appendChild(gradeEquipamentos);
+  linha.appendChild(equipamentos);
+
+  return linha;
+}
+
+function renderizarLinhasZonasPrincipal() {
+  const container = document.getElementById("linhas-zonas-principal");
+  if (!container) return;
+  destruirGraficosZonasPrincipal();
+  container.textContent = "";
+
+  zonasOrdenadasPrincipal().forEach((zona) => {
+    container.appendChild(construirLinhaZonaPrincipal(zona));
+    resetarLinhaZonaPrincipal(zona);
+  });
 }
 
 function atualizarResumoZonaPrincipal(zona) {
@@ -1688,8 +1689,7 @@ function renderizarSelectZonaPrincipal() {
     document.getElementById("btn-calcular").disabled = true;
     atualizarResumoZonaPrincipal(null);
     renderCamposEntrada();
-    atualizarEquipamento(null, null);
-    atualizarSensorRemoto();
+    renderizarLinhasZonasPrincipal();
     return;
   }
 
@@ -1710,6 +1710,7 @@ function renderizarSelectZonaPrincipal() {
   }
   atualizarResumoZonaPrincipal(zona);
   renderCamposEntrada();
+  renderizarLinhasZonasPrincipal();
   resetarPainelResultado();
 }
 
@@ -1725,6 +1726,7 @@ async function selecionarZonaPrincipal(zonaId) {
   historicoPaginaAtual = 1;
   atualizarResumoZonaPrincipal(zona);
   renderCamposEntrada();
+  renderizarLinhasZonasPrincipal();
   resetarPainelResultado();
   await carregarHistorico();
 }
