@@ -230,13 +230,50 @@ class Email:
         return self._enviado
 
     @staticmethod
-    def montar_conteudo(indice: str, valor: float, status: str) -> str:
+    def _formatar_entradas(entradas: dict | None) -> str:
+        if not entradas:
+            return ""
+
+        linhas = ["Dados usados no cálculo:"]
+        for campo, valor in entradas.items():
+            metadados = ti.CAMPO_METADADOS.get(campo, {})
+            label = metadados.get("label", campo)
+            unidade = metadados.get("unidade", "")
+            sufixo = f" {unidade}" if unidade else ""
+            linhas.append(f"- {label} ({campo}): {valor}{sufixo}")
+        return "\n".join(linhas) + "\n"
+
+    @staticmethod
+    def _formatar_zona(zona: dict | None) -> str:
+        if not zona:
+            return ""
+
+        nome = zona.get("nome") or zona.get("zona_nome")
+        zona_id = zona.get("id") or zona.get("zona_id")
+        if nome and zona_id:
+            return f"Zona: {nome} (ID {zona_id})\n"
+        if nome:
+            return f"Zona: {nome}\n"
+        if zona_id:
+            return f"Zona: ID {zona_id}\n"
+        return ""
+
+    @staticmethod
+    def montar_conteudo(
+        indice: str,
+        valor: float,
+        status: str,
+        entradas: dict | None = None,
+        zona: dict | None = None,
+    ) -> str:
         """Monta o texto do e-mail no mesmo layout das Figuras 20/22/25/28."""
         agora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         return (
             f"Status: {status}\n"
             f"Data: {agora}\n"
+            f"{Email._formatar_zona(zona)}"
             f"Valor do {indice}: {valor}\n"
+            f"{Email._formatar_entradas(entradas)}"
             f"Mensagem: {ti.mensagem_do_status(status)}\n"
             + "*" * 75
             + "\n"

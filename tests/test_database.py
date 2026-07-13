@@ -90,6 +90,7 @@ class TestIntervaloMinimoLeituras(unittest.TestCase):
         self.assertEqual("medido", configuracoes["modoPontoOrvalho"])
         self.assertEqual("calculado", configuracoes["modoUmidadeRelativa"])
         self.assertEqual(70, configuracoes["limiteUmidadeNebulizador"])
+        self.assertEqual("conforto", configuracoes["statusMinimoEmail"])
 
     def test_salva_e_recupera_configuracoes(self):
         db.salvar_configuracoes(
@@ -147,6 +148,17 @@ class TestSanitizacaoDeConfiguracoes(unittest.TestCase):
     def test_email_valido_e_preservado(self):
         salvas = db.salvar_configuracoes({"emailDestino": "produtor.silva@exemplo.com.br"})
         self.assertEqual("produtor.silva@exemplo.com.br", salvas["emailDestino"])
+
+    def test_status_minimo_email_invalido_cai_para_padrao(self):
+        salvas = db.salvar_configuracoes({"statusMinimoEmail": "critico"})
+        self.assertEqual(
+            db.CONFIGURACOES_PADRAO["statusMinimoEmail"],
+            salvas["statusMinimoEmail"],
+        )
+
+    def test_status_minimo_email_valido_e_preservado(self):
+        salvas = db.salvar_configuracoes({"statusMinimoEmail": "perigo"})
+        self.assertEqual("perigo", salvas["statusMinimoEmail"])
 
     def test_altitude_fora_da_faixa_e_limitada(self):
         salvas = db.salvar_configuracoes({"altitudeMetros": 999999})

@@ -42,6 +42,7 @@ CONFIGURACOES_PADRAO = {
     "enviarEmails": False,
     "habilitarEquipamentos": False,
     "emailDestino": "produtor@fazenda.com.br",
+    "statusMinimoEmail": "conforto",
     "modoAutomatico": False,
     "intervaloLeituraSegundos": 1,
     "intervaloGravacaoMinutos": 1,
@@ -700,6 +701,11 @@ def _sanitizar_configuracoes(configuracoes: dict) -> dict:
             bruto["habilitarEquipamentos"], padrao["habilitarEquipamentos"]
         ),
         "emailDestino": _coagir_email(bruto["emailDestino"], padrao["emailDestino"]),
+        "statusMinimoEmail": _coagir_enum(
+            bruto["statusMinimoEmail"],
+            padrao["statusMinimoEmail"],
+            tuple(ti.STATUS_PESO.keys()),
+        ),
         "modoAutomatico": _coagir_booleano(bruto["modoAutomatico"], padrao["modoAutomatico"]),
         "intervaloLeituraSegundos": _coagir_numero(
             bruto["intervaloLeituraSegundos"], padrao["intervaloLeituraSegundos"], 1, 3600

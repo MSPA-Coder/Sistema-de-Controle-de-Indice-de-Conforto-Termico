@@ -244,6 +244,13 @@ LIMITES = _congelar({
 
 STATUS_ORDEM = ("Conforto", "Alerta", "Perigo", "Emergência")
 
+STATUS_PESO = _congelar({
+    "conforto": 0,
+    "alerta": 1,
+    "perigo": 2,
+    "emergencia": 3,
+})
+
 CORES_STATUS = _congelar({
     "Conforto": "#3E8E5B",
     "Alerta": "#E3A73E",
@@ -288,6 +295,14 @@ def mensagem_do_status(status: str) -> str:
 
 def intensidade_do_status(status: str) -> str | None:
     return INTENSIDADE_EQUIPAMENTO[normalizar_chave_texto(status)]
+
+
+def status_atinge_minimo(status: str, minimo: str) -> bool:
+    chave_status = normalizar_chave_texto(status).lower()
+    chave_minimo = normalizar_chave_texto(minimo).lower()
+    peso_status = STATUS_PESO.get(chave_status)
+    peso_minimo = STATUS_PESO.get(chave_minimo, STATUS_PESO["conforto"])
+    return peso_status is not None and peso_status >= peso_minimo
 
 
 def indice_disponivel(especie: str, indice: str) -> bool:

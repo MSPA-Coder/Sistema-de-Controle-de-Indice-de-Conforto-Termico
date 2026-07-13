@@ -88,6 +88,7 @@ class TestHistoricoGraficoApi(unittest.TestCase):
             "enviarEmails": True,
             "habilitarEquipamentos": True,
             "emailDestino": "teste@fazenda.com.br",
+            "statusMinimoEmail": "perigo",
             "modoAutomatico": True,
             "intervaloLeituraSegundos": 4,
             "intervaloGravacaoMinutos": 2,
@@ -219,6 +220,63 @@ class TestHistoricoGraficoApi(unittest.TestCase):
         self.assertEqual(200, resposta.status_code)
         self.assertEqual("Conforto", resposta.json["status"])
         self.assertFalse(resposta.json["tocarSom"])
+
+    def test_email_da_api_inclui_dados_usados_no_calculo(self):
+        resposta = self.client.post(
+            "/api/calcular",
+            json={
+                "especie": "frangos",
+                "indice": "ITUV",
+                "entradas": {"tbs": 30, "tbu": 24, "v": 1.5},
+                "config": {
+                    "enviarEmails": True,
+                    "emailDestino": "produtor@fazenda.com.br",
+                },
+            },
+        )
+
+        self.assertEqual(200, resposta.status_code)
+        conteudo = resposta.json["email"]["conteudo"]
+        self.assertIn("Dados usados no cálculo:", conteudo)
+        self.assertIn("Temperatura de Bulbo Seco / Ambiente (tbs): 30.0", conteudo)
+        self.assertIn("Temperatura de Bulbo Úmido (tbu): 24.0", conteudo)
+        self.assertIn("Velocidade do Ar (v): 1.5 m/s", conteudo)
+
+    def test_email_da_api_respeita_status_minimo_configurado(self):
+        abaixo_do_limiar = self.client.post(
+            "/api/calcular",
+            json={
+                "especie": "frangos",
+                "indice": "ITUV",
+                "entradas": {"tbs": 30, "tbu": 24, "v": 1.5},
+                "config": {
+                    "enviarEmails": True,
+                    "emailDestino": "produtor@fazenda.com.br",
+                    "statusMinimoEmail": "perigo",
+                },
+            },
+        )
+        acima_do_limiar = self.client.post(
+            "/api/calcular",
+            json={
+                "especie": "frangos",
+                "indice": "ITU",
+                "entradas": {"tbs": 35, "tbu": 30},
+                "config": {
+                    "enviarEmails": True,
+                    "emailDestino": "produtor@fazenda.com.br",
+                    "statusMinimoEmail": "perigo",
+                },
+            },
+        )
+
+        self.assertEqual(200, abaixo_do_limiar.status_code)
+        self.assertEqual("Alerta", abaixo_do_limiar.json["status"])
+        self.assertIsNone(abaixo_do_limiar.json["email"])
+
+        self.assertEqual(200, acima_do_limiar.status_code)
+        self.assertEqual("Emergência", acima_do_limiar.json["status"])
+        self.assertIsNotNone(acima_do_limiar.json["email"])
 
     def test_nebulizador_nao_liga_acima_do_limite_de_umidade(self):
         resposta = self.client.post(
@@ -696,6 +754,75 @@ class TestZonasApi(unittest.TestCase):
         self.assertEqual(zona_id, resposta.json["zona_id"])
         self.assertEqual(1, len(resposta.json["historico_grafico"]))
         self.assertEqual(1, len(db.obter_historico_por_zona(zona_id)))
+
+    def test_email_da_zona_inclui_dados_usados_no_calculo(self):
+        self.client.post(
+            "/api/configuracoes",
+            json={"enviarEmails": True, "emailDestino": "produtor@fazenda.com.br"},
+        )
+        zona_id = self._criar_zona().json["id"]
+
+        resposta = self.client.post(
+            f"/api/zonas/{zona_id}/calcular",
+            json={"entradas": {"tbs": 25.0, "tbu": 20.0}},
+        )
+
+        self.assertEqual(200, resposta.status_code)
+        conteudo = resposta.json["email"]["conteudo"]
+        self.assertIn(f"Zona: Aviário 1 (ID {zona_id})", conteudo)
+        self.assertIn("Dados usados no cálculo:", conteudo)
+        self.assertIn("Temperatura de Bulbo Seco / Ambiente (tbs): 25.0", conteudo)
+        self.assertIn("Temperatura de Bulbo Úmido (tbu): 20.0", conteudo)
+
+    def test_email_das_zonas_respeita_status_minimo_configurado(self):
+        self.client.post(
+            "/api/configuracoes",
+            json={
+                "enviarEmails": True,
+                "emailDestino": "produtor@fazenda.com.br",
+                "statusMinimoEmail": "perigo",
+            },
+        )
+        zona_conforto = self._criar_zona(nome="Zona Conforto").json["id"]
+        zona_emergencia = self._criar_zona(nome="Zona Emergencia").json["id"]
+
+        for zona_id in (zona_conforto, zona_emergencia):
+            for campo in ("tbs", "tbu"):
+                self.client.post(
+                    f"/api/zonas/{zona_id}/equipamentos",
+                    json={
+                        "tipo": "sensor",
+                        "nome": f"Sensor {campo.upper()} {zona_id}",
+                        "modo_conexao": "tcp",
+                        "host": "127.0.0.1",
+                        "porta": 502,
+                        "tipo_registrador": "input",
+                        "endereco_registrador": 1,
+                        "campo_medido": campo,
+                    },
+                )
+
+        def ler_modbus(equipamento):
+            if equipamento["zona_id"] == zona_conforto:
+                return 25.0 if equipamento["campo_medido"] == "tbs" else 20.0
+            return 35.0 if equipamento["campo_medido"] == "tbs" else 30.0
+
+        with patch.object(flask_app.zona_service, "_ler_modbus", side_effect=ler_modbus):
+            resposta = self.client.post("/api/zonas/calcular-ativas")
+
+        self.assertEqual(200, resposta.status_code)
+        por_zona = {item["zona_id"]: item for item in resposta.json["resultados"]}
+        self.assertEqual("Conforto", por_zona[zona_conforto]["status"])
+        self.assertNotIn("email", por_zona[zona_conforto])
+
+        self.assertEqual("Emergência", por_zona[zona_emergencia]["status"])
+        self.assertNotIn("email", por_zona[zona_emergencia])
+
+        self.assertIn("email", resposta.json)
+        self.assertEqual([zona_emergencia], resposta.json["email"]["zonas"])
+        conteudo = resposta.json["email"]["conteudo"]
+        self.assertIn("Zona: Zona Emergencia", conteudo)
+        self.assertNotIn("Zona: Zona Conforto", conteudo)
 
     def test_calcular_zonas_ativas_usa_sensores_de_todas_as_ativas(self):
         zona_a = self._criar_zona(nome="Zona A").json["id"]

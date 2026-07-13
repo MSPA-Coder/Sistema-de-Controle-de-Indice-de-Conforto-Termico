@@ -154,6 +154,8 @@ button { font-family: inherit; }
   min-height: 190px;
 }
 #aba-principal .entrada-painel {
+  display: flex;
+  flex-direction: column;
   padding-block: 0.65rem;
 }
 #aba-principal .entradas-grafico-painel {
@@ -296,7 +298,8 @@ button { font-family: inherit; }
 .campos-entrada { display: grid; grid-template-columns: 1fr 1fr; gap: 0.9rem 1rem; margin-bottom: 1rem; }
 #aba-principal .campos-entrada {
   gap: 0.45rem 0.75rem;
-  margin-bottom: 0;
+  margin-top: auto;
+  margin-bottom: auto;
 }
 .campo-entrada { display: flex; flex-direction: column; gap: 0.35rem; }
 .campo-entrada label {

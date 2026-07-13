@@ -34,6 +34,23 @@ class TestEmailValido(unittest.TestCase):
         self.assertFalse(_email_valido("vitima@fazenda.com.br\nX-Injected: 1"))
 
 
+class TestEmailConteudo(unittest.TestCase):
+    def test_conteudo_inclui_dados_usados_no_calculo(self):
+        conteudo = Email.montar_conteudo(
+            "ITUV",
+            29.34,
+            "Alerta",
+            {"tbs": 30.0, "tbu": 24.0, "v": 1.5},
+            {"id": 7, "nome": "Aviário 7"},
+        )
+
+        self.assertIn("Zona: Aviário 7 (ID 7)", conteudo)
+        self.assertIn("Dados usados no cálculo:", conteudo)
+        self.assertIn("Temperatura de Bulbo Seco / Ambiente (tbs): 30.0", conteudo)
+        self.assertIn("Temperatura de Bulbo Úmido (tbu): 24.0", conteudo)
+        self.assertIn("Velocidade do Ar (v): 1.5 m/s", conteudo)
+
+
 class TestEmailEnviar(unittest.TestCase):
     def test_sem_smtp_host_configurado_opera_em_modo_simulado(self):
         with patch.dict(os.environ, {}, clear=True):

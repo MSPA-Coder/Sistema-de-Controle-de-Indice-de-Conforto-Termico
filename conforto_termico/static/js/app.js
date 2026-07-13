@@ -337,6 +337,7 @@ function coletarConfig() {
     enviarEmails: document.getElementById("cfg-emails").checked,
     habilitarEquipamentos: document.getElementById("cfg-equipamentos").checked,
     emailDestino: document.getElementById("email-destino").value,
+    statusMinimoEmail: document.getElementById("cfg-status-minimo-email")?.value || "conforto",
     modoAutomatico: document.getElementById("cfg-auto").checked,
     intervaloLeituraSegundos: lerNumeroConfiguracao("cfg-intervalo-leitura", 1, 1),
     intervaloGravacaoMinutos: lerNumeroConfiguracao("cfg-intervalo-gravacao", 1, 0),
@@ -394,6 +395,7 @@ function aplicarConfiguracoes(config) {
   definirValorConfiguracao("cfg-emails", config.enviarEmails);
   definirValorConfiguracao("cfg-equipamentos", config.habilitarEquipamentos);
   definirValorConfiguracao("email-destino", config.emailDestino);
+  definirValorConfiguracao("cfg-status-minimo-email", config.statusMinimoEmail);
   definirValorConfiguracao("cfg-auto", config.modoAutomatico);
   definirValorConfiguracao("cfg-intervalo-leitura", config.intervaloLeituraSegundos);
   definirValorConfiguracao("cfg-intervalo-gravacao", config.intervaloGravacaoMinutos);
@@ -518,6 +520,7 @@ async function calcular(opcoes = {}) {
           atualizarResultado(resultado);
         }
       });
+      atualizarEmail(corpo.email || null);
       if (!resultadoSelecionado) {
         mostrarErro("Nenhum resultado foi retornado para a zona selecionada.");
       } else if (resultadoSelecionado.erro) {

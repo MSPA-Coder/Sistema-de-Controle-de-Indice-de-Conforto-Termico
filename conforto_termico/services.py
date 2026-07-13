@@ -275,7 +275,12 @@ class CalculoIctService:
             selecionado["status"], selecionado["entradas"], config, logger
         )
         email_info = self._montar_email(
-            indice, selecionado["valor"], selecionado["status"], config, logger
+            indice,
+            selecionado["valor"],
+            selecionado["status"],
+            selecionado["entradas"],
+            config,
+            logger,
         )
 
         resposta = dict(selecionado)
@@ -494,14 +499,17 @@ class CalculoIctService:
         indice: str,
         valor: float,
         status: str,
+        entradas: dict,
         config: dict,
         logger,
     ) -> dict | None:
         if not config.get("enviarEmails"):
             return None
+        if not ti.status_atinge_minimo(status, config.get("statusMinimoEmail", "conforto")):
+            return None
 
         try:
-            conteudo = self._email_cls.montar_conteudo(indice, valor, status)
+            conteudo = self._email_cls.montar_conteudo(indice, valor, status, entradas)
             destino = (config.get("emailDestino") or "produtor@fazenda.com.br").strip()
             email = self._email_cls(destino, conteudo)
             enviado_de_verdade = email.enviar(self._smtp_config_atual())

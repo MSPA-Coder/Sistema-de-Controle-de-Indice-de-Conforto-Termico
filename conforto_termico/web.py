@@ -27,6 +27,7 @@ servico propositalmente.
 
 from __future__ import annotations
 
+import datetime
 import os
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -369,16 +370,34 @@ def _smtp_config_atual(config: dict) -> dict:
     }
 
 
-def _aplicar_notificacoes_zona(resposta: dict, config: dict) -> dict:
+def _aplicar_som_zona(resposta: dict, config: dict) -> dict:
     if config.get("habilitarSons") and resposta.get("status") != "Conforto":
         resposta["tocarSom"] = True
+    return resposta
 
+
+def _deve_enviar_email_zona(resposta: dict, config: dict) -> bool:
     if not config.get("enviarEmails"):
+        return False
+    return ti.status_atinge_minimo(
+        resposta.get("status", ""),
+        config.get("statusMinimoEmail", "conforto"),
+    )
+
+
+def _aplicar_notificacoes_zona(resposta: dict, config: dict) -> dict:
+    _aplicar_som_zona(resposta, config)
+
+    if not _deve_enviar_email_zona(resposta, config):
         return resposta
 
     try:
         conteudo = Email.montar_conteudo(
-            resposta["indice"], resposta["valor"], resposta["status"]
+            resposta["indice"],
+            resposta["valor"],
+            resposta["status"],
+            resposta.get("entradas"),
+            {"id": resposta.get("zona_id"), "nome": resposta.get("zona_nome")},
         )
         destino = (config.get("emailDestino") or "produtor@fazenda.com.br").strip()
         email = Email(destino, conteudo)
@@ -391,6 +410,76 @@ def _aplicar_notificacoes_zona(resposta: dict, config: dict) -> dict:
     except Exception:
         app.logger.exception("Falha ao montar/enviar e-mail da zona")
     return resposta
+
+
+def _formatar_entradas_email(entradas: dict | None) -> str:
+    if not entradas:
+        return ""
+    linhas = ["Dados usados no cálculo:"]
+    for campo, valor in entradas.items():
+        metadados = ti.CAMPO_METADADOS.get(campo, {})
+        label = metadados.get("label", campo)
+        unidade = metadados.get("unidade", "")
+        sufixo = f" {unidade}" if unidade else ""
+        linhas.append(f"- {label} ({campo}): {valor}{sufixo}")
+    return "\n".join(linhas)
+
+
+def _montar_conteudo_email_zonas(resultados: list[dict], status_minimo: str) -> str:
+    agora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    linhas = [
+        "Alerta de zonas",
+        f"Data: {agora}",
+        f"Enviar a partir do status: {status_minimo}",
+        "",
+    ]
+    for resultado in resultados:
+        linhas.extend(
+            [
+                f"Zona: {resultado.get('zona_nome')} (ID {resultado.get('zona_id')})",
+                f"Status: {resultado.get('status')}",
+                f"Valor do {resultado.get('indice')}: {resultado.get('valor')}",
+                _formatar_entradas_email(resultado.get("entradas")),
+                f"Mensagem: {resultado.get('mensagem')}",
+                "-" * 40,
+            ]
+        )
+    linhas.extend(
+        [
+            "*" * 75,
+            "Você está recebendo esse e-mail por estar cadastrado na lista de "
+            "usuários do Sistema de Controle dos Índices de Conforto Térmico. "
+            "Em caso de dúvida contate o administrador do sistema.",
+            "Obrigado.",
+        ]
+    )
+    return "\n".join(linha for linha in linhas if linha is not None)
+
+
+def _montar_email_zonas_ativas(resultados: list[dict], config: dict) -> dict | None:
+    qualificadas = [
+        resultado
+        for resultado in resultados
+        if not resultado.get("erro") and _deve_enviar_email_zona(resultado, config)
+    ]
+    if not qualificadas:
+        return None
+
+    try:
+        status_minimo = config.get("statusMinimoEmail", "conforto")
+        conteudo = _montar_conteudo_email_zonas(qualificadas, status_minimo)
+        destino = (config.get("emailDestino") or "produtor@fazenda.com.br").strip()
+        email = Email(destino, conteudo)
+        enviado_de_verdade = email.enviar(_smtp_config_atual(config))
+        return {
+            "destino": destino,
+            "conteudo": conteudo,
+            "enviado_de_verdade": enviado_de_verdade,
+            "zonas": [resultado.get("zona_id") for resultado in qualificadas],
+        }
+    except Exception:
+        app.logger.exception("Falha ao montar/enviar e-mail consolidado das zonas")
+        return None
 
 
 @app.route("/api/configuracoes", methods=["GET"])
@@ -547,7 +636,7 @@ def calcular_zonas_ativas():
             continue
         try:
             resposta = zona_service.calcular(zona["id"], logger=app.logger)
-            resultados.append(_aplicar_notificacoes_zona(resposta, config))
+            resultados.append(_aplicar_som_zona(resposta, config))
         except (ZonaCalculoError, ti.EntradaInvalidaError) as erro:
             resultados.append(
                 {
@@ -556,7 +645,11 @@ def calcular_zonas_ativas():
                     "erro": str(erro),
                 }
             )
-    return jsonify({"resultados": resultados})
+    payload = {"resultados": resultados}
+    email_info = _montar_email_zonas_ativas(resultados, config)
+    if email_info:
+        payload["email"] = email_info
+    return jsonify(payload)
 
 
 @app.route("/api/zonas/<int:zona_id>/historico", methods=["GET"])

@@ -23,6 +23,7 @@ from conforto_termico.thermal_indices import (
     calcular_pressao_atmosferica,
     calcular_umidade_relativa,
     classificar_status,
+    status_atinge_minimo,
 )
 
 
@@ -87,6 +88,11 @@ class TestClassificacao(unittest.TestCase):
     def test_indice_nao_disponivel_para_especie(self):
         with self.assertRaises(Exception):
             classificar_status(30.0, "bovinos", "ITUV")
+
+    def test_status_atinge_minimo_aceita_status_com_ou_sem_acento(self):
+        self.assertTrue(status_atinge_minimo("Emergência", "perigo"))
+        self.assertTrue(status_atinge_minimo("Perigo", "perigo"))
+        self.assertFalse(status_atinge_minimo("Alerta", "perigo"))
 
 
 class TestEstabilidadeConfiguracaoImutavel(unittest.TestCase):
