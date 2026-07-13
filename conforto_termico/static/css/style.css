@@ -147,6 +147,18 @@ button { font-family: inherit; }
 }
 #aba-principal .entradas-grafico-painel { grid-column: span 8; }
 #aba-principal .entrada-painel { grid-column: span 16; }
+#aba-principal .entradas-grafico-painel,
+#aba-principal .entrada-painel {
+  box-sizing: border-box;
+  height: 190px;
+  min-height: 190px;
+}
+#aba-principal .entrada-painel {
+  padding-block: 0.65rem;
+}
+#aba-principal .entradas-grafico-painel {
+  padding-block: 0.75rem;
+}
 #aba-principal .linhas-zonas-principal {
   grid-column: 1 / -1;
   display: flex;
@@ -171,7 +183,11 @@ button { font-family: inherit; }
 #aba-principal .leitura-painel,
 #aba-principal .graficos-painel,
 #aba-principal .equipamentos-painel {
-  min-height: 270px;
+  min-height: 135px;
+}
+#aba-principal .leitura-painel,
+#aba-principal .equipamentos-painel {
+  padding-block: 0.65rem;
 }
 #aba-principal .email-painel,
 #aba-principal .tabela-painel {
@@ -228,6 +244,11 @@ button { font-family: inherit; }
     grid-column: auto;
   }
   #aba-principal .leitura-painel { padding-inline: 1.4rem; }
+  #aba-principal .entradas-grafico-painel,
+  #aba-principal .entrada-painel {
+    height: auto;
+    min-height: auto;
+  }
   .grade-configuracoes { grid-template-columns: 1fr; }
   .configuracoes-painel,
   .configuracoes-painel--app,
@@ -273,6 +294,10 @@ button { font-family: inherit; }
    Entrada de dados
    ------------------------------------------------------------------------- */
 .campos-entrada { display: grid; grid-template-columns: 1fr 1fr; gap: 0.9rem 1rem; margin-bottom: 1rem; }
+#aba-principal .campos-entrada {
+  gap: 0.45rem 0.75rem;
+  margin-bottom: 0;
+}
 .campo-entrada { display: flex; flex-direction: column; gap: 0.35rem; }
 .campo-entrada label {
   font-family: var(--fonte-mono);
@@ -290,6 +315,25 @@ button { font-family: inherit; }
   background: var(--cor-painel-alt);
   color: var(--cor-texto);
   width: 100%;
+}
+#aba-principal .campo-entrada {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 7.7rem;
+  align-items: center;
+  gap: 0.45rem;
+}
+#aba-principal .campo-entrada label {
+  font-size: 0.6rem;
+  line-height: 1.1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#aba-principal .campo-entrada input {
+  font-size: 0.85rem;
+  padding: 0.38rem 0.55rem;
+  justify-self: end;
+  max-width: 7.7rem;
 }
 .campo-entrada input:focus { border-color: var(--cor-acento); }
 .campo-entrada--calculado input {
@@ -386,7 +430,14 @@ button { font-family: inherit; }
   grid-template-columns: 1fr 1fr;
   gap: 0.9rem 1rem;
 }
+.zona-principal-linha {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0.85rem;
+}
 .campo-config { display: flex; flex-direction: column; gap: 0.35rem; }
+#aba-principal .campo-config { min-width: 0; }
 .campo-config label {
   font-family: var(--fonte-mono);
   font-size: 0.68rem;
@@ -407,8 +458,41 @@ button { font-family: inherit; }
 }
 .campo-config input:focus,
 .campo-config select:focus { border-color: var(--cor-acento); }
+#aba-principal .campo-config { gap: 0.2rem; }
+#aba-principal .campo-config label { font-size: 0.6rem; }
+#aba-principal .zona-principal-linha .campo-config {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 1fr);
+  align-items: center;
+  gap: 0.55rem;
+}
+#aba-principal .zona-principal-linha .campo-config label {
+  white-space: nowrap;
+}
+#aba-principal .campo-config select {
+  font-size: 0.85rem;
+  padding: 0.38rem 0.55rem;
+}
+#aba-principal #btn-calcular {
+  justify-self: end;
+  white-space: nowrap;
+  padding: 0.44rem 1rem;
+}
 @media (max-width: 620px) {
   .campos-entrada, .campos-config, .config-grade { grid-template-columns: 1fr; }
+  .zona-principal-linha { grid-template-columns: 1fr; }
+  #aba-principal #btn-calcular { justify-self: stretch; }
+  #aba-principal .zona-principal-linha .campo-config {
+    grid-template-columns: 1fr;
+  }
+  #aba-principal .campo-entrada {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+  #aba-principal .campo-entrada input {
+    justify-self: stretch;
+    max-width: none;
+  }
 }
 
 .mensagem-erro {
@@ -441,7 +525,7 @@ button { font-family: inherit; }
   flex-direction: column;
   align-items: center;
   gap: 0.25rem;
-  padding: 0.9rem 0.65rem;
+  padding: 0.45rem 0.65rem;
 }
 .readout-etiqueta {
   font-family: var(--fonte-mono);
@@ -461,7 +545,7 @@ button { font-family: inherit; }
   font-size: 0.78rem;
   letter-spacing: 0.08em;
 }
-#aba-principal .leitura-painel .readout-valor { font-size: 2.2rem; }
+#aba-principal .leitura-painel .readout-valor { font-size: 1.8rem; }
 .readout-valor.cor-conforto { color: var(--status-conforto); text-shadow: 0 0 20px rgba(62,142,91,0.55); }
 .readout-valor.cor-alerta { color: var(--status-alerta); text-shadow: 0 0 20px rgba(227,167,62,0.55); }
 .readout-valor.cor-perigo { color: var(--status-perigo); text-shadow: 0 0 20px rgba(193,68,60,0.55); }
@@ -480,8 +564,9 @@ button { font-family: inherit; }
 }
 .faixa-status--vazio { background: var(--cor-painel-alt); color: var(--cor-texto-mute); letter-spacing: 0.08em; }
 #aba-principal .leitura-painel .faixa-status {
-  padding: 0.48rem 0.45rem;
-  font-size: 0.66rem;
+  margin-top: 0.45rem;
+  padding: 0.28rem 0.4rem;
+  font-size: 0.58rem;
   letter-spacing: 0.02em;
   white-space: normal;
 }
@@ -494,12 +579,44 @@ button { font-family: inherit; }
 @media (prefers-reduced-motion: reduce) { .faixa-status { animation: none !important; } }
 
 .mensagem-orientacao { font-size: 0.88rem; line-height: 1.5; color: var(--cor-texto); margin: 1rem 0; }
+#aba-principal .leitura-painel .mensagem-orientacao {
+  font-size: 0.72rem;
+  line-height: 1.25;
+  margin: 0.45rem 0 0;
+}
 .equipamentos {
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 0.7rem;
   margin-top: 2.2rem;
+}
+#aba-principal .equipamentos-painel .painel-titulo {
+  font-size: 0.78rem;
+  margin-bottom: 0.25rem;
+}
+#aba-principal .equipamentos {
+  gap: 0.25rem;
+  margin-top: 0.4rem;
+}
+#aba-principal .lampada-grupo {
+  grid-template-columns: minmax(68px, 0.44fr) minmax(90px, 1fr);
+  gap: 0.35rem;
+}
+#aba-principal .lampada-legenda { font-size: 0.65rem; }
+#aba-principal .icones-equipamento {
+  grid-template-columns: repeat(auto-fill, 18px);
+  gap: 0.18rem;
+  min-height: 18px;
+}
+#aba-principal .icone-equip {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+}
+#aba-principal .icone-equip svg {
+  width: 14px;
+  height: 14px;
 }
 .lampada-grupo {
   display: grid;
@@ -663,6 +780,9 @@ button { font-family: inherit; }
 .intensidade-info { display: flex; align-items: center; justify-content: flex-start; gap: 0.5rem; margin-top: 0.2rem; text-align: left; }
 .intensidade-etiqueta { font-family: var(--fonte-mono); font-size: 0.68rem; text-transform: uppercase; color: var(--cor-texto-mute); }
 #intensidade-valor { font-family: var(--fonte-mono); font-size: 0.85rem; color: var(--cor-texto); text-transform: capitalize; }
+#aba-principal .intensidade-info { gap: 0.35rem; margin-top: 0; }
+#aba-principal .intensidade-etiqueta { font-size: 0.58rem; }
+#aba-principal [data-role="intensidade-valor"] { font-size: 0.72rem; }
 
 /* ---------------------------------------------------------------------------
    Graficos
@@ -680,7 +800,24 @@ button { font-family: inherit; }
   border: 0;
   padding: 0;
 }
-.grafico-titulo { margin: 0 0 0.6rem; font-size: 0.78rem; color: var(--cor-texto-mute); font-family: var(--fonte-mono); }
+.grafico-titulo {
+  margin: 0 0 0.6rem;
+  font-family: var(--fonte-sans);
+  font-size: 0.88rem;
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--cor-texto);
+}
+#aba-principal .grafico-titulo {
+  font-size: 0.72rem;
+  line-height: 1.25;
+}
+#aba-principal .grafico-bloco {
+  padding: 0.45rem 0.7rem 0.35rem;
+}
+#aba-principal .entradas-grafico-painel .grafico-bloco {
+  height: 100%;
+}
 /* Altura FIXA e position:relative sao obrigatorios aqui: com
    maintainAspectRatio:false, o Chart.js redimensiona o canvas para o
    tamanho do elemento-pai. Se o pai nao tiver uma altura propria (ex.:
@@ -688,6 +825,11 @@ button { font-family: inherit; }
    canvas cresce -> o pai cresce para acompanhar -> o canvas cresce de novo,
    e o formulario inteiro se alonga indefinidamente na vertical. */
 .grafico-canvas-wrap { position: relative; width: 100%; height: 220px; }
+#aba-principal .grafico-canvas-wrap { height: 92px; }
+#aba-principal .entradas-grafico-painel .grafico-canvas-wrap {
+  height: calc(100% - 1.45rem);
+  min-height: 126px;
+}
 @media (max-width: 900px) { .graficos-indices { grid-template-columns: 1fr; } }
 
 /* ---------------------------------------------------------------------------
@@ -820,8 +962,6 @@ td.status-emergencia { color: var(--status-emergencia); }
 .zonas-descricao { color: var(--cor-texto-mute); font-size: 0.85rem; line-height: 1.55; max-width: 640px; margin: 0.35rem 0 0; }
 .zonas-descricao strong { color: var(--cor-texto); }
 .zonas-alternadores { margin-top: 1rem; padding-top: 0.9rem; border-top: 1px solid var(--cor-borda); }
-.zona-principal-resumo { color: var(--cor-texto-mute); font-size: 0.84rem; line-height: 1.45; margin: 0.75rem 0 0; }
-
 .zonas-lista { display: flex; flex-direction: column; gap: 1rem; max-width: 1360px; width: calc(100% - 3.5rem); margin: 1rem auto 0; }
 #aba-zonas > .tabela-vazia { max-width: 1360px; width: calc(100% - 3.5rem); margin: 1rem auto 0; }
 

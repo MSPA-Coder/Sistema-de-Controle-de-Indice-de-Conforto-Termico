@@ -21,6 +21,7 @@ const COR_STATUS = {
 const STATUS_HISTORICO = ["Conforto", "Alerta", "Perigo", "Emerg\u00eancia"];
 const CORES_CAMPOS_ENTRADA = ["#4F8A93", "#D9A441", "#8FBF9F", "#C1443C", "#9E7BB5", "#6FA8DC"];
 const HISTORICO_LINHAS_POR_PAGINA = 20;
+const ORDEM_CAMPOS_INTERFACE = ["tbs", "tbu", "tgn", "tpo", "ur", "v"];
 
 function normalizarChaveTexto(valor) {
   return String(valor || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -117,11 +118,40 @@ function indicesDaEspecie() {
 
 function camposDaEspecie() {
   const campos = camposDoIndiceAtual();
-  const temBulbos = campos.includes("tbs") && campos.includes("tbu");
-  if (temBulbos && umidadeRelativaCalculada() && !campos.includes("ur")) campos.push("ur");
-  if (temBulbos && pontoOrvalhoCalculado() && !campos.includes("tpo")) campos.push("tpo");
-  const ordemInterface = ["tbs", "tbu", "tgn", "tpo", "ur", "v"];
-  return campos.sort((a, b) => ordemInterface.indexOf(a) - ordemInterface.indexOf(b));
+  return ordenarCamposInterface(campos);
+}
+
+function ordenarCamposInterface(campos) {
+  return [...campos].sort((a, b) => {
+    const ordemA = ORDEM_CAMPOS_INTERFACE.includes(a) ? ORDEM_CAMPOS_INTERFACE.indexOf(a) : 999;
+    const ordemB = ORDEM_CAMPOS_INTERFACE.includes(b) ? ORDEM_CAMPOS_INTERFACE.indexOf(b) : 999;
+    return ordemA - ordemB || a.localeCompare(b);
+  });
+}
+
+function adicionarCampoSeAusente(campos, campo) {
+  if (!campos.includes(campo)) campos.push(campo);
+}
+
+function camposObrigatoriosIndiceAtual() {
+  return [...(CONFIG_APP.camposPorIndice[estado.indice] || [])];
+}
+
+function camposDerivadosIndiceAtual() {
+  const camposObrigatorios = camposObrigatoriosIndiceAtual();
+  const derivados = [];
+  const indiceTemBulbos = camposObrigatorios.includes("tbs") && camposObrigatorios.includes("tbu");
+
+  if (indiceTemBulbos) {
+    adicionarCampoSeAusente(derivados, "ur");
+    adicionarCampoSeAusente(derivados, "tpo");
+  }
+
+  return ordenarCamposInterface(derivados.filter((campo) => !camposObrigatorios.includes(campo)));
+}
+
+function camposEntradaIndiceAtual() {
+  return [...camposObrigatoriosIndiceAtual(), ...camposDerivadosIndiceAtual()];
 }
 
 function pontoOrvalhoCalculado() {
@@ -133,7 +163,7 @@ function umidadeRelativaCalculada() {
 }
 
 function campoCalculado(campo) {
-  return (campo === "ur" && umidadeRelativaCalculada()) || (campo === "tpo" && pontoOrvalhoCalculado());
+  return camposDerivadosIndiceAtual().includes(campo);
 }
 
 function lerNumeroEntrada(campo) {
@@ -179,7 +209,7 @@ function renderCamposEntrada() {
   if (!container) return;
   container.innerHTML = "";
   if (!zonaPrincipalSelecionada()) return;
-  const campos = camposDaEspecie();
+  const campos = camposEntradaIndiceAtual();
   campos.forEach((campo) => {
     const meta = CONFIG_APP.campoMetadados[campo];
     const wrap = document.createElement("div");
@@ -209,27 +239,12 @@ function renderCamposEntrada() {
 }
 
 function camposDoIndiceAtual() {
-  const campos = [...(CONFIG_APP.camposPorIndice[estado.indice] || [])];
-  if (estado.indice === "IGNU" && pontoOrvalhoCalculado()) {
-    ["tbs", "tbu"].forEach((campo) => {
-      if (!campos.includes(campo)) campos.push(campo);
-    });
-  }
-  if (campos.includes("tbs") && campos.includes("tbu") && !campos.includes("ur")) {
-    campos.push("ur");
-  }
-  if (campos.includes("tbs") && campos.includes("tbu") && pontoOrvalhoCalculado() && !campos.includes("tpo")) {
-    campos.push("tpo");
-  }
-  if (!umidadeRelativaCalculada() && !campos.includes("ur")) {
-    campos.push("ur");
-  }
-  return campos;
+  return camposEntradaIndiceAtual();
 }
 
 function atualizarCamposEntrada() {
-  const camposAtivos = camposDoIndiceAtual();
-  camposDaEspecie().forEach((campo) => {
+  const camposAtivos = camposEntradaIndiceAtual();
+  camposEntradaIndiceAtual().forEach((campo) => {
     const wrap = document.getElementById("campo-wrap-" + campo);
     const input = document.getElementById("campo-" + campo);
     const ativo = camposAtivos.includes(campo);
@@ -259,7 +274,7 @@ function atualizarCamposCalculados(opcoes = {}) {
   if (
     urInput &&
     !urInput.disabled &&
-    umidadeRelativaCalculada() &&
+    campoCalculado("ur") &&
     !(preservarValoresExistentes && urInput.value !== "")
   ) {
     urInput.value = podeCalcular ? calcularUmidadeRelativa(tbs, tbu, altitude).toFixed(1) : "";
@@ -267,7 +282,7 @@ function atualizarCamposCalculados(opcoes = {}) {
 
   if (
     tpoInput &&
-    pontoOrvalhoCalculado() &&
+    campoCalculado("tpo") &&
     !(preservarValoresExistentes && tpoInput.value !== "")
   ) {
     tpoInput.value = podeCalcular ? calcularPontoOrvalho(tbs, tbu, altitude).toFixed(1) : "";
@@ -275,7 +290,7 @@ function atualizarCamposCalculados(opcoes = {}) {
 }
 
 function coletarEntradas(incluirDesabilitados = false) {
-  const campos = camposDaEspecie();
+  const campos = camposEntradaIndiceAtual();
   const entradas = {};
   campos.forEach((campo) => {
     const input = document.getElementById("campo-" + campo);
@@ -533,7 +548,8 @@ async function calcular(opcoes = {}) {
 
 async function carregarHistorico() {
   const zona = zonaPrincipalSelecionada();
-  if (!zonasCache.length) {
+  const zonasPrincipal = zonasOrdenadasPrincipal();
+  if (!zonasPrincipal.length) {
     ultimosHistoricosGrafico = {};
     destruirGraficosZonasPrincipal();
     graficosPorIndice.forEach((grafico) => grafico.destroy());
@@ -550,7 +566,7 @@ async function carregarHistorico() {
   try {
     const historicos = new Map();
     await Promise.all(
-      zonasCache.map(async (zonaItem) => {
+      zonasPrincipal.map(async (zonaItem) => {
         const resposta = await fetch("/api/zonas/" + zonaItem.id + "/historico");
         if (!resposta.ok) return;
         const historico = await resposta.json();
@@ -632,7 +648,7 @@ function resetarLinhaZonaPrincipal(zona) {
 function resetarPainelResultado() {
   ultimosResultados = null;
   if (document.getElementById("linhas-zonas-principal")) {
-    zonasCache.forEach((zona) => resetarLinhaZonaPrincipal(zona));
+    zonasOrdenadasPrincipal().forEach((zona) => resetarLinhaZonaPrincipal(zona));
     atualizarEmail(null);
     esconderErro();
     return;
@@ -862,7 +878,7 @@ function atualizarSensorRemotoZona(zona) {
 
 function atualizarSensorRemoto() {
   if (document.getElementById("linhas-zonas-principal")) {
-    zonasCache.forEach((zona) => atualizarSensorRemotoZona(zona));
+    zonasOrdenadasPrincipal().forEach((zona) => atualizarSensorRemotoZona(zona));
     return;
   }
   atualizarSensorRemotoZona(zonaPrincipalSelecionada());
@@ -897,9 +913,12 @@ function opcoesGrafico(comEixoSecundario) {
       legend: { labels: { color: "#F2ECE1", font: { family: "IBM Plex Mono", size: 11 } } },
     },
     scales: {
-      x: { ticks: { color: "#A79C8C", font: { size: 10 } }, grid: { color: "rgba(255,255,255,0.05)" } },
+      x: {
+        ticks: { display: false, color: "#A79C8C", font: { size: 10 } },
+        grid: { color: "rgba(255,255,255,0.05)" },
+      },
       y: {
-        beginAtZero: true,
+        beginAtZero: false,
         ticks: { color: "#A79C8C", font: { size: 10 } },
         grid: { color: "rgba(255,255,255,0.05)" },
       },
@@ -908,12 +927,37 @@ function opcoesGrafico(comEixoSecundario) {
   if (comEixoSecundario) {
     opcoes.scales.y1 = {
       position: "right",
-      beginAtZero: true,
+      beginAtZero: false,
       ticks: { color: "#A79C8C", font: { size: 10 } },
       grid: { display: false },
     };
   }
   return opcoes;
+}
+
+function limitesEscalaDinamica(valores) {
+  const validos = valores
+    .map((valor) => Number(valor))
+    .filter((valor) => Number.isFinite(valor));
+  if (!validos.length) return null;
+
+  const minimo = Math.min(...validos);
+  const maximo = Math.max(...validos);
+  const intervalo = maximo - minimo;
+  const margem = intervalo > 0
+    ? intervalo * 0.12
+    : Math.max(Math.abs(maximo) * 0.03, 1);
+
+  return {
+    min: minimo - margem,
+    max: maximo + margem,
+  };
+}
+
+function aplicarEscalaDinamica(opcoes, eixo, valores) {
+  const limites = limitesEscalaDinamica(valores);
+  if (!limites || !opcoes.scales[eixo]) return;
+  Object.assign(opcoes.scales[eixo], limites);
 }
 
 function normalizarHistoricosPorIndice(historicos) {
@@ -955,8 +999,14 @@ function criarOuAtualizarGrafico(grafico, canvasId, configuracao) {
   return grafico;
 }
 
+function resumoZonaPrincipal(zona) {
+  if (!zona) return "";
+  const especie = CONFIG_APP.nomeEspecie[zona.especie] || zona.especie;
+  return zona.nome + " \u00b7 " + especie + " \u00b7 " + zona.indice;
+}
+
 function tituloGraficoZonaPrincipal(zona) {
-  return zona.nome + " - " + zona.indice;
+  return resumoZonaPrincipal(zona);
 }
 
 function atualizarGraficoIndiceZonaPrincipal(zona, historico) {
@@ -989,6 +1039,7 @@ function atualizarGraficoIndiceZonaPrincipal(zona, historico) {
 
   const opcoes = opcoesGrafico(false);
   opcoes.plugins.legend.display = false;
+  aplicarEscalaDinamica(opcoes, "y", dataset.data);
 
   const grafico = criarOuAtualizarGrafico(graficoAtual, canvas.id, {
     type: "bar",
@@ -1054,6 +1105,20 @@ function atualizarGraficoEntradas(historicosPorIndice) {
 
   const opcoes = opcoesGrafico(temEixoSecundario);
   opcoes.plugins.legend.display = false;
+  aplicarEscalaDinamica(
+    opcoes,
+    "y",
+    datasets
+      .filter((dataset) => (dataset.yAxisID || "y") === "y")
+      .flatMap((dataset) => dataset.data)
+  );
+  aplicarEscalaDinamica(
+    opcoes,
+    "y1",
+    datasets
+      .filter((dataset) => dataset.yAxisID === "y1")
+      .flatMap((dataset) => dataset.data)
+  );
 
   graficoEntradas = criarOuAtualizarGrafico(graficoEntradas, "grafico-entradas", {
     type: "line",
@@ -1094,6 +1159,10 @@ function garantirBlocosGraficos(indices) {
 
       wrap.appendChild(canvas);
       bloco.append(titulo, wrap);
+    }
+    const titulo = bloco.querySelector(".grafico-titulo");
+    if (titulo) {
+      titulo.textContent = resumoZonaPrincipal(zonaPrincipalSelecionada()) || ("Valor do " + indice + " por leitura");
     }
     container.appendChild(bloco);
   });
@@ -1138,13 +1207,16 @@ function atualizarGraficos(historicos) {
       maxBarThickness: 26,
     });
 
+    const opcoes = opcoesGrafico(false);
+    aplicarEscalaDinamica(opcoes, "y", dataset.data);
+
     const grafico = criarOuAtualizarGrafico(graficosPorIndice.get(indice), canvasId, {
       type: "bar",
       data: {
         labels: historico.map((h) => formatarHora(h.criado_em)),
         datasets: [dataset],
       },
-      options: opcoesGrafico(false),
+      options: opcoes,
     });
     graficosPorIndice.set(indice, grafico);
   });
@@ -1513,7 +1585,7 @@ function zonaPrincipalSelecionada() {
 
 function zonasOrdenadasPrincipal() {
   const selecionadaId = Number(estado.zonaId);
-  return [...zonasCache].sort((a, b) => {
+  return zonasAtivas().sort((a, b) => {
     if (a.id === selecionadaId) return -1;
     if (b.id === selecionadaId) return 1;
     return a.id - b.id;
@@ -1553,15 +1625,11 @@ function construirLinhaZonaPrincipal(zona) {
 
   const readout = document.createElement("div");
   readout.className = "readout";
-  const etiqueta = document.createElement("span");
-  etiqueta.className = "readout-etiqueta";
-  etiqueta.dataset.role = "readout-indice";
-  etiqueta.textContent = zona.indice;
   const valor = document.createElement("span");
   valor.className = "readout-valor";
   valor.dataset.role = "readout-valor";
   valor.textContent = "--,--";
-  readout.append(etiqueta, valor);
+  readout.appendChild(valor);
   leitura.appendChild(readout);
 
   const faixa = document.createElement("div");
@@ -1665,8 +1733,7 @@ function atualizarResumoZonaPrincipal(zona) {
     resumo.textContent = "Nenhuma zona ativa selecionada.";
     return;
   }
-  const especie = CONFIG_APP.nomeEspecie[zona.especie] || zona.especie;
-  resumo.textContent = zona.nome + " · " + especie + " · " + zona.indice;
+  resumo.textContent = resumoZonaPrincipal(zona);
 }
 
 function renderizarSelectZonaPrincipal() {
