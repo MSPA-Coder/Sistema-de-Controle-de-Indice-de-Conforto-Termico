@@ -196,38 +196,19 @@ button { font-family: inherit; }
   grid-column: 1 / -1;
 }
 .grade-configuracoes {
-  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: start;
   gap: 1rem;
 }
+.configuracoes-coluna {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
+}
 .configuracoes-painel {
-  grid-column: span 6;
   padding-bottom: 1.25rem;
-}
-.configuracoes-painel--app { order: 1; }
-.configuracoes-painel--sensores { order: 2; }
-.configuracoes-painel--calculos { order: 3; }
-.configuracoes-painel--email { order: 4; }
-.configuracoes-painel--banco { order: 5; }
-.configuracoes-painel--app,
-.configuracoes-painel--sensores,
-.configuracoes-painel--calculos {
-  grid-column: span 4;
-}
-.configuracoes-painel--email,
-.configuracoes-painel--banco {
-  grid-column: span 6;
-}
-
-@media (max-width: 1180px) {
-  .configuracoes-painel,
-  .configuracoes-painel--app,
-  .configuracoes-painel--sensores,
-  .configuracoes-painel--calculos,
-  .configuracoes-painel--email,
-  .configuracoes-painel--banco {
-    grid-column: span 6;
-  }
+  width: 100%;
 }
 
 @media (max-width: 900px) {
@@ -252,14 +233,6 @@ button { font-family: inherit; }
     min-height: auto;
   }
   .grade-configuracoes { grid-template-columns: 1fr; }
-  .configuracoes-painel,
-  .configuracoes-painel--app,
-  .configuracoes-painel--sensores,
-  .configuracoes-painel--calculos,
-  .configuracoes-painel--email,
-  .configuracoes-painel--banco {
-    grid-column: auto;
-  }
   .abas-app { padding: 0.85rem 1rem 0; }
   .rail { padding: 0.8rem 1rem; }
 }
@@ -371,6 +344,8 @@ button { font-family: inherit; }
 .botao--fantasma { background: transparent; border-color: var(--cor-borda); color: var(--cor-texto-mute); }
 .botao--fantasma:hover:not(:disabled) { border-color: var(--cor-acento); color: var(--cor-texto); }
 .botao--fantasma:disabled { opacity: 0.4; cursor: not-allowed; }
+.botao--perigo { background: rgba(193, 68, 60, 0.16); border-color: var(--status-perigo); color: #ffcdc8; }
+.botao--perigo:hover:not(:disabled) { background: rgba(193, 68, 60, 0.26); color: #fff2ef; }
 .botao--texto { background: transparent; border: none; color: var(--cor-texto-mute); text-decoration: underline; padding: 0.4rem 0; font-size: 0.8rem; }
 .botao--texto:hover { color: var(--status-perigo); }
 .botao--compacto { padding: 0.4rem 0.75rem; font-size: 0.75rem; }
@@ -423,6 +398,8 @@ button { font-family: inherit; }
 }
 .configuracoes-bloco--acoes {
   display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
   justify-content: flex-end;
   margin-top: 1rem;
   border-top: 1px solid var(--cor-borda);

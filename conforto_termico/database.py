@@ -308,6 +308,29 @@ def limpar_historico(especie: str | None = None, indice: str | None = None) -> N
             conn.execute("DELETE FROM leituras")
 
 
+def criar_backup_banco() -> dict:
+    """Cria um backup consistente do SQLite no mesmo diretorio do banco."""
+    diretorio = os.path.dirname(DB_PATH)
+    nome_base = os.path.splitext(os.path.basename(DB_PATH))[0] or "historico"
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    caminho_backup = os.path.join(diretorio, f"{nome_base}_backup_{timestamp}.db")
+
+    with _lock:
+        origem = sqlite3.connect(DB_PATH, timeout=TIMEOUT_CONEXAO_SEGUNDOS)
+        destino = sqlite3.connect(caminho_backup)
+        try:
+            origem.backup(destino)
+        finally:
+            destino.close()
+            origem.close()
+
+    return {
+        "arquivo": os.path.basename(caminho_backup),
+        "caminho": caminho_backup,
+        "tamanho_bytes": os.path.getsize(caminho_backup),
+    }
+
+
 def contar_leituras() -> int:
     """Utilitario de diagnostico: total de linhas gravadas na tabela."""
     with _conexao() as conn:

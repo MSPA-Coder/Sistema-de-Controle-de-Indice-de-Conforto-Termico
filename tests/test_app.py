@@ -528,6 +528,17 @@ class TestValidacaoDeParametros(unittest.TestCase):
         self.assertEqual(200, resposta.status_code)
         self.assertTrue(resposta.json["ok"])
 
+    def test_backup_banco_cria_arquivo_no_mesmo_diretorio(self):
+        db.salvar_leitura("frangos", "ITU", 70.0, "Conforto", {"tbs": 25, "tbu": 20})
+
+        resposta = self.client.post("/api/backup-banco")
+
+        self.assertEqual(200, resposta.status_code)
+        self.assertTrue(resposta.json["ok"])
+        caminho = resposta.json["backup"]["caminho"]
+        self.assertTrue(os.path.exists(caminho))
+        self.assertEqual(os.path.dirname(db.DB_PATH), os.path.dirname(caminho))
+
     def test_historico_com_parametros_validos_continua_funcionando(self):
         resposta = self.client.get("/api/historico?especie=frangos&indice=ITU")
         self.assertEqual(200, resposta.status_code)
@@ -754,6 +765,21 @@ class TestZonasApi(unittest.TestCase):
         self.assertEqual(zona_id, resposta.json["zona_id"])
         self.assertEqual(1, len(resposta.json["historico_grafico"]))
         self.assertEqual(1, len(db.obter_historico_por_zona(zona_id)))
+
+    def test_reset_limpa_historico_visual_e_persistido_das_zonas(self):
+        zona_id = self._criar_zona().json["id"]
+        self.client.post(
+            f"/api/zonas/{zona_id}/calcular",
+            json={"entradas": {"tbs": 25.0, "tbu": 20.0}},
+        )
+        self.assertEqual(1, len(self.client.get(f"/api/zonas/{zona_id}/historico").json))
+        self.assertEqual(1, len(db.obter_historico_por_zona(zona_id)))
+
+        resposta = self.client.post("/api/reset", json={})
+
+        self.assertEqual(200, resposta.status_code)
+        self.assertEqual([], self.client.get(f"/api/zonas/{zona_id}/historico").json)
+        self.assertEqual([], db.obter_historico_por_zona(zona_id))
 
     def test_email_da_zona_inclui_dados_usados_no_calculo(self):
         self.client.post(

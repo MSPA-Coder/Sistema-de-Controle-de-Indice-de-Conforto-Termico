@@ -346,6 +346,15 @@ def diagnostico():
         return jsonify({"banco_ok": False, "erro": MENSAGEM_ERRO_INTERNO}), 500
 
 
+@app.route("/api/backup-banco", methods=["POST"])
+def backup_banco():
+    try:
+        return jsonify({"ok": True, "backup": db.criar_backup_banco()})
+    except Exception:
+        app.logger.exception("Falha ao criar backup do banco")
+        return jsonify({"ok": False, "erro": MENSAGEM_ERRO_INTERNO}), 500
+
+
 def _configuracoes_publicas(config: dict) -> dict:
     """Nunca deixa a senha SMTP sair do servidor. `smtpSenha` sempre volta
     vazio para o cliente HTTP, acompanhado de uma flag booleana
@@ -506,6 +515,8 @@ def reset():
     db.limpar_historico(especie, indice)
     historico_grafico_service.limpar(especie, indice)
     sensor_simulado_service.limpar(especie, indice)
+    if especie is None and indice is None:
+        zona_service.limpar_historico_grafico()
     _resfriador.desativar()
     return jsonify({"ok": True})
 

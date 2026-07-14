@@ -505,7 +505,7 @@ async function calcular(opcoes = {}) {
       );
     }
     if (!resposta.ok) {
-      atualizarErroLinhaZonaPrincipal(zona, corpo.erro || "Nao foi possivel calcular. Confira os dados informados.");
+      atualizarErroLinhaZonaPrincipal(zona, corpo.erro || "Não foi possível calcular. Confira os dados informados.");
       mostrarErro(corpo.erro || "Não foi possível calcular. Confira os dados informados.");
       return;
     }
@@ -594,8 +594,57 @@ async function carregarHistorico() {
 }
 
 async function limparHistorico() {
-  mostrarErro("A limpeza do histórico por zona ainda não está disponível; as leituras persistidas são preservadas.");
-  resetarPainelResultado();
+  const confirmado = window.confirm(
+    "Limpar histórico?\n\n" +
+    "Esta ação apaga todas as leituras salvas no banco e limpa os gráficos/tabelas do histórico nesta sessão. " +
+    "Zonas, equipamentos e configurações serão preservados. A ação não pode ser desfeita; faça um backup antes se precisar guardar os dados."
+  );
+  if (!confirmado) return;
+
+  try {
+    const resposta = await fetch("/api/reset", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    const corpo = await resposta.json().catch(() => ({}));
+    if (!resposta.ok || !corpo.ok) {
+      mostrarErro(corpo.erro || "Não foi possível limpar o histórico.");
+      return;
+    }
+    resetarPainelResultado();
+    await carregarHistorico();
+    atualizarStatusBanco("Histórico limpo. Zonas, equipamentos e configurações foram preservados.");
+  } catch (erro) {
+    console.error("Erro ao limpar historico:", erro);
+    mostrarErro("Falha de comunicação ao limpar o histórico.");
+  }
+}
+
+function atualizarStatusBanco(mensagem) {
+  const status = document.getElementById("banco-status");
+  if (!status) return;
+  status.textContent = mensagem;
+  status.classList.remove("oculto");
+}
+
+async function fazerBackupBanco() {
+  const botao = document.getElementById("btn-backup-banco");
+  if (botao) botao.disabled = true;
+  try {
+    const resposta = await fetch("/api/backup-banco", { method: "POST" });
+    const corpo = await resposta.json().catch(() => ({}));
+    if (!resposta.ok || !corpo.ok) {
+      atualizarStatusBanco(corpo.erro || "Não foi possível criar o backup do banco.");
+      return;
+    }
+    atualizarStatusBanco("Backup criado no diretório do banco: " + corpo.backup.arquivo);
+  } catch (erro) {
+    console.error("Erro ao criar backup do banco:", erro);
+    atualizarStatusBanco("Falha de comunicação ao criar o backup do banco.");
+  } finally {
+    if (botao) botao.disabled = false;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -681,7 +730,7 @@ function atualizarErroLinhaZonaPrincipal(zona, mensagemErro) {
   if (faixa) faixa.className = "faixa-status faixa-status--vazio";
   if (faixaTexto) faixaTexto.textContent = "SEM LEITURA";
   const mensagem = elementoLinhaZonaPrincipal(zona.id, "mensagem-orientacao");
-  if (mensagem) mensagem.textContent = mensagemErro || "Nao foi possivel calcular esta zona.";
+  if (mensagem) mensagem.textContent = mensagemErro || "Não foi possível calcular esta zona.";
   atualizarEquipamento(null, null, zona);
 }
 
@@ -2340,6 +2389,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   document.getElementById("btn-calcular").addEventListener("click", calcular);
   document.getElementById("btn-limpar").addEventListener("click", limparHistorico);
+  document.getElementById("btn-backup-banco")?.addEventListener("click", fazerBackupBanco);
   document.getElementById("zona-principal")?.addEventListener("change", (evento) => {
     selecionarZonaPrincipal(evento.target.value);
   });

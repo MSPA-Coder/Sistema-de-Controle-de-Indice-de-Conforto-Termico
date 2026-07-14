@@ -91,6 +91,33 @@ Use ASCII identifiers and internal values such as `especie`, `indice`,
 `historico`, `calculo`, `conforto`, `emergencia`, `intensidade`, `media`,
 `maxima` and `leituras_consecutivas`.
 
+## Encoding And Mojibake Decision
+
+The final repository policy is: all source, templates, stylesheets, scripts,
+tests and documentation are UTF-8 without BOM.
+
+Use real UTF-8 accents in Brazilian Portuguese text that is shown to users or
+asserted as user-facing text in tests. Do not replace those strings with text
+corrupted by an incorrect charset conversion, and do not convert normal text to
+HTML entities just to work around a terminal display problem. HTML entities are
+acceptable only when they are already part of a specific HTML escaping pattern
+or when escaping is semantically useful in markup.
+
+If a shell, PowerShell, test log or tool output displays readable Portuguese as
+garbled text, treat it as a display/console decoding problem until proven
+otherwise. Before editing files for encoding reasons, verify the file bytes by
+reading them as UTF-8 and searching the decoded text for actual corrupted
+sequences. Do not "fix" correctly encoded UTF-8 text because one terminal
+rendered it incorrectly.
+
+Recommended verification on Windows:
+
+```powershell
+$utf8 = [System.Text.UTF8Encoding]::new($false, $true)
+$text = $utf8.GetString([System.IO.File]::ReadAllBytes("agents.md"))
+$text.Contains("Configurações")
+```
+
 ## Stability Rules
 
 - Do not change formulas, species mappings or limits without adding or

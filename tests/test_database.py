@@ -82,6 +82,15 @@ class TestIntervaloMinimoLeituras(unittest.TestCase):
         self.assertEqual([], db.obter_historico("frangos", "IGNU"))
         self.assertEqual(1, len(db.obter_historico("bovinos", "ITU")))
 
+    def test_cria_backup_no_mesmo_diretorio_do_banco(self):
+        db.salvar_leitura("frangos", "ITU", 70.0, "Conforto", {"tbs": 25, "tbu": 20})
+
+        backup = db.criar_backup_banco()
+
+        self.assertTrue(os.path.exists(backup["caminho"]))
+        self.assertEqual(os.path.dirname(db.DB_PATH), os.path.dirname(backup["caminho"]))
+        self.assertGreater(backup["tamanho_bytes"], 0)
+
     def test_configuracoes_retornam_padroes(self):
         configuracoes = db.obter_configuracoes()
 
