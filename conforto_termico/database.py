@@ -25,7 +25,8 @@ from typing import Iterator
 from . import thermal_indices as ti
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DB_PATH = os.path.join(PROJECT_ROOT, "historico.db")
+INSTANCE_DIR = os.path.join(PROJECT_ROOT, "instance")
+DB_PATH = os.path.join(INSTANCE_DIR, "historico.db")
 
 _lock = threading.Lock()
 INTERVALO_MINIMO_LEITURAS = datetime.timedelta(minutes=1)
@@ -83,6 +84,9 @@ def _conexao() -> Iterator[sqlite3.Connection]:
     """Abre uma conexao SQLite, garante commit em caso de sucesso (ou
     rollback em caso de excecao) e SEMPRE fecha a conexao ao final."""
     with _lock:
+        diretorio_banco = os.path.dirname(DB_PATH)
+        if diretorio_banco:
+            os.makedirs(diretorio_banco, exist_ok=True)
         conn = sqlite3.connect(DB_PATH, timeout=TIMEOUT_CONEXAO_SEGUNDOS)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode = WAL")

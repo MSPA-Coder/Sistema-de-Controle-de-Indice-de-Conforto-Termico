@@ -50,7 +50,8 @@ A interface e em portugues do Brasil. Os identificadores internos do projeto
 ├── tests/                              # unittest
 ├── seed_zonas.py                       # cria zonas de exemplo
 ├── requirements.txt
-└── historico.db                        # banco local criado/usado em runtime
+└── instance/
+    └── historico.db                    # banco local criado/usado em runtime
 ```
 
 ## Arquitetura
@@ -266,7 +267,7 @@ mensagem generica.
 
 ## Banco de dados
 
-O banco SQLite fica em `historico.db` na raiz do projeto. Tabelas principais:
+O banco SQLite fica em `instance/historico.db`. Tabelas principais:
 
 - `leituras`: historico de calculos, com `zona_id` nulo para fluxo de estacao
   unica e preenchido para fluxo por zona.

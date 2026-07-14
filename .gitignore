@@ -4,6 +4,8 @@ __pycache__/
 *.pyd
 .Python
 historico.db
+historico.db-*
+historico_backup_*.db
 .venv/
 venv/
 .idea/
@@ -19,6 +21,13 @@ htmlcov/
 dist/
 build/
 *.egg-info/
-instance/
+instance/*
+!instance/.gitkeep
 *.sqlite
 *.sqlite3
+*.sqlite-journal
+*.sqlite-shm
+*.sqlite-wal
+*.db-journal
+*.db-shm
+*.db-wal

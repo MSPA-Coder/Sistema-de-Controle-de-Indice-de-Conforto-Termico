@@ -1,4 +1,9 @@
 Flask>=3.0,<4.0
+playwright>=1.61,<2.0
+
+# Usado para verificacoes locais de interface no navegador. Depois de instalar
+# as dependencias Python, prepare os navegadores com:
+#   python -m playwright install chromium
 
 # Opcional: necessario apenas para as Zonas Modbus (aba "Zonas"). O app
 # inteiro funciona sem esta dependencia instalada -- zonas cadastradas
@@ -7,4 +12,3 @@ Flask>=3.0,<4.0
 # conectado ao barramento RS-485 de verdade). Instale com:
 #   pip install pymodbus
 # pymodbus>=3.8,<4.0
-

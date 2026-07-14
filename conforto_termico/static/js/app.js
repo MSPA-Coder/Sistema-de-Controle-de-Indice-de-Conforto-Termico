@@ -1346,6 +1346,12 @@ function atualizarLegendaGraficoHistorico(containerId, leituras) {
   legenda.textContent = textoLegendaPeriodo(leituras);
 }
 
+function removerLegendaGraficoHistorico(containerId) {
+  const container = document.getElementById(containerId);
+  const legenda = container?.querySelector(".grafico-legenda");
+  if (legenda) legenda.remove();
+}
+
 function opcoesGraficoHistorico(comEixoSecundario, aoClicar) {
   const opcoes = opcoesGrafico(comEixoSecundario);
   opcoes.plugins.legend.display = true;
@@ -1366,7 +1372,7 @@ function selecionarLeituraHistorico(leituraId) {
 function atualizarGraficoHistoricoEntradas(leituras) {
   const canvas = document.getElementById("grafico-historico-entradas");
   if (!canvas || typeof Chart === "undefined") return;
-  atualizarLegendaGraficoHistorico("historico-grafico-entradas", leituras);
+  removerLegendaGraficoHistorico("historico-grafico-entradas");
 
   const campos = camposDasLeituras(leituras);
   const temEixoSecundario = campos.some((campo) => campo === "v" || campo === "ur");
@@ -1402,6 +1408,7 @@ function atualizarGraficoHistoricoEntradas(leituras) {
   const opcoes = opcoesGraficoHistorico(temEixoSecundario, (elemento) => {
     selecionarLeituraHistorico(leituras[elemento.index]?.id);
   });
+  opcoes.plugins.legend.display = false;
   aplicarEscalaDinamica(
     opcoes,
     "y",
@@ -1824,10 +1831,9 @@ function prepararAbaHistorico() {
   }
 
   const paginacao = document.getElementById("historico-paginacao");
-  const painelIndices = document.querySelector(".historico-graficos-indices");
-  const graficosIndices = document.getElementById("graficos-historico-indices");
-  if (painelIndices && paginacao && paginacao.parentElement !== painelIndices) {
-    painelIndices.insertBefore(paginacao, graficosIndices || null);
+  const controleCabecalho = document.getElementById("historico-controle-cabecalho");
+  if (controleCabecalho && paginacao && paginacao.parentElement !== controleCabecalho) {
+    controleCabecalho.appendChild(paginacao);
   }
   if (paginacao && !document.getElementById("historico-scroll")) {
     const scroll = document.createElement("input");
@@ -1844,6 +1850,9 @@ function prepararAbaHistorico() {
   const btnProximo = document.getElementById("btn-historico-proximo");
   if (btnAnterior) btnAnterior.textContent = "Retroceder";
   if (btnProximo) btnProximo.textContent = "Avançar";
+  if (paginacao && btnAnterior && btnProximo && btnAnterior.nextElementSibling !== btnProximo) {
+    paginacao.insertBefore(btnAnterior, btnProximo);
+  }
 }
 
 function inicializarHistorico() {
