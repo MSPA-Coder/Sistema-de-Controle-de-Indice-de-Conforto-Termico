@@ -91,6 +91,34 @@ class TestIntervaloMinimoLeituras(unittest.TestCase):
         self.assertEqual(os.path.dirname(db.DB_PATH), os.path.dirname(backup["caminho"]))
         self.assertGreater(backup["tamanho_bytes"], 0)
 
+    def test_historico_leituras_paginado_inclui_zona(self):
+        zona = db.criar_zona({"nome": "Aviario 1", "especie": "frangos", "indice": "ITU"})
+        db.salvar_leitura(
+            "frangos",
+            "ITU",
+            70.0,
+            "Conforto",
+            {"tbs": 25, "tbu": 20},
+            intervalo_minutos=0,
+        )
+        db.salvar_leitura(
+            "frangos",
+            "ITU",
+            71.0,
+            "Alerta",
+            {"tbs": 26, "tbu": 21},
+            intervalo_minutos=0,
+            zona_id=zona["id"],
+        )
+
+        pagina = db.obter_historico_leituras(limite=1, deslocamento=1)
+
+        self.assertEqual(2, pagina["total"])
+        self.assertEqual(1, pagina["deslocamento"])
+        self.assertEqual(1, len(pagina["leituras"]))
+        self.assertEqual(zona["id"], pagina["leituras"][0]["zona_id"])
+        self.assertEqual("Aviario 1", pagina["leituras"][0]["zona_nome"])
+
     def test_configuracoes_retornam_padroes(self):
         configuracoes = db.obter_configuracoes()
 

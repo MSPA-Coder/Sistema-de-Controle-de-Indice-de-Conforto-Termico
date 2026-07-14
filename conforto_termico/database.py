@@ -296,6 +296,69 @@ def obter_historico_por_zona(zona_id: int, limite: int = 20) -> list[dict]:
     return dados
 
 
+def obter_historico_leituras(
+    limite: int = 30,
+    deslocamento: int | None = None,
+    zona_id: int | None = None,
+    indice: str | None = None,
+    status: str | None = None,
+) -> dict:
+    """Consulta paginada do historico persistido.
+
+    Diferente de `obter_historico_por_zona`, que alimenta os graficos curtos
+    em memoria da Dashboard, esta funcao navega pela tabela `leituras` em
+    ordem cronologica e devolve metadados suficientes para a interface montar
+    um controle de avanco/retrocesso sobre o banco inteiro.
+    """
+    limite = max(1, min(200, int(limite)))
+    filtros = []
+    parametros: list = []
+
+    if zona_id is not None:
+        filtros.append("l.zona_id = ?")
+        parametros.append(zona_id)
+    if indice:
+        filtros.append("l.indice = ?")
+        parametros.append(indice)
+    if status:
+        filtros.append("l.status = ?")
+        parametros.append(status)
+
+    where = ("WHERE " + " AND ".join(filtros)) if filtros else ""
+    with _conexao() as conn:
+        (total,) = conn.execute(
+            f"SELECT COUNT(*) FROM leituras l {where}",
+            parametros,
+        ).fetchone()
+
+        if deslocamento is None:
+            deslocamento_calculado = max(0, total - limite)
+        else:
+            deslocamento_calculado = max(0, min(int(deslocamento), max(0, total - limite)))
+
+        linhas = conn.execute(
+            f"""
+            SELECT l.*, z.nome AS zona_nome
+            FROM leituras l
+            LEFT JOIN zonas z ON z.id = l.zona_id
+            {where}
+            ORDER BY l.id ASC
+            LIMIT ? OFFSET ?
+            """,
+            [*parametros, limite, deslocamento_calculado],
+        ).fetchall()
+
+    leituras = [dict(linha) for linha in linhas]
+    for item in leituras:
+        item["entradas"] = json.loads(item["entradas"])
+    return {
+        "leituras": leituras,
+        "total": total,
+        "limite": limite,
+        "deslocamento": deslocamento_calculado,
+    }
+
+
 def limpar_historico(especie: str | None = None, indice: str | None = None) -> None:
     with _conexao() as conn:
         if especie and indice:

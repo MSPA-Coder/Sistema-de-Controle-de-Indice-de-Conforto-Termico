@@ -919,6 +919,29 @@ class TestZonasApi(unittest.TestCase):
         self.assertEqual(200, resposta.status_code)
         self.assertEqual([], resposta.json)
 
+    def test_historico_leituras_persistido_exibe_zona(self):
+        zona = self._criar_zona().json
+        db.salvar_leitura(
+            "frangos",
+            "ITU",
+            71.0,
+            "Alerta",
+            {"tbs": 26.0, "tbu": 21.0},
+            intervalo_minutos=0,
+            zona_id=zona["id"],
+        )
+
+        resposta = self.client.get("/api/historico-leituras?limite=30")
+
+        self.assertEqual(200, resposta.status_code)
+        self.assertEqual(1, resposta.json["total"])
+        self.assertEqual(zona["id"], resposta.json["leituras"][0]["zona_id"])
+        self.assertEqual(zona["nome"], resposta.json["leituras"][0]["zona_nome"])
+
+    def test_historico_leituras_rejeita_zona_inexistente(self):
+        resposta = self.client.get("/api/historico-leituras?zona_id=9999")
+        self.assertEqual(404, resposta.status_code)
+
     def test_grafico_de_zona_atualiza_a_cada_calculo_mesmo_sem_gravar_no_banco(self):
         zona_id = self._criar_zona().json["id"]
         for campo in ("tbs", "tbu"):

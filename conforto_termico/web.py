@@ -222,6 +222,16 @@ def _erro_indice_invalido(especie: str, indice: str) -> tuple | None:
     return None
 
 
+def _parametro_inteiro(nome: str, padrao: int | None = None) -> tuple[int | None, tuple | None]:
+    valor = request.args.get(nome)
+    if valor in (None, ""):
+        return padrao, None
+    try:
+        return int(valor), None
+    except ValueError:
+        return None, ({"erro": f"Parâmetro '{nome}' precisa ser inteiro."}, 400)
+
+
 @app.route("/")
 def index():
     return render_template(
@@ -321,6 +331,40 @@ def historico_grafico_todos():
             indice: historico_grafico_service.obter(especie, indice)
             for indice in ti.INDICES_POR_ESPECIE.get(especie, ())
         }
+    )
+
+
+@app.route("/api/historico-leituras")
+def historico_leituras():
+    limite, erro = _parametro_inteiro("limite", 30)
+    if erro:
+        return jsonify(erro[0]), erro[1]
+    deslocamento, erro = _parametro_inteiro("deslocamento")
+    if erro:
+        return jsonify(erro[0]), erro[1]
+
+    zona_id, erro = _parametro_inteiro("zona_id")
+    if erro:
+        return jsonify(erro[0]), erro[1]
+    if zona_id is not None and db.obter_zona(zona_id) is None:
+        return jsonify({"erro": f"Zona {zona_id} não encontrada."}), 404
+
+    indice = request.args.get("indice") or None
+    if indice is not None and indice not in ti.NOME_INDICE:
+        return jsonify({"erro": f"Índice inválido: '{indice}'."}), 400
+
+    status = request.args.get("status") or None
+    if status is not None and ti.normalizar_chave_texto(status).lower() not in ti.STATUS_PESO:
+        return jsonify({"erro": f"Status inválido: '{status}'."}), 400
+
+    return jsonify(
+        db.obter_historico_leituras(
+            limite=limite or 30,
+            deslocamento=deslocamento,
+            zona_id=zona_id,
+            indice=indice,
+            status=status,
+        )
     )
 
 

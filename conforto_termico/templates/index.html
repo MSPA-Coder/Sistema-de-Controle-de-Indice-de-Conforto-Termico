@@ -14,7 +14,8 @@
 <div class="app-shell">
 
   <nav class="abas-app" role="tablist" aria-label="Navegação do app">
-    <button class="aba-botao ativo" type="button" role="tab" data-aba="principal" aria-controls="aba-principal" aria-selected="true">Principal</button>
+    <button class="aba-botao ativo" type="button" role="tab" data-aba="principal" aria-controls="aba-principal" aria-selected="true">Dashboard</button>
+    <button class="aba-botao" type="button" role="tab" data-aba="historico" aria-controls="aba-historico" aria-selected="false">Histórico</button>
     <button class="aba-botao" type="button" role="tab" data-aba="zonas" aria-controls="aba-zonas" aria-selected="false">Zonas</button>
     <button class="aba-botao" type="button" role="tab" data-aba="configuracoes" aria-controls="aba-configuracoes" aria-selected="false">Configuracoes</button>
   </nav>
@@ -126,12 +127,6 @@
       <div id="historico-acoes" class="tabela-cabecalho">
         <p class="grafico-titulo">Histórico de leituras</p>
         <div class="historico-filtros" aria-label="Filtros do historico">
-          <label class="historico-filtro" for="filtro-historico-indice">
-            <span>Índice</span>
-            <select id="filtro-historico-indice">
-              <option value="">Todos</option>
-            </select>
-          </label>
           <label class="historico-filtro" for="filtro-historico-status">
             <span>Status</span>
             <select id="filtro-historico-status">
@@ -164,6 +159,28 @@
     </section>
 
   </main>
+
+  <section id="aba-historico" class="grade grade-historico aba-conteudo oculto" data-aba-conteudo="historico" role="tabpanel">
+    <section id="historico-filtros-card" class="painel historico-filtros-painel">
+      <div class="tabela-cabecalho">
+        <p class="grafico-titulo">Filtros do histórico</p>
+        <div id="historico-filtros-slot"></div>
+      </div>
+    </section>
+
+    <section class="painel entradas-grafico-painel historico-grafico-entradas">
+      <div class="grafico-bloco grafico-bloco--sem-moldura">
+        <p class="grafico-titulo">Valores de entrada no histórico</p>
+        <div class="grafico-canvas-wrap"><canvas id="grafico-historico-entradas"></canvas></div>
+      </div>
+    </section>
+
+    <section class="graficos-painel historico-graficos-indices">
+      <div id="graficos-historico-indices" class="graficos-indices"></div>
+    </section>
+
+    <div id="historico-tabela-slot" class="historico-tabela-slot"></div>
+  </section>
 
   <section id="aba-configuracoes" class="grade grade-configuracoes aba-conteudo oculto" data-aba-conteudo="configuracoes" role="tabpanel">
     <div class="configuracoes-coluna">

@@ -21,6 +21,7 @@ const COR_STATUS = {
 const STATUS_HISTORICO = ["Conforto", "Alerta", "Perigo", "Emerg\u00eancia"];
 const CORES_CAMPOS_ENTRADA = ["#4F8A93", "#D9A441", "#8FBF9F", "#C1443C", "#9E7BB5", "#6FA8DC"];
 const HISTORICO_LINHAS_POR_PAGINA = 20;
+const HISTORICO_JANELA_LEITURAS = 30;
 const ORDEM_CAMPOS_INTERFACE = ["tbs", "tbu", "tgn", "tpo", "ur", "v"];
 
 function normalizarChaveTexto(valor) {
@@ -96,19 +97,28 @@ const estado = { especie: "frangos", indice: "ITU", zonaId: null };
 let graficosPorIndice = new Map();
 let graficoEntradas = null;
 let assinaturaGraficos = "";
+let graficosHistoricoPorIndice = new Map();
+let graficoHistoricoEntradas = null;
+let assinaturaGraficosHistorico = "";
 let graficosIndicePrincipalPorZona = new Map();
 let assinaturasIndicePrincipalPorZona = new Map();
 let ultimosResultados = null;
 let ultimosHistoricosGrafico = {};
+let historicoLeiturasJanela = [];
 let historicoLeiturasBase = [];
 let historicoLeiturasAtuais = [];
 let historicoPaginaAtual = 1;
+let historicoTotalLeituras = 0;
+let historicoDeslocamento = 0;
 let filtroHistoricoIndice = "";
 let filtroHistoricoStatus = "";
+let filtroHistoricoZona = "";
+let historicoLeituraSelecionadaId = null;
 let autoAtivo = false; // Modo automatico ligado/desligado (checado antes de CADA ciclo)
 let autoEmExecucao = false; // true enquanto um ciclo esta em andamento (evita sobreposicao)
 let autoTimeoutId = null; // id do proximo ciclo agendado (setTimeout), se houver
 let salvamentoConfigTimeoutId = null;
+let historicoScrollTimeoutId = null;
 let smtpSenhaJaConfigurada = false;
 let audioCtx = null;
 
@@ -563,7 +573,7 @@ async function carregarHistorico() {
     }
     document.getElementById("graficos-indices").textContent = "";
     assinaturaGraficos = "";
-    atualizarTabela({});
+    await carregarHistoricoPersistido({ manterJanelaFinal: true });
     return;
   }
   try {
@@ -583,11 +593,10 @@ async function carregarHistorico() {
       const historicoSelecionado = historicos.get(zona.id) || [];
       ultimosHistoricosGrafico = { [zona.indice]: historicoSelecionado };
       atualizarGraficoEntradas(ultimosHistoricosGrafico);
-      atualizarTabela(historicoSelecionado);
     } else {
       ultimosHistoricosGrafico = {};
-      atualizarTabela({});
     }
+    await carregarHistoricoPersistido({ manterJanelaFinal: true });
   } catch (erro) {
     /* nao critico */
   }
@@ -810,13 +819,7 @@ function atualizarResultado(dados) {
     );
   }
 
-  if (zonaSelecionada) {
-    try {
-      atualizarTabela(selecionado.historico_grafico || []);
-    } catch (erro) {
-      console.error("Erro ao atualizar a tabela de historico:", erro);
-    }
-  }
+  carregarHistoricoPersistido({ manterJanelaFinal: true });
 
   if (zonaSelecionada && dados.tocarSom && selecionado.status !== "Conforto") {
     try {
@@ -954,6 +957,21 @@ function atualizarEmail(emailInfo) {
 function formatarHora(isoString) {
   const data = new Date(isoString);
   return data.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function formatarDataHoraCurta(isoString) {
+  const data = new Date(isoString);
+  return data.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) +
+    " " +
+    data.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatarDataCurta(isoString) {
+  return new Date(isoString).toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
 }
 
 function opcoesGrafico(comEixoSecundario) {
@@ -1274,10 +1292,253 @@ function atualizarGraficos(historicos) {
   });
 }
 
+function historicosPorIndiceDasLeituras(leituras) {
+  return (leituras || []).reduce((agrupado, leitura) => {
+    const indice = leitura.indice || estado.indice;
+    if (!agrupado[indice]) agrupado[indice] = [];
+    agrupado[indice].push(leitura);
+    return agrupado;
+  }, {});
+}
+
+function camposDasLeituras(leituras) {
+  return ordenarCamposInterface([
+    ...new Set((leituras || []).flatMap((leitura) => Object.keys(leitura.entradas || {}))),
+  ]);
+}
+
+function historicoTemMaisDeUmDia(leituras) {
+  return new Set((leituras || []).map((leitura) => String(leitura.criado_em || "").slice(0, 10))).size > 1;
+}
+
+function rotulosHistorico(leituras) {
+  const usarData = historicoTemMaisDeUmDia(leituras);
+  return (leituras || []).map((leitura) =>
+    usarData ? formatarDataHoraCurta(leitura.criado_em) : formatarHora(leitura.criado_em)
+  );
+}
+
+function textoLegendaPeriodo(leituras) {
+  if (!leituras || !leituras.length) return "Sem leituras no período selecionado.";
+  const inicio = leituras[0].criado_em;
+  const fim = leituras[leituras.length - 1].criado_em;
+  const dias = [...new Set(leituras.map((leitura) => formatarDataCurta(leitura.criado_em)))];
+  const periodo = dias.length === 1
+    ? dias[0]
+    : formatarDataCurta(inicio) + " a " + formatarDataCurta(fim);
+  return "Período exibido: " + periodo + ". Clique em uma barra ou ponto para cruzar a leitura nos gráficos.";
+}
+
+function atualizarLegendaGraficoHistorico(containerId, leituras) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  let legenda = container.querySelector(".grafico-legenda");
+  if (!legenda) {
+    legenda = document.createElement("p");
+    legenda.className = "grafico-legenda";
+    const titulo = container.querySelector(".grafico-titulo");
+    if (titulo && titulo.nextSibling) {
+      container.insertBefore(legenda, titulo.nextSibling);
+    } else {
+      container.appendChild(legenda);
+    }
+  }
+  legenda.textContent = textoLegendaPeriodo(leituras);
+}
+
+function opcoesGraficoHistorico(comEixoSecundario, aoClicar) {
+  const opcoes = opcoesGrafico(comEixoSecundario);
+  opcoes.plugins.legend.display = true;
+  opcoes.onClick = (evento, elementos, grafico) => {
+    if (!elementos.length) return;
+    aoClicar(elementos[0], grafico);
+  };
+  return opcoes;
+}
+
+function selecionarLeituraHistorico(leituraId) {
+  if (!leituraId || historicoLeituraSelecionadaId === leituraId) return;
+  historicoLeituraSelecionadaId = leituraId;
+  assinaturaGraficosHistorico = "";
+  atualizarGraficosHistorico(historicoLeiturasJanela);
+}
+
+function atualizarGraficoHistoricoEntradas(leituras) {
+  const canvas = document.getElementById("grafico-historico-entradas");
+  if (!canvas || typeof Chart === "undefined") return;
+  atualizarLegendaGraficoHistorico("historico-grafico-entradas", leituras);
+
+  const campos = camposDasLeituras(leituras);
+  const temEixoSecundario = campos.some((campo) => campo === "v" || campo === "ur");
+  const datasetsAtuais = new Map(
+    graficoHistoricoEntradas
+      ? graficoHistoricoEntradas.data.datasets.map((dataset) => [dataset.campo, dataset])
+      : []
+  );
+  const datasets = campos.map((campo) => {
+    const meta = CONFIG_APP.campoMetadados[campo] || { label: campo };
+    const cor = corCampoEntrada(campo);
+    const dataset = datasetsAtuais.get(campo) || {};
+    Object.assign(dataset, {
+      campo,
+      label: meta.label,
+      data: leituras.map((leitura) => leitura.entradas?.[campo] ?? null),
+      borderColor: cor,
+      backgroundColor: cor + "33",
+      tension: 0.35,
+      cubicInterpolationMode: "monotone",
+      pointRadius: leituras.map((leitura) => leitura.id === historicoLeituraSelecionadaId ? 5 : 2),
+      pointHoverRadius: 4,
+      pointBorderWidth: leituras.map((leitura) => leitura.id === historicoLeituraSelecionadaId ? 2 : 1),
+      pointBorderColor: leituras.map((leitura) =>
+        leitura.id === historicoLeituraSelecionadaId ? "#F2ECE1" : cor
+      ),
+      fill: campo !== "v" && campo !== "ur",
+      yAxisID: campo === "v" || campo === "ur" ? "y1" : "y",
+    });
+    return dataset;
+  });
+
+  const opcoes = opcoesGraficoHistorico(temEixoSecundario, (elemento) => {
+    selecionarLeituraHistorico(leituras[elemento.index]?.id);
+  });
+  aplicarEscalaDinamica(
+    opcoes,
+    "y",
+    datasets
+      .filter((dataset) => (dataset.yAxisID || "y") === "y")
+      .flatMap((dataset) => dataset.data)
+  );
+  aplicarEscalaDinamica(
+    opcoes,
+    "y1",
+    datasets
+      .filter((dataset) => dataset.yAxisID === "y1")
+      .flatMap((dataset) => dataset.data)
+  );
+
+  graficoHistoricoEntradas = criarOuAtualizarGrafico(
+    graficoHistoricoEntradas,
+    "grafico-historico-entradas",
+    {
+      type: "line",
+      data: {
+        labels: rotulosHistorico(leituras),
+        datasets,
+      },
+      options: opcoes,
+    }
+  );
+}
+
+function idGraficoHistoricoIndice(indice) {
+  return "grafico-historico-indice-" + indice.toLowerCase();
+}
+
+function garantirBlocosGraficosHistorico(indices) {
+  const container = document.getElementById("graficos-historico-indices");
+  if (!container) return;
+
+  const idsAtivos = new Set(indices.map(idGraficoHistoricoIndice));
+  [...container.querySelectorAll(".grafico-bloco-indice")].forEach((bloco) => {
+    if (!idsAtivos.has(bloco.dataset.canvasId)) bloco.remove();
+  });
+
+  indices.forEach((indice) => {
+    const canvasId = idGraficoHistoricoIndice(indice);
+    let bloco = container.querySelector(`[data-canvas-id="${canvasId}"]`);
+    if (!bloco) {
+      bloco = document.createElement("div");
+      bloco.className = "grafico-bloco grafico-bloco-indice";
+      bloco.dataset.canvasId = canvasId;
+
+      const titulo = document.createElement("p");
+      titulo.className = "grafico-titulo";
+      titulo.textContent = "Valor do " + indice + " no histórico";
+
+      const legenda = document.createElement("p");
+      legenda.className = "grafico-legenda";
+
+      const wrap = document.createElement("div");
+      wrap.className = "grafico-canvas-wrap";
+
+      const canvas = document.createElement("canvas");
+      canvas.id = canvasId;
+
+      wrap.appendChild(canvas);
+      bloco.append(titulo, legenda, wrap);
+    }
+    container.appendChild(bloco);
+  });
+}
+
+function atualizarGraficosHistorico(leituras) {
+  if (typeof Chart === "undefined") return;
+  const assinatura = JSON.stringify({
+    leituras,
+    total: historicoTotalLeituras,
+    deslocamento: historicoDeslocamento,
+    selecionada: historicoLeituraSelecionadaId,
+  });
+  if (assinatura === assinaturaGraficosHistorico) return;
+  assinaturaGraficosHistorico = assinatura;
+
+  atualizarGraficoHistoricoEntradas(leituras);
+
+  const historicosPorIndice = historicosPorIndiceDasLeituras(leituras);
+  const indices = Object.keys(historicosPorIndice).sort();
+  garantirBlocosGraficosHistorico(indices);
+
+  const indicesAtivos = new Set(indices);
+  graficosHistoricoPorIndice.forEach((grafico, indice) => {
+    if (!indicesAtivos.has(indice)) {
+      grafico.destroy();
+      graficosHistoricoPorIndice.delete(indice);
+    }
+  });
+
+  indices.forEach((indice) => {
+    const historico = historicosPorIndice[indice] || [];
+    const canvasId = idGraficoHistoricoIndice(indice);
+    const bloco = document.querySelector(`[data-canvas-id="${canvasId}"]`);
+    const legenda = bloco?.querySelector(".grafico-legenda");
+    if (legenda) legenda.textContent = textoLegendaPeriodo(historico);
+    const dataset = graficosHistoricoPorIndice.get(indice)?.data.datasets[0] || {};
+    Object.assign(dataset, {
+      label: indice,
+      data: historico.map((h) => h.valor),
+      backgroundColor: historico.map((h) => corStatus(h.status)),
+      borderColor: historico.map((h) => h.id === historicoLeituraSelecionadaId ? "#F2ECE1" : corStatus(h.status)),
+      borderWidth: historico.map((h) => h.id === historicoLeituraSelecionadaId ? 2 : 0),
+      borderRadius: 3,
+      maxBarThickness: 26,
+      leituraIds: historico.map((h) => h.id),
+    });
+
+    const opcoes = opcoesGraficoHistorico(false, (elemento, grafico) => {
+      const ids = grafico.data.datasets[elemento.datasetIndex]?.leituraIds || [];
+      selecionarLeituraHistorico(ids[elemento.index]);
+    });
+    aplicarEscalaDinamica(opcoes, "y", dataset.data);
+
+    const grafico = criarOuAtualizarGrafico(graficosHistoricoPorIndice.get(indice), canvasId, {
+      type: "bar",
+      data: {
+        labels: rotulosHistorico(historico),
+        datasets: [dataset],
+      },
+      options: opcoes,
+    });
+    graficosHistoricoPorIndice.set(indice, grafico);
+  });
+}
+
 function leiturasTabela(historicos) {
-  const historicosPorIndice = normalizarHistoricosPorIndice(historicos);
-  return Object.entries(historicosPorIndice)
-    .flatMap(([indice, leituras]) => leituras.map((leitura) => ({ ...leitura, indice })))
+  const leituras = Array.isArray(historicos)
+    ? historicos.map((leitura) => ({ ...leitura, indice: leitura.indice || estado.indice }))
+    : Object.entries(normalizarHistoricosPorIndice(historicos))
+      .flatMap(([indice, itens]) => itens.map((leitura) => ({ ...leitura, indice: leitura.indice || indice })));
+  return leituras
     .sort((a, b) => {
       const porData = new Date(b.criado_em) - new Date(a.criado_em);
       if (porData !== 0) return porData;
@@ -1304,32 +1565,57 @@ function preencherSelectHistorico(select, opcoes, valorAtual) {
   select.value = valorAtual;
 }
 
-function renderizarFiltrosHistorico() {
-  const indices = indicesDaEspecie();
-  if (filtroHistoricoIndice && !indices.includes(filtroHistoricoIndice)) {
-    filtroHistoricoIndice = "";
+function garantirZonaHistoricoSelecionada() {
+  if (!zonasCache.length) {
+    filtroHistoricoZona = "";
+    return false;
   }
+  if (filtroHistoricoZona && zonasCache.some((zona) => String(zona.id) === filtroHistoricoZona)) {
+    return true;
+  }
+  const zonaDashboard = zonaPrincipalSelecionada();
+  filtroHistoricoZona = String(zonaDashboard?.id || zonasCache[0].id);
+  return true;
+}
+
+function renderizarFiltrosHistorico() {
+  filtroHistoricoIndice = "";
   if (filtroHistoricoStatus && !STATUS_HISTORICO.includes(filtroHistoricoStatus)) {
     filtroHistoricoStatus = "";
   }
+  garantirZonaHistoricoSelecionada();
 
-  preencherSelectHistorico(
-    document.getElementById("filtro-historico-indice"),
-    indices,
-    filtroHistoricoIndice
-  );
   preencherSelectHistorico(
     document.getElementById("filtro-historico-status"),
     STATUS_HISTORICO,
     filtroHistoricoStatus
   );
+
+  const selectZona = document.getElementById("filtro-historico-zona");
+  if (selectZona) {
+    selectZona.innerHTML = "";
+    zonasCache.forEach((zona) => {
+      const option = document.createElement("option");
+      option.value = String(zona.id);
+      option.textContent = zona.nome;
+      selectZona.appendChild(option);
+    });
+    if (!zonasCache.length) {
+      const option = document.createElement("option");
+      option.value = "";
+      option.textContent = "Nenhuma zona cadastrada";
+      selectZona.appendChild(option);
+    }
+    selectZona.disabled = !zonasCache.length;
+    selectZona.value = filtroHistoricoZona;
+  }
 }
 
 function aplicarFiltrosHistorico(resetarPagina) {
   historicoLeiturasAtuais = historicoLeiturasBase.filter((leitura) => {
-    const indiceOk = !filtroHistoricoIndice || leitura.indice === filtroHistoricoIndice;
     const statusOk = !filtroHistoricoStatus || leitura.status === filtroHistoricoStatus;
-    return indiceOk && statusOk;
+    const zonaOk = !filtroHistoricoZona || String(leitura.zona_id || "") === filtroHistoricoZona;
+    return statusOk && zonaOk;
   });
 
   if (resetarPagina) historicoPaginaAtual = 1;
@@ -1337,9 +1623,10 @@ function aplicarFiltrosHistorico(resetarPagina) {
 }
 
 function atualizarFiltroHistorico() {
-  filtroHistoricoIndice = document.getElementById("filtro-historico-indice")?.value || "";
+  filtroHistoricoIndice = "";
   filtroHistoricoStatus = document.getElementById("filtro-historico-status")?.value || "";
-  aplicarFiltrosHistorico(true);
+  filtroHistoricoZona = document.getElementById("filtro-historico-zona")?.value || "";
+  carregarHistoricoPersistido({ resetarJanela: true });
 }
 
 function renderizarPaginaHistorico() {
@@ -1352,27 +1639,24 @@ function renderizarPaginaHistorico() {
   const btnProximo = document.getElementById("btn-historico-proximo");
   tbody.innerHTML = "";
 
-  const totalPaginas = Math.max(1, Math.ceil(historicoLeiturasAtuais.length / HISTORICO_LINHAS_POR_PAGINA));
-  historicoPaginaAtual = Math.min(Math.max(1, historicoPaginaAtual), totalPaginas);
-
   if (!historicoLeiturasAtuais.length) {
     tabela.classList.add("oculto");
     vazio.textContent = historicoLeiturasBase.length
       ? "Nenhuma leitura encontrada para os filtros selecionados."
-      : "Nenhuma leitura registrada ainda para esta zona.";
+      : "Nenhuma leitura registrada ainda no banco para os filtros selecionados.";
     vazio.classList.remove("oculto");
-    if (paginacao) paginacao.classList.add("oculto");
+    if (paginacao) paginacao.classList.remove("oculto");
+    atualizarControleHistoricoScroll();
     return;
   }
   tabela.classList.remove("oculto");
   vazio.classList.add("oculto");
-  if (paginacao) paginacao.classList.toggle("oculto", totalPaginas <= 1);
-  if (paginaInfo) paginaInfo.textContent = `Página ${historicoPaginaAtual} de ${totalPaginas}`;
-  if (btnAnterior) btnAnterior.disabled = historicoPaginaAtual <= 1;
-  if (btnProximo) btnProximo.disabled = historicoPaginaAtual >= totalPaginas;
+  if (paginacao) paginacao.classList.remove("oculto");
+  if (paginaInfo) paginaInfo.textContent = "";
+  if (btnAnterior) btnAnterior.disabled = true;
+  if (btnProximo) btnProximo.disabled = true;
 
-  const inicio = (historicoPaginaAtual - 1) * HISTORICO_LINHAS_POR_PAGINA;
-  const leituras = historicoLeiturasAtuais.slice(inicio, inicio + HISTORICO_LINHAS_POR_PAGINA);
+  const leituras = historicoLeiturasAtuais;
 
   leituras.forEach((h) => {
     const tr = document.createElement("tr");
@@ -1396,6 +1680,84 @@ function renderizarPaginaHistorico() {
     tr.append(tdHora, tdIndice, tdEntradas, tdValor, tdStatus);
     tbody.appendChild(tr);
   });
+  atualizarControleHistoricoScroll();
+}
+
+function atualizarControleHistoricoScroll() {
+  const scroll = document.getElementById("historico-scroll");
+  const info = document.getElementById("historico-pagina-info");
+  const btnAnterior = document.getElementById("btn-historico-anterior");
+  const btnProximo = document.getElementById("btn-historico-proximo");
+  const maximo = Math.max(0, historicoTotalLeituras - HISTORICO_JANELA_LEITURAS);
+  const temLeituras = historicoTotalLeituras > 0;
+
+  if (scroll) {
+    scroll.min = "0";
+    scroll.max = String(maximo);
+    scroll.step = "1";
+    scroll.value = String(Math.min(historicoDeslocamento, maximo));
+    scroll.disabled = !temLeituras || maximo === 0;
+  }
+  if (btnAnterior) btnAnterior.disabled = !temLeituras || historicoDeslocamento <= 0;
+  if (btnProximo) btnProximo.disabled = !temLeituras || historicoDeslocamento >= maximo;
+  if (info) {
+    if (!temLeituras) {
+      info.textContent = "Sem leituras";
+    } else {
+      const inicio = historicoDeslocamento + 1;
+      const fim = Math.min(historicoDeslocamento + historicoLeiturasBase.length, historicoTotalLeituras);
+      info.textContent = `Leituras ${inicio}-${fim} de ${historicoTotalLeituras}`;
+    }
+  }
+}
+
+async function carregarHistoricoPersistido(opcoes = {}) {
+  if (!garantirZonaHistoricoSelecionada()) {
+    historicoTotalLeituras = 0;
+    historicoDeslocamento = 0;
+    historicoLeiturasJanela = [];
+    historicoLeiturasBase = [];
+    historicoLeiturasAtuais = [];
+    renderizarFiltrosHistorico();
+    renderizarPaginaHistorico();
+    atualizarGraficosHistorico([]);
+    atualizarControleHistoricoScroll();
+    return;
+  }
+  const maximoAtual = Math.max(0, historicoTotalLeituras - HISTORICO_JANELA_LEITURAS);
+  const estavaNoFim = historicoDeslocamento >= maximoAtual;
+  const params = new URLSearchParams();
+  params.set("limite", String(HISTORICO_JANELA_LEITURAS));
+  if (filtroHistoricoZona) params.set("zona_id", filtroHistoricoZona);
+  if (filtroHistoricoStatus) params.set("status", filtroHistoricoStatus);
+
+  if (Number.isFinite(opcoes.deslocamento)) {
+    params.set("deslocamento", String(Math.max(0, opcoes.deslocamento)));
+  } else if (!opcoes.resetarJanela && !(opcoes.manterJanelaFinal && estavaNoFim)) {
+    params.set("deslocamento", String(Math.max(0, historicoDeslocamento)));
+  }
+
+  try {
+    const resposta = await fetch("/api/historico-leituras?" + params.toString());
+    if (!resposta.ok) return;
+    const dados = await resposta.json();
+    historicoTotalLeituras = Number(dados.total) || 0;
+    historicoDeslocamento = Number(dados.deslocamento) || 0;
+    historicoLeiturasJanela = Array.isArray(dados.leituras) ? dados.leituras : [];
+    if (
+      historicoLeituraSelecionadaId &&
+      !historicoLeiturasJanela.some((leitura) => leitura.id === historicoLeituraSelecionadaId)
+    ) {
+      historicoLeituraSelecionadaId = null;
+    }
+    historicoLeiturasBase = leiturasTabela(historicoLeiturasJanela);
+    renderizarFiltrosHistorico();
+    aplicarFiltrosHistorico(false);
+    atualizarGraficosHistorico(historicoLeiturasJanela);
+    atualizarControleHistoricoScroll();
+  } catch (erro) {
+    console.error("Nao foi possivel carregar o historico persistido:", erro);
+  }
 }
 
 function atualizarTabela(historicos) {
@@ -1416,17 +1778,83 @@ function alternarHistorico() {
 }
 
 function paginaHistorico(delta) {
-  historicoPaginaAtual += delta;
-  renderizarPaginaHistorico();
+  const maximo = Math.max(0, historicoTotalLeituras - HISTORICO_JANELA_LEITURAS);
+  const proximo = Math.max(
+    0,
+    Math.min(maximo, historicoDeslocamento + delta * HISTORICO_JANELA_LEITURAS)
+  );
+  carregarHistoricoPersistido({ deslocamento: proximo });
+}
+
+function rolarHistorico(evento) {
+  const deslocamento = Number(evento.target.value);
+  if (historicoScrollTimeoutId) clearTimeout(historicoScrollTimeoutId);
+  historicoScrollTimeoutId = setTimeout(() => {
+    carregarHistoricoPersistido({ deslocamento });
+  }, 120);
+}
+
+function prepararAbaHistorico() {
+  const slot = document.getElementById("historico-tabela-slot");
+  const painelTabela = document.querySelector(".tabela-painel");
+  if (slot && painelTabela && painelTabela.parentElement !== slot) {
+    slot.appendChild(painelTabela);
+  }
+
+  const corpo = document.getElementById("historico-corpo");
+  if (corpo) corpo.classList.remove("oculto");
+  const botaoToggle = document.getElementById("btn-toggle-historico");
+  if (botaoToggle) botaoToggle.remove();
+
+  const filtros = document.querySelector("#historico-acoes .historico-filtros");
+  const slotFiltros = document.getElementById("historico-filtros-slot");
+  if (filtros && slotFiltros && filtros.parentElement !== slotFiltros) {
+    slotFiltros.appendChild(filtros);
+  }
+  if (filtros && !document.getElementById("filtro-historico-zona")) {
+    const label = document.createElement("label");
+    label.className = "historico-filtro";
+    label.setAttribute("for", "filtro-historico-zona");
+    const span = document.createElement("span");
+    span.textContent = "Zona";
+    const select = document.createElement("select");
+    select.id = "filtro-historico-zona";
+    label.append(span, select);
+    filtros.prepend(label);
+  }
+
+  const paginacao = document.getElementById("historico-paginacao");
+  const painelIndices = document.querySelector(".historico-graficos-indices");
+  const graficosIndices = document.getElementById("graficos-historico-indices");
+  if (painelIndices && paginacao && paginacao.parentElement !== painelIndices) {
+    painelIndices.insertBefore(paginacao, graficosIndices || null);
+  }
+  if (paginacao && !document.getElementById("historico-scroll")) {
+    const scroll = document.createElement("input");
+    scroll.type = "range";
+    scroll.id = "historico-scroll";
+    scroll.className = "historico-scroll";
+    scroll.min = "0";
+    scroll.max = "0";
+    scroll.value = "0";
+    const info = document.getElementById("historico-pagina-info");
+    paginacao.insertBefore(scroll, info || null);
+  }
+  const btnAnterior = document.getElementById("btn-historico-anterior");
+  const btnProximo = document.getElementById("btn-historico-proximo");
+  if (btnAnterior) btnAnterior.textContent = "Retroceder";
+  if (btnProximo) btnProximo.textContent = "Avançar";
 }
 
 function inicializarHistorico() {
+  prepararAbaHistorico();
   renderizarFiltrosHistorico();
   document.getElementById("btn-toggle-historico")?.addEventListener("click", alternarHistorico);
   document.getElementById("btn-historico-anterior")?.addEventListener("click", () => paginaHistorico(-1));
   document.getElementById("btn-historico-proximo")?.addEventListener("click", () => paginaHistorico(1));
-  document.getElementById("filtro-historico-indice")?.addEventListener("change", atualizarFiltroHistorico);
+  document.getElementById("historico-scroll")?.addEventListener("input", rolarHistorico);
   document.getElementById("filtro-historico-status")?.addEventListener("change", atualizarFiltroHistorico);
+  document.getElementById("filtro-historico-zona")?.addEventListener("change", atualizarFiltroHistorico);
 }
 
 // ---------------------------------------------------------------------------
@@ -1490,6 +1918,14 @@ function inicializarAbas() {
         }, 0);
       }
 
+      if (aba === "historico") {
+        carregarHistoricoPersistido({ manterJanelaFinal: true });
+        setTimeout(() => {
+          graficosHistoricoPorIndice.forEach((grafico) => grafico.resize());
+          if (graficoHistoricoEntradas) graficoHistoricoEntradas.resize();
+        }, 0);
+      }
+
       if (aba === "zonas") {
         carregarZonas();
       }
@@ -1503,8 +1939,6 @@ function moverControlesParaConfiguracoes() {
   const configuracoesSensores = document.getElementById("configuracoes-sensores");
   const configuracoesCalculos = document.getElementById("configuracoes-calculos");
   const configuracoesHistorico = document.getElementById("configuracoes-historico");
-  const historicoAcoes = document.getElementById("historico-acoes");
-  const historicoPaginacao = document.getElementById("historico-paginacao");
 
   const email = document.getElementById("wrap-email-destino");
   const limparHistorico = document.getElementById("btn-limpar");
@@ -1557,7 +1991,6 @@ function moverControlesParaConfiguracoes() {
   moverCampo("cfg-altitude", configuracoesCalculos);
   moverCampo("cfg-limite-umidade-nebulizador", configuracoesCalculos);
 
-  if (historicoAcoes && historicoPaginacao) historicoAcoes.appendChild(historicoPaginacao);
   if (configuracoesHistorico && limparHistorico) configuracoesHistorico.appendChild(limparHistorico);
 
   document.querySelectorAll(".entrada-painel .acao-linha").forEach((linha) => {
