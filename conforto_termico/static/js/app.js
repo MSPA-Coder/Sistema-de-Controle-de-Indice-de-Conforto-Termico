@@ -94,9 +94,7 @@ const ICONE_SENSOR =
 
 const estado = { especie: "frangos", indice: "ITU", zonaId: null };
 
-let graficosPorIndice = new Map();
 let graficoEntradas = null;
-let assinaturaGraficos = "";
 let graficosHistoricoPorIndice = new Map();
 let graficoHistoricoEntradas = null;
 let assinaturaGraficosHistorico = "";
@@ -557,14 +555,10 @@ async function carregarHistorico() {
   if (!zonasPrincipal.length) {
     ultimosHistoricosGrafico = {};
     destruirGraficosZonasPrincipal();
-    graficosPorIndice.forEach((grafico) => grafico.destroy());
-    graficosPorIndice.clear();
     if (graficoEntradas) {
       graficoEntradas.destroy();
       graficoEntradas = null;
     }
-    document.getElementById("graficos-indices").textContent = "";
-    assinaturaGraficos = "";
     await carregarHistoricoPersistido({ manterJanelaFinal: true });
     return;
   }
@@ -657,7 +651,6 @@ async function fazerBackupBanco() {
 // esta funcao monta os elementos via DOM real com `textContent`, sem
 // interpretar conteudo como HTML.
 function definirMensagemOrientacao(mensagem, aviso, container) {
-  container = container || document.getElementById("mensagem-orientacao");
   if (!container) return;
   container.textContent = "";
   container.appendChild(document.createTextNode(mensagem));
@@ -700,26 +693,7 @@ function resetarLinhaZonaPrincipal(zona) {
 
 function resetarPainelResultado() {
   ultimosResultados = null;
-  if (document.getElementById("linhas-zonas-principal")) {
-    zonasOrdenadasPrincipal().forEach((zona) => resetarLinhaZonaPrincipal(zona));
-    atualizarEmail(null);
-    esconderErro();
-    return;
-  }
-  const readoutValor = document.getElementById("readout-valor");
-  readoutValor.textContent = "--,--";
-  readoutValor.className = "readout-valor";
-  document.getElementById("readout-indice").textContent = estado.indice;
-
-  const faixa = document.getElementById("faixa-status");
-  faixa.className = "faixa-status faixa-status--vazio";
-  document.getElementById("faixa-status-texto").textContent = "AGUARDANDO CÁLCULO";
-
-  document.getElementById("mensagem-orientacao").innerHTML =
-    "Selecione uma zona ativa e clique em <strong>Ler zona agora</strong> para ver o status do lote.";
-
-  atualizarEquipamento(null, null);
-  atualizarSensorRemoto();
+  zonasOrdenadasPrincipal().forEach((zona) => resetarLinhaZonaPrincipal(zona));
   atualizarEmail(null);
   esconderErro();
 }
@@ -772,15 +746,17 @@ function atualizarResultado(dados) {
 
   // 1) Elementos essenciais primeiro - nunca dependem de bibliotecas externas,
   //    entao sempre devem atualizar mesmo se algo mais adiante falhar.
-  const readoutValor = elementoLinhaZonaPrincipal(zona.id, "readout-valor") || document.getElementById("readout-valor");
-  readoutValor.textContent = selecionado.valor.toFixed(2).replace(".", ",");
-  readoutValor.className = "readout-valor cor-" + classe;
-  const readoutIndice = elementoLinhaZonaPrincipal(zona.id, "readout-indice") || document.getElementById("readout-indice");
+  const readoutValor = elementoLinhaZonaPrincipal(zona.id, "readout-valor");
+  if (readoutValor) {
+    readoutValor.textContent = selecionado.valor.toFixed(2).replace(".", ",");
+    readoutValor.className = "readout-valor cor-" + classe;
+  }
+  const readoutIndice = elementoLinhaZonaPrincipal(zona.id, "readout-indice");
   if (readoutIndice) readoutIndice.textContent = selecionado.indice || zona.indice;
 
-  const faixa = elementoLinhaZonaPrincipal(zona.id, "faixa-status") || document.getElementById("faixa-status");
-  faixa.className = "faixa-status faixa-" + classe;
-  const faixaTexto = elementoLinhaZonaPrincipal(zona.id, "faixa-status-texto") || document.getElementById("faixa-status-texto");
+  const faixa = elementoLinhaZonaPrincipal(zona.id, "faixa-status");
+  if (faixa) faixa.className = "faixa-status faixa-" + classe;
+  const faixaTexto = elementoLinhaZonaPrincipal(zona.id, "faixa-status-texto");
   if (faixaTexto) faixaTexto.textContent = selecionado.status.toUpperCase();
 
   definirMensagemOrientacao(
@@ -881,7 +857,7 @@ function atualizarEquipamento(equip, status, zona = zonaPrincipalSelecionada()) 
   const totalNebulizadores = equipamentosDaZona(zona, "nebulizador").length * ICONES_POR_EQUIPAMENTO_ATUADOR;
 
   renderizarIconesEquipamento(
-    elementoLinhaZonaPrincipal(zona?.id, "icones-ventilador") || "icones-ventilador",
+    elementoLinhaZonaPrincipal(zona?.id, "icones-ventilador"),
     ICONE_VENTILADOR,
     "Ventilador",
     ventiladorLigado,
@@ -891,7 +867,7 @@ function atualizarEquipamento(equip, status, zona = zonaPrincipalSelecionada()) 
     ventiladorLigado ? totalVentiladores : 0
   );
   renderizarIconesEquipamento(
-    elementoLinhaZonaPrincipal(zona?.id, "icones-nebulizador") || "icones-nebulizador",
+    elementoLinhaZonaPrincipal(zona?.id, "icones-nebulizador"),
     ICONE_NEBULIZADOR,
     "Nebulizador",
     nebulizadorLigado,
@@ -901,7 +877,7 @@ function atualizarEquipamento(equip, status, zona = zonaPrincipalSelecionada()) 
     nebulizadorLigado ? totalNebulizadores : 0
   );
 
-  const intensidadeValor = elementoLinhaZonaPrincipal(zona?.id, "intensidade-valor") || document.getElementById("intensidade-valor");
+  const intensidadeValor = elementoLinhaZonaPrincipal(zona?.id, "intensidade-valor");
   if (intensidadeValor) {
     intensidadeValor.textContent = intensidade ? rotuloIntensidade(intensidade) : "desligado";
   }
@@ -912,7 +888,7 @@ function atualizarSensorRemotoZona(zona) {
   const sensorLigado = !!(checkboxColeta && checkboxColeta.checked && zona && zona.ativa);
 
   renderizarIconesEquipamento(
-    elementoLinhaZonaPrincipal(zona?.id, "icones-sensor") || "icones-sensor",
+    elementoLinhaZonaPrincipal(zona?.id, "icones-sensor"),
     ICONE_SENSOR,
     "Sensor",
     sensorLigado,
@@ -924,11 +900,7 @@ function atualizarSensorRemotoZona(zona) {
 }
 
 function atualizarSensorRemoto() {
-  if (document.getElementById("linhas-zonas-principal")) {
-    zonasOrdenadasPrincipal().forEach((zona) => atualizarSensorRemotoZona(zona));
-    return;
-  }
-  atualizarSensorRemotoZona(zonaPrincipalSelecionada());
+  zonasOrdenadasPrincipal().forEach((zona) => atualizarSensorRemotoZona(zona));
 }
 
 function atualizarEmail(emailInfo) {
@@ -1778,7 +1750,6 @@ function inicializarAbas() {
 
       if (aba === "principal") {
         setTimeout(() => {
-          graficosPorIndice.forEach((grafico) => grafico.resize());
           graficosIndicePrincipalPorZona.forEach((grafico) => grafico.resize());
           if (graficoEntradas) graficoEntradas.resize();
         }, 0);
@@ -2136,7 +2107,6 @@ async function selecionarZonaPrincipal(zonaId) {
     estado.especie = zona.especie;
     estado.indice = zona.indice;
   }
-  assinaturaGraficos = "";
   historicoPaginaAtual = 1;
   atualizarResumoZonaPrincipal(zona);
   renderCamposEntrada();
