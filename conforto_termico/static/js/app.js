@@ -164,14 +164,6 @@ function camposEntradaIndiceAtual() {
   return [...camposObrigatoriosIndiceAtual(), ...camposDerivadosIndiceAtual()];
 }
 
-function pontoOrvalhoCalculado() {
-  return document.getElementById("cfg-ponto-orvalho")?.value === "calculado";
-}
-
-function umidadeRelativaCalculada() {
-  return document.getElementById("cfg-umidade-relativa")?.value !== "medido";
-}
-
 function campoCalculado(campo) {
   return camposDerivadosIndiceAtual().includes(campo);
 }
@@ -1048,15 +1040,6 @@ function chavesCronologicas(historicosPorIndice) {
   )].sort();
 }
 
-function assinaturaDoHistorico(historicos) {
-  return JSON.stringify({
-    zonaId: estado.zonaId,
-    especie: estado.especie,
-    indices: indicesDaEspecie(),
-    historicos: normalizarHistoricosPorIndice(historicos),
-  });
-}
-
 function criarOuAtualizarGrafico(grafico, canvasId, configuracao) {
   if (!grafico) {
     return new Chart(document.getElementById(canvasId).getContext("2d"), configuracao);
@@ -1120,17 +1103,6 @@ function atualizarGraficoIndiceZonaPrincipal(zona, historico) {
     options: opcoes,
   });
   graficosIndicePrincipalPorZona.set(zona.id, grafico);
-}
-
-function indicesOrdenadosParaGraficos() {
-  return [
-    estado.indice,
-    ...indicesDaEspecie().filter((indice) => indice !== estado.indice),
-  ];
-}
-
-function idGraficoIndice(indice) {
-  return "grafico-indice-" + indice.toLowerCase();
 }
 
 function entradasPorChaveDosHistoricos(historicosPorIndice) {
@@ -1200,98 +1172,6 @@ function atualizarGraficoEntradas(historicosPorIndice) {
   });
 }
 
-function garantirBlocosGraficos(indices) {
-  const container = document.getElementById("graficos-indices");
-  if (!container) return;
-
-  const idsAtivos = new Set(indices.map(idGraficoIndice));
-  [...container.querySelectorAll(".grafico-bloco-indice")].forEach((bloco) => {
-    if (!idsAtivos.has(bloco.dataset.canvasId)) bloco.remove();
-  });
-
-  indices.forEach((indice) => {
-    const canvasId = idGraficoIndice(indice);
-    let bloco = container.querySelector(`[data-canvas-id="${canvasId}"]`);
-    if (!bloco) {
-      bloco = document.createElement("div");
-      bloco.className = "grafico-bloco grafico-bloco-indice";
-      bloco.dataset.canvasId = canvasId;
-
-      const titulo = document.createElement("p");
-      titulo.className = "grafico-titulo";
-      titulo.textContent = "Valor do " + indice + " por leitura";
-
-      const wrap = document.createElement("div");
-      wrap.className = "grafico-canvas-wrap";
-
-      const canvas = document.createElement("canvas");
-      canvas.id = canvasId;
-
-      wrap.appendChild(canvas);
-      bloco.append(titulo, wrap);
-    }
-    const titulo = bloco.querySelector(".grafico-titulo");
-    if (titulo) {
-      titulo.textContent = resumoZonaPrincipal(zonaPrincipalSelecionada()) || ("Valor do " + indice + " por leitura");
-    }
-    container.appendChild(bloco);
-  });
-}
-
-function atualizarGraficos(historicos) {
-  if (typeof Chart === "undefined") {
-    throw new Error(
-      "A biblioteca Chart.js não foi carregada (conforto_termico/static/js/vendor/chart.umd.js). " +
-      "Confira se a pasta 'conforto_termico/static/js/vendor' foi copiada junto com o projeto."
-    );
-  }
-
-  const historicosPorIndice = normalizarHistoricosPorIndice(historicos);
-  const indices = indicesOrdenadosParaGraficos();
-  const novaAssinatura = assinaturaDoHistorico(historicosPorIndice) + ";" + estado.indice;
-  if (novaAssinatura === assinaturaGraficos && graficosPorIndice.size) {
-    return;
-  }
-  assinaturaGraficos = novaAssinatura;
-
-  atualizarGraficoEntradas(historicosPorIndice);
-  garantirBlocosGraficos(indices);
-
-  const indicesAtivos = new Set(indices);
-  graficosPorIndice.forEach((grafico, indice) => {
-    if (!indicesAtivos.has(indice)) {
-      grafico.destroy();
-      graficosPorIndice.delete(indice);
-    }
-  });
-
-  indices.forEach((indice) => {
-    const historico = historicosPorIndice[indice] || [];
-    const canvasId = idGraficoIndice(indice);
-    const dataset = graficosPorIndice.get(indice)?.data.datasets[0] || {};
-    Object.assign(dataset, {
-      label: indice,
-      data: historico.map((h) => h.valor),
-      backgroundColor: historico.map((h) => corStatus(h.status)),
-      borderRadius: 3,
-      maxBarThickness: 26,
-    });
-
-    const opcoes = opcoesGrafico(false);
-    aplicarEscalaDinamica(opcoes, "y", dataset.data);
-
-    const grafico = criarOuAtualizarGrafico(graficosPorIndice.get(indice), canvasId, {
-      type: "bar",
-      data: {
-        labels: historico.map((h) => formatarHora(h.criado_em)),
-        datasets: [dataset],
-      },
-      options: opcoes,
-    });
-    graficosPorIndice.set(indice, grafico);
-  });
-}
-
 function historicosPorIndiceDasLeituras(leituras) {
   return (leituras || []).reduce((agrupado, leitura) => {
     const indice = leitura.indice || estado.indice;
@@ -1327,23 +1207,6 @@ function textoLegendaPeriodo(leituras) {
     ? dias[0]
     : formatarDataCurta(inicio) + " a " + formatarDataCurta(fim);
   return "Período exibido: " + periodo + ". Clique em uma barra ou ponto para cruzar a leitura nos gráficos.";
-}
-
-function atualizarLegendaGraficoHistorico(containerId, leituras) {
-  const container = document.getElementById(containerId);
-  if (!container) return;
-  let legenda = container.querySelector(".grafico-legenda");
-  if (!legenda) {
-    legenda = document.createElement("p");
-    legenda.className = "grafico-legenda";
-    const titulo = container.querySelector(".grafico-titulo");
-    if (titulo && titulo.nextSibling) {
-      container.insertBefore(legenda, titulo.nextSibling);
-    } else {
-      container.appendChild(legenda);
-    }
-  }
-  legenda.textContent = textoLegendaPeriodo(leituras);
 }
 
 function removerLegendaGraficoHistorico(containerId) {
@@ -1767,12 +1630,6 @@ async function carregarHistoricoPersistido(opcoes = {}) {
   }
 }
 
-function atualizarTabela(historicos) {
-  historicoLeiturasBase = leiturasTabela(historicos);
-  renderizarFiltrosHistorico();
-  aplicarFiltrosHistorico(false);
-}
-
 function alternarHistorico() {
   const corpo = document.getElementById("historico-corpo");
   const botao = document.getElementById("btn-toggle-historico");
@@ -2089,10 +1946,6 @@ function zonasOrdenadasPrincipal() {
 function equipamentosDaZona(zona, tipo) {
   if (!zona) return [];
   return (zona.equipamentos || []).filter((equipamento) => equipamento.tipo === tipo);
-}
-
-function equipamentosDaZonaSelecionada(tipo) {
-  return equipamentosDaZona(zonaPrincipalSelecionada(), tipo);
 }
 
 function linhaZonaPrincipal(zonaId) {

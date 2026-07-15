@@ -194,8 +194,8 @@ def validar_entradas(indice: str, entradas: dict) -> dict:
     for campo in campos:
         try:
             valor = float(str(entradas[campo]).replace(",", "."))
-        except (TypeError, ValueError):
-            raise EntradaInvalidaError(f"O valor de '{campo}' precisa ser numérico.")
+        except (TypeError, ValueError) as err:
+            raise EntradaInvalidaError(f"O valor de '{campo}' precisa ser numérico.") from err
         minimo, maximo = RANGE_VALIDACAO[campo]
         if not (minimo <= valor <= maximo):
             raise EntradaInvalidaError(

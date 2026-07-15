@@ -19,7 +19,7 @@ import os
 import re
 import sqlite3
 import threading
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from typing import Iterator
 
 from . import thermal_indices as ti
@@ -28,13 +28,19 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INSTANCE_DIR = os.path.join(PROJECT_ROOT, "instance")
 DB_PATH = os.path.join(INSTANCE_DIR, "historico.db")
 
-_lock = threading.Lock()
+# So serializa ESCRITAS (INSERT/UPDATE/DELETE/DDL) entre threads deste
+# processo. Leituras (`_conexao(escrita=False)`) nao adquirem nada: em modo
+# WAL (ver `iniciar_banco`) leitores concorrentes tem sua propria snapshot e
+# nao bloqueiam nem sao bloqueados por um escritor, entao serializa-las so
+# custaria latencia sem trazer nenhum ganho de seguranca.
+_write_lock = threading.Lock()
+_SEM_LOCK = nullcontext()
 INTERVALO_MINIMO_LEITURAS = datetime.timedelta(minutes=1)
 
 # Tempo (segundos) que uma conexao espera por um lock antes de desistir com
-# "database is locked". O `_lock` do Python ja serializa acessos dentro do
-# MESMO processo; este timeout cobre o caso de outro processo (ex.: uma
-# ferramenta externa) acessando o mesmo arquivo ao mesmo tempo.
+# "database is locked". O `_write_lock` ja serializa escritas dentro do MESMO
+# processo; este timeout cobre o caso de outro processo (ex.: uma ferramenta
+# externa) escrevendo no mesmo arquivo ao mesmo tempo.
 TIMEOUT_CONEXAO_SEGUNDOS = 30.0
 
 CONFIGURACOES_PADRAO = {
@@ -80,10 +86,25 @@ _EMAIL_REGEX = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 
 @contextmanager
-def _conexao() -> Iterator[sqlite3.Connection]:
+def _conexao(*, escrita: bool = True) -> Iterator[sqlite3.Connection]:
     """Abre uma conexao SQLite, garante commit em caso de sucesso (ou
-    rollback em caso de excecao) e SEMPRE fecha a conexao ao final."""
-    with _lock:
+    rollback em caso de excecao) e SEMPRE fecha a conexao ao final.
+
+    `escrita=True` (padrao, e o unico modo usado antes desta versao) serializa
+    a conexao com qualquer outra escrita em andamento neste processo por meio
+    de `_write_lock`. Isso e o que garante a "unicidade" logica de operacoes
+    como "verificar se a zona existe e, se sim, inserir o equipamento":
+    quando o codigo-chamador faz a checagem e a mutacao dentro do MESMO bloco
+    `with _conexao() as conn:`, nenhuma outra thread consegue intercalar uma
+    mudanca no meio do caminho (ver `criar_equipamento`, `atualizar_zona`,
+    `atualizar_equipamento` e `salvar_configuracoes`).
+
+    `escrita=False` e usado pelas funcoes somente-leitura (`obter_*`,
+    `listar_*`, `contar_*`): elas dispensam o lock, permitindo que varias
+    leituras concorrentes (ex.: o dashboard consultando o historico enquanto
+    o modo automatico grava uma leitura) rodem em paralelo de verdade."""
+    lock = _write_lock if escrita else _SEM_LOCK
+    with lock:
         diretorio_banco = os.path.dirname(DB_PATH)
         if diretorio_banco:
             os.makedirs(diretorio_banco, exist_ok=True)
@@ -102,7 +123,15 @@ def _conexao() -> Iterator[sqlite3.Connection]:
             conn.close()
 
 
+_TABELAS_CONHECIDAS = frozenset({"leituras", "zonas", "equipamentos", "configuracoes"})
+
+
 def _coluna_existe(conn: sqlite3.Connection, tabela: str, coluna: str) -> bool:
+    # `tabela` nunca vem de entrada externa hoje, mas o allowlist evita que
+    # um uso futuro descuidado (ex.: nome de tabela vindo de uma variavel
+    # nao confiavel) abra uma brecha de injecao de SQL via f-string.
+    if tabela not in _TABELAS_CONHECIDAS:
+        raise ValueError(f"Tabela desconhecida: {tabela!r}")
     linhas = conn.execute(f"PRAGMA table_info({tabela})").fetchall()
     return any(linha["name"] == coluna for linha in linhas)
 
@@ -176,6 +205,11 @@ def iniciar_banco() -> None:
         )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_equipamentos_zona_id ON equipamentos (zona_id)"
+        )
+        # Usado por `listar_zonas(apenas_ativas=True)` (calculo automatico e
+        # manual, que so processam zonas ativas -- ver web.py).
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_zonas_ativa ON zonas (ativa)"
         )
 
         # MIGRACAO: `zona_id` foi adicionado depois que a tabela `leituras`
@@ -270,7 +304,7 @@ def salvar_leitura(
 
 
 def obter_historico(especie: str, indice: str, limite: int = 20) -> list[dict]:
-    with _conexao() as conn:
+    with _conexao(escrita=False) as conn:
         linhas = conn.execute(
             "SELECT * FROM leituras WHERE especie = ? AND indice = ? "
             "ORDER BY id DESC LIMIT ?",
@@ -288,7 +322,7 @@ def obter_historico_por_zona(zona_id: int, limite: int = 20) -> list[dict]:
     de por especie/indice) -- usado pela aba Zonas para mostrar o
     historico de uma zona especifica, isolado de leituras manuais/de
     outras zonas que porventura compartilhem a mesma especie/indice."""
-    with _conexao() as conn:
+    with _conexao(escrita=False) as conn:
         linhas = conn.execute(
             "SELECT * FROM leituras WHERE zona_id = ? ORDER BY id DESC LIMIT ?",
             (zona_id, limite),
@@ -329,7 +363,7 @@ def obter_historico_leituras(
         parametros.append(status)
 
     where = ("WHERE " + " AND ".join(filtros)) if filtros else ""
-    with _conexao() as conn:
+    with _conexao(escrita=False) as conn:
         (total,) = conn.execute(
             f"SELECT COUNT(*) FROM leituras l {where}",
             parametros,
@@ -382,7 +416,10 @@ def criar_backup_banco() -> dict:
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     caminho_backup = os.path.join(diretorio, f"{nome_base}_backup_{timestamp}.db")
 
-    with _lock:
+    # Usa o mesmo lock de escrita (nao `_conexao()`) porque `Connection.backup`
+    # gerencia suas proprias transacoes na origem e no destino; so precisamos
+    # garantir que nenhuma escrita deste processo comece no meio da copia.
+    with _write_lock:
         origem = sqlite3.connect(DB_PATH, timeout=TIMEOUT_CONEXAO_SEGUNDOS)
         destino = sqlite3.connect(caminho_backup)
         try:
@@ -400,7 +437,7 @@ def criar_backup_banco() -> dict:
 
 def contar_leituras() -> int:
     """Utilitario de diagnostico: total de linhas gravadas na tabela."""
-    with _conexao() as conn:
+    with _conexao(escrita=False) as conn:
         (total,) = conn.execute("SELECT COUNT(*) FROM leituras").fetchone()
     return total
 
@@ -429,11 +466,19 @@ class ZonaInvalidaError(ValueError):
     """Erro de validacao ao criar/atualizar uma zona ou equipamento Modbus."""
 
 
+class ZonaNaoEncontradaError(ZonaInvalidaError):
+    """Subclasse especifica para "zona_id nao existe", usada por
+    `criar_equipamento`. Existe para que a camada HTTP (web.py) saiba
+    devolver 404 (em vez de 400) SEM precisar refazer a consulta "a zona
+    existe?" -- que ja foi respondida, atomicamente, dentro da mesma
+    transacao que tentou a operacao (ver `criar_equipamento`)."""
+
+
 def _validar_inteiro(valor, nome_campo: str, minimo: int, maximo: int) -> int:
     try:
         numero = int(float(str(valor).replace(",", ".")))
-    except (TypeError, ValueError):
-        raise ZonaInvalidaError(f"O campo '{nome_campo}' precisa ser um número inteiro.")
+    except (TypeError, ValueError) as err:
+        raise ZonaInvalidaError(f"O campo '{nome_campo}' precisa ser um número inteiro.") from err
     if not (minimo <= numero <= maximo):
         raise ZonaInvalidaError(f"O campo '{nome_campo}' precisa estar entre {minimo} e {maximo}.")
     return numero
@@ -442,8 +487,8 @@ def _validar_inteiro(valor, nome_campo: str, minimo: int, maximo: int) -> int:
 def _validar_numero(valor, nome_campo: str) -> float:
     try:
         return float(str(valor).replace(",", "."))
-    except (TypeError, ValueError):
-        raise ZonaInvalidaError(f"O campo '{nome_campo}' precisa ser numérico.")
+    except (TypeError, ValueError) as err:
+        raise ZonaInvalidaError(f"O campo '{nome_campo}' precisa ser numérico.") from err
 
 
 def _validar_zona(dados: dict) -> dict:
@@ -558,40 +603,84 @@ def criar_zona(dados: dict) -> dict:
             (validado["nome"], validado["especie"], validado["indice"], int(validado["ativa"]), agora),
         )
         zona_id = cursor.lastrowid
-    return obter_zona(zona_id)
+    # Monta o retorno com os dados ja em maos, em vez de abrir uma segunda
+    # conexao so para reler o que acabamos de gravar: uma zona recem-criada
+    # nunca tem equipamentos (sao cadastrados depois, num POST separado).
+    return {
+        "id": zona_id,
+        "nome": validado["nome"],
+        "especie": validado["especie"],
+        "indice": validado["indice"],
+        "ativa": validado["ativa"],
+        "criado_em": agora,
+        "equipamentos": [],
+    }
 
 
-def listar_zonas() -> list[dict]:
-    with _conexao() as conn:
-        linhas = conn.execute("SELECT * FROM zonas ORDER BY id").fetchall()
-    zonas = [dict(linha) for linha in linhas]
+def listar_zonas(*, apenas_ativas: bool = False) -> list[dict]:
+    filtro = "WHERE ativa = 1" if apenas_ativas else ""
+    with _conexao(escrita=False) as conn:
+        linhas_zonas = conn.execute(f"SELECT * FROM zonas {filtro} ORDER BY id").fetchall()
+        # Uma unica consulta para os equipamentos de TODAS as zonas, em vez
+        # de uma consulta por zona (N+1): antes, listar 20 zonas abria 21
+        # conexoes/consultas; agora abre so 2, dentro da mesma conexao.
+        linhas_equipamentos = conn.execute(
+            "SELECT * FROM equipamentos ORDER BY zona_id, tipo, id"
+        ).fetchall()
+
+    equipamentos_por_zona: dict[int, list[dict]] = {}
+    for linha in linhas_equipamentos:
+        equipamentos_por_zona.setdefault(linha["zona_id"], []).append(dict(linha))
+
+    zonas = [dict(linha) for linha in linhas_zonas]
     for zona in zonas:
         zona["ativa"] = bool(zona["ativa"])
-        zona["equipamentos"] = listar_equipamentos_da_zona(zona["id"])
+        zona["equipamentos"] = equipamentos_por_zona.get(zona["id"], [])
     return zonas
 
 
 def obter_zona(zona_id: int) -> dict | None:
-    with _conexao() as conn:
+    with _conexao(escrita=False) as conn:
         linha = conn.execute("SELECT * FROM zonas WHERE id = ?", (zona_id,)).fetchone()
-    if not linha:
-        return None
+        if not linha:
+            return None
+        equipamentos = conn.execute(
+            "SELECT * FROM equipamentos WHERE zona_id = ? ORDER BY tipo, id", (zona_id,)
+        ).fetchall()
     zona = dict(linha)
     zona["ativa"] = bool(zona["ativa"])
-    zona["equipamentos"] = listar_equipamentos_da_zona(zona_id)
+    zona["equipamentos"] = [dict(e) for e in equipamentos]
     return zona
 
 
 def atualizar_zona(zona_id: int, dados: dict) -> dict | None:
-    if obter_zona(zona_id) is None:
-        return None
+    """Valida os dados primeiro (falha antes de tocar no banco se estiverem
+    invalidos) e so entao confere a existencia da zona e grava a mudanca
+    dentro de UMA UNICA transacao. Fazer a checagem "a zona existe?" e a
+    escrita em conexoes separadas (como nesta funcao antes) deixava uma
+    brecha real: outra requisicao poderia excluir a zona bem entre as duas
+    chamadas, e o UPDATE seguinte silenciosamente nao afetaria nada (ou, em
+    tese, reviveria dados para um id que outra escrita concorrente acabou de
+    reaproveitar). Com tudo em um so `with _conexao()`, a checagem e a
+    mutacao sao atomicas: nenhuma outra escrita deste processo roda no meio
+    do caminho."""
     validado = _validar_zona(dados)
     with _conexao() as conn:
+        existe = conn.execute("SELECT 1 FROM zonas WHERE id = ?", (zona_id,)).fetchone()
+        if existe is None:
+            return None
         conn.execute(
             "UPDATE zonas SET nome = ?, especie = ?, indice = ?, ativa = ? WHERE id = ?",
             (validado["nome"], validado["especie"], validado["indice"], int(validado["ativa"]), zona_id),
         )
-    return obter_zona(zona_id)
+        zona_linha = conn.execute("SELECT * FROM zonas WHERE id = ?", (zona_id,)).fetchone()
+        equipamentos = conn.execute(
+            "SELECT * FROM equipamentos WHERE zona_id = ? ORDER BY tipo, id", (zona_id,)
+        ).fetchall()
+    zona = dict(zona_linha)
+    zona["ativa"] = bool(zona["ativa"])
+    zona["equipamentos"] = [dict(e) for e in equipamentos]
+    return zona
 
 
 def excluir_zona(zona_id: int) -> bool:
@@ -605,11 +694,23 @@ def excluir_zona(zona_id: int) -> bool:
 
 
 def criar_equipamento(zona_id: int, dados: dict) -> dict:
-    if obter_zona(zona_id) is None:
-        raise ZonaInvalidaError(f"Zona {zona_id} não encontrada.")
-    validado = _validar_equipamento(dados)
+    """Confere a existencia da zona, valida os dados e insere o equipamento,
+    tudo na MESMA transacao (ver a nota em `atualizar_zona` sobre por que
+    checagem+mutacao precisam estar juntas). A ordem -- zona primeiro, dados
+    depois -- e proposital e igual a de antes desta funcao virar uma unica
+    transacao: se a zona nao existe E os dados tambem sao invalidos, quem
+    chama recebe "zona não encontrada" (404), o problema mais fundamental,
+    em vez de um erro de validacao dos dados de um equipamento que nem
+    poderia ser criado de qualquer forma. Isso tambem elimina o round-trip
+    extra que existia antes: a checagem de existencia era uma conexao
+    (`obter_zona`), a insercao outra, e a releitura do resultado uma
+    terceira -- agora e tudo uma unica conexao/transacao."""
     agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
     with _conexao() as conn:
+        zona_existe = conn.execute("SELECT 1 FROM zonas WHERE id = ?", (zona_id,)).fetchone()
+        if zona_existe is None:
+            raise ZonaNaoEncontradaError(f"Zona {zona_id} não encontrada.")
+        validado = _validar_equipamento(dados)
         cursor = conn.execute(
             """
             INSERT INTO equipamentos (
@@ -637,11 +738,14 @@ def criar_equipamento(zona_id: int, dados: dict) -> dict:
             ),
         )
         equipamento_id = cursor.lastrowid
-    return obter_equipamento(equipamento_id)
+        linha = conn.execute(
+            "SELECT * FROM equipamentos WHERE id = ?", (equipamento_id,)
+        ).fetchone()
+    return dict(linha)
 
 
 def listar_equipamentos_da_zona(zona_id: int) -> list[dict]:
-    with _conexao() as conn:
+    with _conexao(escrita=False) as conn:
         linhas = conn.execute(
             "SELECT * FROM equipamentos WHERE zona_id = ? ORDER BY tipo, id", (zona_id,)
         ).fetchall()
@@ -649,7 +753,7 @@ def listar_equipamentos_da_zona(zona_id: int) -> list[dict]:
 
 
 def obter_equipamento(equipamento_id: int) -> dict | None:
-    with _conexao() as conn:
+    with _conexao(escrita=False) as conn:
         linha = conn.execute(
             "SELECT * FROM equipamentos WHERE id = ?", (equipamento_id,)
         ).fetchone()
@@ -657,10 +761,13 @@ def obter_equipamento(equipamento_id: int) -> dict | None:
 
 
 def atualizar_equipamento(equipamento_id: int, dados: dict) -> dict | None:
-    if obter_equipamento(equipamento_id) is None:
-        return None
     validado = _validar_equipamento(dados)
     with _conexao() as conn:
+        existe = conn.execute(
+            "SELECT 1 FROM equipamentos WHERE id = ?", (equipamento_id,)
+        ).fetchone()
+        if existe is None:
+            return None
         conn.execute(
             """
             UPDATE equipamentos SET
@@ -686,7 +793,10 @@ def atualizar_equipamento(equipamento_id: int, dados: dict) -> dict | None:
                 equipamento_id,
             ),
         )
-    return obter_equipamento(equipamento_id)
+        linha = conn.execute(
+            "SELECT * FROM equipamentos WHERE id = ?", (equipamento_id,)
+        ).fetchone()
+    return dict(linha)
 
 
 def excluir_equipamento(equipamento_id: int) -> bool:
@@ -823,20 +933,23 @@ def _sanitizar_configuracoes(configuracoes: dict) -> dict:
     }
 
 
-def obter_configuracoes() -> dict:
-    with _conexao() as conn:
-        linhas = conn.execute("SELECT chave, valor FROM configuracoes").fetchall()
-
+def _decodificar_configuracoes(linhas) -> dict:
     configuracoes = dict(CONFIGURACOES_PADRAO)
     for linha in linhas:
         try:
             configuracoes[linha["chave"]] = json.loads(linha["valor"])
         except json.JSONDecodeError:
             configuracoes[linha["chave"]] = linha["valor"]
+    return configuracoes
+
+
+def obter_configuracoes() -> dict:
+    with _conexao(escrita=False) as conn:
+        linhas = conn.execute("SELECT chave, valor FROM configuracoes").fetchall()
     # Sanitiza tambem na leitura: protege contra um valor corrompido ou
     # editado manualmente no arquivo .db (defesa em profundidade -- a
     # escrita ja e validada em salvar_configuracoes).
-    return _sanitizar_configuracoes(configuracoes)
+    return _sanitizar_configuracoes(_decodificar_configuracoes(linhas))
 
 
 def salvar_configuracoes(configuracoes: dict) -> dict:
@@ -850,12 +963,22 @@ def salvar_configuracoes(configuracoes: dict) -> dict:
     # configurada, porque o front-end sempre envia o payload completo e o
     # campo de senha no navegador sempre chega vazio (nunca e preenchido de
     # volta a partir do servidor).
-    if not str(configuracoes.get("smtpSenha", "")).strip():
-        configuracoes["smtpSenha"] = obter_configuracoes().get("smtpSenha", "")
-
-    salvas = _sanitizar_configuracoes(configuracoes)
+    #
+    # A leitura do valor atual e a escrita do valor final agora acontecem
+    # dentro da MESMA transacao (mesma conexao, mesmo `with`). Antes, eram
+    # duas conexoes separadas: se duas requisicoes salvassem configuracoes
+    # em paralelo, uma podia ler a senha "antiga" DEPOIS que a outra ja
+    # tinha calculado (mas ainda nao gravado) uma senha nova, e a gravacao
+    # da primeira sobrescreveria a da segunda com um valor desatualizado
+    # ("lost update" classico). Com tudo em uma transacao serializada por
+    # `_write_lock`, isso deixa de ser possivel.
     agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
     with _conexao() as conn:
+        if not str(configuracoes.get("smtpSenha", "")).strip():
+            linhas = conn.execute("SELECT chave, valor FROM configuracoes").fetchall()
+            configuracoes["smtpSenha"] = _decodificar_configuracoes(linhas).get("smtpSenha", "")
+
+        salvas = _sanitizar_configuracoes(configuracoes)
         conn.executemany(
             """
             INSERT INTO configuracoes (chave, valor, atualizado_em)

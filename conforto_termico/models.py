@@ -37,6 +37,26 @@ def _email_valido(endereco: object) -> bool:
     return isinstance(endereco, str) and bool(_EMAIL_REGEX.fullmatch(endereco.strip()))
 
 
+def formatar_linhas_entradas(entradas: dict | None) -> list[str]:
+    """Monta, uma por linha, a descricao "- Rótulo (campo): valor unidade"
+    de cada entrada usada num calculo (ex.: temperatura, umidade). Ponto
+    unico dessa formatacao: reaproveitado tanto pelo e-mail da leitura
+    unica (`Email._formatar_entradas`, aba Principal) quanto pelo e-mail
+    consolidado de zonas (`web._formatar_entradas_email`) -- antes desta
+    funcao existir, a mesma logica estava duplicada nos dois modulos."""
+    if not entradas:
+        return []
+
+    linhas = ["Dados usados no cálculo:"]
+    for campo, valor in entradas.items():
+        metadados = ti.CAMPO_METADADOS.get(campo, {})
+        label = metadados.get("label", campo)
+        unidade = metadados.get("unidade", "")
+        sufixo = f" {unidade}" if unidade else ""
+        linhas.append(f"- {label} ({campo}): {valor}{sufixo}")
+    return linhas
+
+
 class Temperatura:
     """Corresponde a classe 'Temperatura' da Figura 14: recebe leituras
     (manuais ou de sensores simulados) e calcula o Indice de Conforto
@@ -95,9 +115,6 @@ class Resfriamento:
         self.intensidade: str | None = None
         self.intensidade_reducao_pendente: str | None = None
         self.leituras_reducao_consecutivas: int = 0
-
-    def ativar(self, intensidade: str) -> None:
-        self._aplicar_intensidade(intensidade)
 
     def _aplicar_intensidade(self, intensidade: str | None) -> None:
         if intensidade is None:
@@ -231,17 +248,8 @@ class Email:
 
     @staticmethod
     def _formatar_entradas(entradas: dict | None) -> str:
-        if not entradas:
-            return ""
-
-        linhas = ["Dados usados no cálculo:"]
-        for campo, valor in entradas.items():
-            metadados = ti.CAMPO_METADADOS.get(campo, {})
-            label = metadados.get("label", campo)
-            unidade = metadados.get("unidade", "")
-            sufixo = f" {unidade}" if unidade else ""
-            linhas.append(f"- {label} ({campo}): {valor}{sufixo}")
-        return "\n".join(linhas) + "\n"
+        linhas = formatar_linhas_entradas(entradas)
+        return ("\n".join(linhas) + "\n") if linhas else ""
 
     @staticmethod
     def _formatar_zona(zona: dict | None) -> str:

@@ -3,6 +3,8 @@
 import datetime
 import os
 import tempfile
+import threading
+import time
 import unittest
 
 from conforto_termico import database as db
@@ -321,6 +323,14 @@ class TestZonasCRUD(unittest.TestCase):
         zonas = db.listar_zonas()
         self.assertEqual(1, len(zonas[0]["equipamentos"]))
 
+    def test_listar_zonas_apenas_ativas_filtra_no_banco(self):
+        ativa = db.criar_zona({"nome": "Ativa", "especie": "frangos", "indice": "ITU"})
+        db.criar_zona({"nome": "Inativa", "especie": "frangos", "indice": "ITU", "ativa": False})
+
+        zonas = db.listar_zonas(apenas_ativas=True)
+
+        self.assertEqual([ativa["id"]], [zona["id"] for zona in zonas])
+
     def test_excluir_zona_remove_equipamentos_em_cascata(self):
         zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
         equipamento = db.criar_equipamento(
@@ -452,6 +462,21 @@ class TestEquipamentosCRUD(unittest.TestCase):
         with self.assertRaises(db.ZonaInvalidaError):
             db.criar_equipamento(9999, self._equipamento_base())
 
+    def test_criar_equipamento_em_zona_inexistente_levanta_subclasse_especifica(self):
+        # ZonaNaoEncontradaError e subclasse de ZonaInvalidaError; web.py
+        # depende dela para devolver 404 (em vez de 400) sem precisar
+        # reconsultar o banco -- ver conforto_termico/web.py:criar_equipamento.
+        with self.assertRaises(db.ZonaNaoEncontradaError):
+            db.criar_equipamento(9999, self._equipamento_base())
+
+    def test_criar_equipamento_com_dados_invalidos_em_zona_inexistente_reporta_zona(self):
+        # Quando ZONA e DADOS estao errados ao mesmo tempo, a checagem da
+        # zona vem primeiro (ver `criar_equipamento`): o erro reportado e
+        # "zona nao encontrada", nao um erro de validacao dos dados do
+        # equipamento, que sequer chegou a ser conferido.
+        with self.assertRaises(db.ZonaNaoEncontradaError):
+            db.criar_equipamento(9999, {"tipo": "tipo-invalido"})
+
     def test_atualizar_equipamento(self):
         equipamento = db.criar_equipamento(self.zona["id"], self._equipamento_base())
         atualizado = db.atualizar_equipamento(
@@ -474,6 +499,82 @@ class TestEquipamentosCRUD(unittest.TestCase):
         db.criar_equipamento(self.zona["id"], self._equipamento_base(nome="S2"))
         equipamentos = db.listar_equipamentos_da_zona(self.zona["id"])
         self.assertEqual(2, len(equipamentos))
+
+
+class TestConcorrenciaLeituraEscrita(unittest.TestCase):
+    """`_conexao(escrita=False)` (usada por toda leitura) nao deve esperar
+    por uma escrita em andamento neste processo: em modo WAL, um leitor
+    trabalha com sua propria snapshot, entao serializa-lo atras do escritor
+    custaria latencia sem nenhum ganho de correcao. Ja duas ESCRITAS devem
+    continuar se serializando (ver `_write_lock`)."""
+
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.db_path_original = db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
+        db.iniciar_banco()
+
+    def tearDown(self):
+        db.DB_PATH = self.db_path_original
+        self.tempdir.cleanup()
+
+    def test_leitura_nao_espera_escrita_em_andamento(self):
+        escrita_em_andamento = threading.Event()
+        pode_liberar_escrita = threading.Event()
+
+        def escrita_lenta():
+            with db._conexao():
+                escrita_em_andamento.set()
+                pode_liberar_escrita.wait(timeout=2)
+
+        thread_escrita = threading.Thread(target=escrita_lenta)
+        thread_escrita.start()
+        self.assertTrue(escrita_em_andamento.wait(timeout=2), "escrita não começou a tempo")
+
+        inicio = time.monotonic()
+        db.obter_historico("frangos", "ITU")
+        duracao = time.monotonic() - inicio
+
+        pode_liberar_escrita.set()
+        thread_escrita.join(timeout=2)
+
+        self.assertLess(
+            duracao, 0.5,
+            "uma leitura esperou por uma escrita em andamento; "
+            "verifique se obter_historico ainda usa escrita=False",
+        )
+
+    def test_duas_escritas_continuam_serializadas(self):
+        primeira_em_andamento = threading.Event()
+        pode_liberar_primeira = threading.Event()
+        segunda_comecou_em = []
+
+        def primeira_escrita():
+            with db._conexao():
+                primeira_em_andamento.set()
+                pode_liberar_primeira.wait(timeout=2)
+
+        def segunda_escrita():
+            self.assertTrue(primeira_em_andamento.wait(timeout=2))
+            with db._conexao():
+                segunda_comecou_em.append(time.monotonic())
+
+        thread1 = threading.Thread(target=primeira_escrita)
+        thread2 = threading.Thread(target=segunda_escrita)
+        thread1.start()
+        thread1.join(timeout=0)  # so garante que a thread foi agendada
+        self.assertTrue(primeira_em_andamento.wait(timeout=2))
+
+        thread2.start()
+        time.sleep(0.1)
+        # A segunda escrita nao pode ter entrado em `_conexao()` enquanto a
+        # primeira ainda segura o lock.
+        self.assertEqual([], segunda_comecou_em)
+
+        pode_liberar_primeira.set()
+        thread1.join(timeout=2)
+        thread2.join(timeout=2)
+        self.assertEqual(1, len(segunda_comecou_em))
 
 
 if __name__ == "__main__":

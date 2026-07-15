@@ -25,6 +25,7 @@ barramento RS-485 real).
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from typing import Any
 
@@ -87,10 +88,10 @@ def testar_conexao(equipamento: dict[str, Any]) -> bool:
 
 
 def _fechar(cliente) -> None:
-    try:
+    # close() raramente falha, mas e so uma liberacao de recurso best-effort:
+    # uma excecao aqui nunca deve mascarar o resultado real da leitura/escrita.
+    with contextlib.suppress(Exception):
         cliente.close()
-    except Exception:  # pragma: no cover - defensivo, close() raramente falha
-        pass
 
 
 def ler_valor(equipamento: dict[str, Any]) -> float | None:

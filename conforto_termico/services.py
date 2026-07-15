@@ -340,8 +340,8 @@ class CalculoIctService:
     def _validar_umidade_relativa(valor) -> float:
         try:
             umidade = float(str(valor).replace(",", "."))
-        except (TypeError, ValueError):
-            raise ti.EntradaInvalidaError("O valor de 'ur' precisa ser numérico.")
+        except (TypeError, ValueError) as err:
+            raise ti.EntradaInvalidaError("O valor de 'ur' precisa ser numérico.") from err
         if not (0 <= umidade <= 100):
             raise ti.EntradaInvalidaError(
                 f"O valor de 'ur' ({umidade}) está fora da faixa esperada (0 a 100)."

@@ -40,7 +40,7 @@ from . import database as db
 from . import modbus_client
 from . import thermal_indices as ti
 from .modbus_simulador import SimuladorModbusZonas
-from .models import Email, Resfriamento
+from .models import Email, Resfriamento, formatar_linhas_entradas
 from .services import CalculoIctService, HistoricoGraficoService, SensorSimuladoService
 from .zona_service import ZonaCalculoError, ZonaService
 
@@ -466,16 +466,7 @@ def _aplicar_notificacoes_zona(resposta: dict, config: dict) -> dict:
 
 
 def _formatar_entradas_email(entradas: dict | None) -> str:
-    if not entradas:
-        return ""
-    linhas = ["Dados usados no cálculo:"]
-    for campo, valor in entradas.items():
-        metadados = ti.CAMPO_METADADOS.get(campo, {})
-        label = metadados.get("label", campo)
-        unidade = metadados.get("unidade", "")
-        sufixo = f" {unidade}" if unidade else ""
-        linhas.append(f"- {label} ({campo}): {valor}{sufixo}")
-    return "\n".join(linhas)
+    return "\n".join(formatar_linhas_entradas(entradas))
 
 
 def _montar_conteudo_email_zonas(resultados: list[dict], status_minimo: str) -> str:
@@ -617,9 +608,10 @@ def criar_equipamento(zona_id):
     dados = request.get_json(force=True, silent=True) or {}
     try:
         return jsonify(db.criar_equipamento(zona_id, dados)), 201
+    except db.ZonaNaoEncontradaError as erro:
+        return jsonify({"erro": str(erro)}), 404
     except db.ZonaInvalidaError as erro:
-        status = 404 if db.obter_zona(zona_id) is None else 400
-        return jsonify({"erro": str(erro)}), status
+        return jsonify({"erro": str(erro)}), 400
 
 
 @app.route("/api/zonas/<int:zona_id>/equipamentos/<int:equipamento_id>", methods=["PUT"])
@@ -686,9 +678,7 @@ def calcular_zona(zona_id):
 def calcular_zonas_ativas():
     config = db.obter_configuracoes()
     resultados = []
-    for zona in db.listar_zonas():
-        if not zona.get("ativa"):
-            continue
+    for zona in db.listar_zonas(apenas_ativas=True):
         try:
             resposta = zona_service.calcular(zona["id"], logger=app.logger)
             resultados.append(_aplicar_som_zona(resposta, config))
