@@ -363,6 +363,92 @@ class TestZonasCRUD(unittest.TestCase):
         self.assertFalse(db.excluir_zona(9999))
 
 
+class TestEstatisticasZonas(unittest.TestCase):
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.db_path_original = db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
+        db.iniciar_banco()
+
+    def tearDown(self):
+        db.DB_PATH = self.db_path_original
+        self.tempdir.cleanup()
+
+    def test_zona_sem_leituras_devolve_percentuais_e_agregados_none(self):
+        zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
+
+        [stats] = db.obter_estatisticas_zonas()
+
+        self.assertEqual(zona["id"], stats["zona_id"])
+        self.assertEqual(0, stats["total_leituras"])
+        self.assertIsNone(stats["percentuais"])
+        self.assertIsNone(stats["media"])
+        self.assertIsNone(stats["minimo"])
+        self.assertIsNone(stats["maximo"])
+
+    def test_calcula_percentuais_e_agregados_da_zona(self):
+        zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
+        leituras = [
+            (70.0, "Conforto"),
+            (72.0, "Conforto"),
+            (80.0, "Alerta"),
+            (90.0, "Perigo"),
+        ]
+        for valor, status in leituras:
+            db.salvar_leitura(
+                "frangos", "ITU", valor, status, {"tbs": 25, "tbu": 20},
+                intervalo_minutos=0, zona_id=zona["id"],
+            )
+
+        [stats] = db.obter_estatisticas_zonas()
+
+        self.assertEqual(4, stats["total_leituras"])
+        self.assertEqual(
+            {"Conforto": 50.0, "Alerta": 25.0, "Perigo": 25.0, "Emergência": 0.0},
+            stats["percentuais"],
+        )
+        self.assertAlmostEqual(78.0, stats["media"])
+        self.assertEqual(70.0, stats["minimo"])
+        self.assertEqual(90.0, stats["maximo"])
+
+    def test_ignora_leituras_de_um_indice_anterior_ao_atual_da_zona(self):
+        zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
+        db.salvar_leitura(
+            "frangos", "ITU", 70.0, "Conforto", {"tbs": 25, "tbu": 20},
+            intervalo_minutos=0, zona_id=zona["id"],
+        )
+        db.atualizar_zona(zona["id"], {"nome": "Zona 1", "especie": "frangos", "indice": "ITUV", "ativa": True})
+        db.salvar_leitura(
+            "frangos", "ITUV", 20.0, "Conforto", {"tbs": 25, "tbu": 20, "vv": 1.5},
+            intervalo_minutos=0, zona_id=zona["id"],
+        )
+
+        [stats] = db.obter_estatisticas_zonas()
+
+        # So a leitura de ITUV (o indice atual da zona) entra nas contas --
+        # misturar valores de ITU e ITUV na mesma media nao faria sentido
+        # (escalas diferentes).
+        self.assertEqual("ITUV", stats["indice"])
+        self.assertEqual(1, stats["total_leituras"])
+        self.assertEqual(20.0, stats["media"])
+
+    def test_ignora_leituras_sem_zona(self):
+        db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
+        db.salvar_leitura("frangos", "ITU", 70.0, "Conforto", {"tbs": 25, "tbu": 20}, intervalo_minutos=0)
+
+        [stats] = db.obter_estatisticas_zonas()
+
+        self.assertEqual(0, stats["total_leituras"])
+
+    def test_uma_entrada_por_zona_na_ordem_de_id(self):
+        zona_b = db.criar_zona({"nome": "Zona B", "especie": "frangos", "indice": "ITU"})
+        zona_a = db.criar_zona({"nome": "Zona A", "especie": "suinos", "indice": "IGNU"})
+
+        stats = db.obter_estatisticas_zonas()
+
+        self.assertEqual([zona_b["id"], zona_a["id"]], [s["zona_id"] for s in stats])
+
+
 class TestEquipamentosCRUD(unittest.TestCase):
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()

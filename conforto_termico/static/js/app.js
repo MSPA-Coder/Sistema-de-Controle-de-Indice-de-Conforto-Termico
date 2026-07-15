@@ -1730,44 +1730,55 @@ function tocarSom(status) {
 // ---------------------------------------------------------------------------
 // Abas e organizacao dos cards
 // ---------------------------------------------------------------------------
-function inicializarAbas() {
+function ativarAba(aba) {
   const botoes = document.querySelectorAll("[data-aba]");
   const conteudos = document.querySelectorAll("[data-aba-conteudo]");
 
-  botoes.forEach((botao) => {
-    botao.addEventListener("click", () => {
-      const aba = botao.dataset.aba;
-
-      botoes.forEach((item) => {
-        const ativo = item.dataset.aba === aba;
-        item.classList.toggle("ativo", ativo);
-        item.setAttribute("aria-selected", ativo ? "true" : "false");
-      });
-
-      conteudos.forEach((conteudo) => {
-        conteudo.classList.toggle("oculto", conteudo.dataset.abaConteudo !== aba);
-      });
-
-      if (aba === "principal") {
-        setTimeout(() => {
-          graficosIndicePrincipalPorZona.forEach((grafico) => grafico.resize());
-          if (graficoEntradas) graficoEntradas.resize();
-        }, 0);
-      }
-
-      if (aba === "historico") {
-        carregarHistoricoPersistido({ manterJanelaFinal: true });
-        setTimeout(() => {
-          graficosHistoricoPorIndice.forEach((grafico) => grafico.resize());
-          if (graficoHistoricoEntradas) graficoHistoricoEntradas.resize();
-        }, 0);
-      }
-
-      if (aba === "zonas") {
-        carregarZonas();
-      }
-    });
+  botoes.forEach((item) => {
+    const ativo = item.dataset.aba === aba;
+    item.classList.toggle("ativo", ativo);
+    item.setAttribute("aria-selected", ativo ? "true" : "false");
   });
+
+  conteudos.forEach((conteudo) => {
+    conteudo.classList.toggle("oculto", conteudo.dataset.abaConteudo !== aba);
+  });
+
+  if (aba === "principal") {
+    setTimeout(() => {
+      graficosIndicePrincipalPorZona.forEach((grafico) => grafico.resize());
+      if (graficoEntradas) graficoEntradas.resize();
+    }, 0);
+  }
+
+  if (aba === "analises") {
+    carregarAnalises();
+  }
+
+  if (aba === "historico") {
+    carregarHistoricoPersistido({ manterJanelaFinal: true });
+    setTimeout(() => {
+      graficosHistoricoPorIndice.forEach((grafico) => grafico.resize());
+      if (graficoHistoricoEntradas) graficoHistoricoEntradas.resize();
+    }, 0);
+  }
+
+  if (aba === "zonas") {
+    carregarZonas();
+  }
+}
+
+function inicializarAbas() {
+  document.querySelectorAll("[data-aba]").forEach((botao) => {
+    botao.addEventListener("click", () => ativarAba(botao.dataset.aba));
+  });
+}
+
+// Abre a aba Historico com uma zona especifica ja selecionada no filtro --
+// usada ao clicar numa linha dos relatorios da aba Analises.
+function abrirHistoricoComZona(zonaId) {
+  filtroHistoricoZona = String(zonaId);
+  ativarAba("historico");
 }
 
 function moverControlesParaConfiguracoes() {
@@ -2168,6 +2179,95 @@ function selecionarZonaCadastro(zonaId) {
   const id = zonaId === "" ? null : Number(zonaId);
   zonaCadastroSelecionadaId = Number.isFinite(id) ? id : null;
   renderizarZonas();
+}
+
+async function carregarAnalises() {
+  try {
+    const resposta = await fetch("/api/analises");
+    if (!resposta.ok) return;
+    const estatisticas = await resposta.json();
+    renderizarAnalisePercentuais(estatisticas);
+    renderizarAnaliseIndices(estatisticas);
+  } catch (erro) {
+    console.error("Não foi possível carregar as análises:", erro);
+  }
+}
+
+// Uma linha de relatorio inteira funciona como link para o historico da
+// zona correspondente -- tanto por clique quanto por teclado (Enter/Espaço).
+function linhaAnaliseClicavel(zona) {
+  const linha = document.createElement("tr");
+  linha.tabIndex = 0;
+  linha.setAttribute("role", "button");
+  linha.setAttribute("aria-label", "Ver histórico da zona " + zona.nome);
+  const abrir = () => abrirHistoricoComZona(zona.zona_id);
+  linha.addEventListener("click", abrir);
+  linha.addEventListener("keydown", (evento) => {
+    if (evento.key === "Enter" || evento.key === " ") {
+      evento.preventDefault();
+      abrir();
+    }
+  });
+  return linha;
+}
+
+function renderizarAnalisePercentuais(estatisticas) {
+  const corpo = document.querySelector("#tabela-analise-percentuais tbody");
+  const vazio = document.getElementById("analise-percentuais-vazio");
+  if (!corpo || !vazio) return;
+
+  corpo.textContent = "";
+  vazio.classList.toggle("oculto", estatisticas.length > 0);
+
+  estatisticas.forEach((zona) => {
+    const linha = linhaAnaliseClicavel(zona);
+
+    const tdNome = document.createElement("td");
+    tdNome.textContent = zona.nome;
+    linha.appendChild(tdNome);
+
+    STATUS_HISTORICO.forEach((status) => {
+      const td = document.createElement("td");
+      if (zona.percentuais) {
+        td.textContent = zona.percentuais[status].toFixed(1).replace(".", ",") + "%";
+        td.className = "status-" + classeStatus(status);
+      } else {
+        td.textContent = "—";
+      }
+      linha.appendChild(td);
+    });
+
+    corpo.appendChild(linha);
+  });
+}
+
+function renderizarAnaliseIndices(estatisticas) {
+  const corpo = document.querySelector("#tabela-analise-indices tbody");
+  const vazio = document.getElementById("analise-indices-vazio");
+  if (!corpo || !vazio) return;
+
+  corpo.textContent = "";
+  vazio.classList.toggle("oculto", estatisticas.length > 0);
+
+  const formatarIndice = (valor) => (valor === null ? "—" : valor.toFixed(2).replace(".", ","));
+
+  estatisticas.forEach((zona) => {
+    const linha = linhaAnaliseClicavel(zona);
+
+    const tdNome = document.createElement("td");
+    tdNome.textContent = zona.nome;
+    const tdIndice = document.createElement("td");
+    tdIndice.textContent = zona.indice;
+    const tdMedia = document.createElement("td");
+    tdMedia.textContent = formatarIndice(zona.media);
+    const tdMinimo = document.createElement("td");
+    tdMinimo.textContent = formatarIndice(zona.minimo);
+    const tdMaximo = document.createElement("td");
+    tdMaximo.textContent = formatarIndice(zona.maximo);
+
+    linha.append(tdNome, tdIndice, tdMedia, tdMinimo, tdMaximo);
+    corpo.appendChild(linha);
+  });
 }
 
 async function carregarZonas() {

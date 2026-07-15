@@ -693,8 +693,79 @@ def excluir_zona(zona_id: int) -> bool:
     return cursor.rowcount > 0
 
 
+def obter_estatisticas_zonas() -> list[dict]:
+    """Para cada zona cadastrada, resume todo o historico de leituras
+    gravado com o indice ATUALMENTE configurado na zona (leituras de um
+    indice anterior, se a zona ja foi reconfigurada, ficam de fora -- media,
+    minimo e maximo de indices diferentes nao sao comparaveis entre si):
+
+    - `percentuais`: fracao do tempo (%) que a zona passou em cada status
+      (Conforto/Alerta/Perigo/Emergência), ou `None` se nao ha leituras.
+    - `media`/`minimo`/`maximo`: estatisticas do valor do indice, ou `None`
+      se nao ha leituras.
+
+    Usado pela aba "Análises" do dashboard (2 relatorios por zona)."""
+    with _conexao(escrita=False) as conn:
+        zonas = conn.execute(
+            "SELECT id, nome, especie, indice FROM zonas ORDER BY id"
+        ).fetchall()
+        contagens = conn.execute(
+            """
+            SELECT zona_id, indice, status, COUNT(*) AS total
+            FROM leituras
+            WHERE zona_id IS NOT NULL
+            GROUP BY zona_id, indice, status
+            """
+        ).fetchall()
+        agregados = conn.execute(
+            """
+            SELECT zona_id, indice, AVG(valor) AS media, MIN(valor) AS minimo, MAX(valor) AS maximo
+            FROM leituras
+            WHERE zona_id IS NOT NULL
+            GROUP BY zona_id, indice
+            """
+        ).fetchall()
+
+    contagens_por_zona_indice: dict[tuple[int, str], dict[str, int]] = {}
+    for linha in contagens:
+        chave = (linha["zona_id"], linha["indice"])
+        contagens_por_zona_indice.setdefault(chave, {})[linha["status"]] = linha["total"]
+
+    agregados_por_zona_indice = {(linha["zona_id"], linha["indice"]): linha for linha in agregados}
+
+    resultado = []
+    for zona in zonas:
+        chave = (zona["id"], zona["indice"])
+        contagem_status = contagens_por_zona_indice.get(chave, {})
+        total = sum(contagem_status.values())
+        agregado = agregados_por_zona_indice.get(chave)
+
+        percentuais = None
+        if total:
+            percentuais = {
+                status: round((contagem_status.get(status, 0) / total) * 100, 1)
+                for status in ti.STATUS_ORDEM
+            }
+
+        resultado.append(
+            {
+                "zona_id": zona["id"],
+                "nome": zona["nome"],
+                "especie": zona["especie"],
+                "indice": zona["indice"],
+                "total_leituras": total,
+                "percentuais": percentuais,
+                "media": round(agregado["media"], 2) if agregado else None,
+                "minimo": round(agregado["minimo"], 2) if agregado else None,
+                "maximo": round(agregado["maximo"], 2) if agregado else None,
+            }
+        )
+    return resultado
+
+
 def criar_equipamento(zona_id: int, dados: dict) -> dict:
     """Confere a existencia da zona, valida os dados e insere o equipamento,
+
     tudo na MESMA transacao (ver a nota em `atualizar_zona` sobre por que
     checagem+mutacao precisam estar juntas). A ordem -- zona primeiro, dados
     depois -- e proposital e igual a de antes desta funcao virar uma unica

@@ -950,6 +950,9 @@ td.status-alerta { color: var(--status-alerta); }
 td.status-perigo { color: var(--status-perigo); }
 td.status-emergencia { color: var(--status-emergencia); }
 .tabela-vazia { color: var(--cor-texto-mute); font-size: 0.85rem; margin: 0.5rem 0 0; }
+.tabela-clicavel tbody tr { cursor: pointer; transition: background-color 0.12s ease; }
+.tabela-clicavel tbody tr:hover { background: var(--cor-painel-alt); }
+.tabela-clicavel tbody tr:focus-visible { outline: 2px solid var(--cor-acento); outline-offset: -2px; }
 .smtp-status { color: var(--cor-texto-mute); font-size: 0.82rem; margin: 0.9rem 0 0; line-height: 1.4; }
 .historico-paginacao {
   display: flex;

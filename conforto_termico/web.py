@@ -566,6 +566,11 @@ def listar_zonas():
     return jsonify(db.listar_zonas())
 
 
+@app.route("/api/analises", methods=["GET"])
+def obter_analises():
+    return jsonify(db.obter_estatisticas_zonas())
+
+
 @app.route("/api/zonas", methods=["POST"])
 def criar_zona():
     dados = request.get_json(force=True, silent=True) or {}

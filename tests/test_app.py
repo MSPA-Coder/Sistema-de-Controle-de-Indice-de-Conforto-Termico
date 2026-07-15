@@ -640,6 +640,16 @@ class TestZonasApi(unittest.TestCase):
         self.assertEqual(400, resposta.status_code)
         self.assertIn("erro", resposta.json)
 
+    def test_analises_devolve_uma_entrada_por_zona(self):
+        zona = self._criar_zona().json
+
+        resposta = self.client.get("/api/analises")
+
+        self.assertEqual(200, resposta.status_code)
+        self.assertEqual(1, len(resposta.json))
+        self.assertEqual(zona["id"], resposta.json[0]["zona_id"])
+        self.assertIsNone(resposta.json[0]["percentuais"])
+
     def test_obter_zona_inexistente_devolve_404(self):
         resposta = self.client.get("/api/zonas/9999")
         self.assertEqual(404, resposta.status_code)

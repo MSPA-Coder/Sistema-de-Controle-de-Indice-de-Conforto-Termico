@@ -15,6 +15,7 @@
 
   <nav class="abas-app" role="tablist" aria-label="Navegação do app">
     <button class="aba-botao ativo" type="button" role="tab" data-aba="principal" aria-controls="aba-principal" aria-selected="true">Dashboard</button>
+    <button class="aba-botao" type="button" role="tab" data-aba="analises" aria-controls="aba-analises" aria-selected="false">Análises</button>
     <button class="aba-botao" type="button" role="tab" data-aba="historico" aria-controls="aba-historico" aria-selected="false">Histórico</button>
     <button class="aba-botao" type="button" role="tab" data-aba="zonas" aria-controls="aba-zonas" aria-selected="false">Zonas</button>
     <button class="aba-botao" type="button" role="tab" data-aba="configuracoes" aria-controls="aba-configuracoes" aria-selected="false">Configuracoes</button>
@@ -115,6 +116,38 @@
     </section>
 
   </main>
+
+  <section id="aba-analises" class="grade aba-conteudo oculto" data-aba-conteudo="analises" role="tabpanel">
+    <section class="painel tabela-painel">
+      <div class="tabela-cabecalho">
+        <p class="grafico-titulo">Percentual de tempo em cada condição térmica</p>
+      </div>
+      <div class="tabela-scroll">
+        <table id="tabela-analise-percentuais" class="tabela-clicavel">
+          <thead>
+            <tr><th>Zona</th><th>Conforto</th><th>Alerta</th><th>Perigo</th><th>Emergência</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p id="analise-percentuais-vazio" class="tabela-vazia oculto">Nenhuma zona cadastrada ainda.</p>
+    </section>
+
+    <section class="painel tabela-painel">
+      <div class="tabela-cabecalho">
+        <p class="grafico-titulo">Índice médio, mínimo e máximo por zona</p>
+      </div>
+      <div class="tabela-scroll">
+        <table id="tabela-analise-indices" class="tabela-clicavel">
+          <thead>
+            <tr><th>Zona</th><th>Índice</th><th>Índice médio</th><th>Índice mínimo</th><th>Índice máximo</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p id="analise-indices-vazio" class="tabela-vazia oculto">Nenhuma zona cadastrada ainda.</p>
+    </section>
+  </section>
 
   <section id="aba-historico" class="grade grade-historico aba-conteudo oculto" data-aba-conteudo="historico" role="tabpanel">
     <section id="historico-filtros-card" class="painel historico-filtros-painel">

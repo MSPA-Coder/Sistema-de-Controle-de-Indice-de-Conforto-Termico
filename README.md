@@ -16,6 +16,9 @@ A interface e em portugues do Brasil. Os identificadores internos do projeto
 - Classifica cada leitura em **Conforto**, **Alerta**, **Perigo** ou
   **Emergencia**, com mensagens de orientacao e cores por faixa.
 - Mantem historico em SQLite para leituras manuais, simuladas e por zona.
+- Aba **Analises** com o percentual de tempo em cada status termico e a
+  media/minimo/maximo do indice, por zona; clicar numa linha abre o
+  historico filtrado daquela zona.
 - Exibe graficos com Chart.js empacotado localmente em
   `conforto_termico/static/js/vendor/chart.umd.js`.
 - Possui configuracoes persistidas para especie, indice, intervalos,
@@ -237,12 +240,14 @@ Rotas principais:
 | `GET` | `/api/sensor` | Leitura simulada da estacao unica. |
 | `GET` | `/api/historico` | Historico persistido por especie/indice. |
 | `GET` | `/api/historico-todos` | Historico persistido de todos os indices da especie. |
+| `GET` | `/api/historico-leituras` | Historico paginado/filtravel (zona, especie, indice, status, periodo). |
 | `GET` | `/api/historico-grafico` | Historico visual em memoria por especie/indice. |
 | `GET` | `/api/historico-grafico-todos` | Historico visual de todos os indices da especie. |
 | `GET` | `/api/configuracoes` | Consulta configuracoes publicas. |
 | `POST` | `/api/configuracoes` | Salva configuracoes. |
 | `POST` | `/api/reset` | Limpa historico da estacao unica. |
 | `GET` | `/api/diagnostico` | Verifica banco e total de leituras. |
+| `POST` | `/api/backup-banco` | Gera uma copia do arquivo do banco de dados. |
 
 Rotas de zonas:
 
@@ -250,6 +255,7 @@ Rotas de zonas:
 |---|---|---|
 | `GET` | `/api/zonas` | Lista zonas. |
 | `POST` | `/api/zonas` | Cria zona. |
+| `GET` | `/api/analises` | Estatisticas por zona: percentual de tempo em cada status e media/minimo/maximo do indice (aba Analises). |
 | `GET` | `/api/zonas/<zona_id>` | Obtem zona. |
 | `PUT` | `/api/zonas/<zona_id>` | Atualiza zona. |
 | `DELETE` | `/api/zonas/<zona_id>` | Exclui zona e seus equipamentos. |
