@@ -57,7 +57,7 @@ goto menu
 :encerrar_app
 echo.
 echo Procurando processos deste aplicativo...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$currentPid = $PID; $root = [System.IO.Path]::GetFullPath($env:ROOT_DIR); $procs = Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $currentPid -and $_.CommandLine -and $_.Name -match '^(python|py)(\.exe)?$' -and $_.CommandLine -match '(?i)(^|\s|[\\/])app\.py(\s|$)' -and $_.CommandLine.Contains($root) }; if (-not $procs) { Write-Host 'Nenhum processo deste aplicativo foi encontrado.'; exit 0 }; foreach ($proc in $procs) { Stop-Process -Id $proc.ProcessId -Force; Write-Host ('Processo encerrado. PID: ' + $proc.ProcessId + ' - ' + $proc.CommandLine) }"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$currentPid = $PID; $root = [System.IO.Path]::GetFullPath($env:ROOT_DIR); $procs = Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $currentPid -and $_.CommandLine -and $_.Name -match '^(python|py)(\.exe)?$' -and $_.CommandLine -match '(?i)(^|\s|[\\/])app\.py(\s|$)' -and $_.CommandLine.IndexOf($root, [System.StringComparison]::OrdinalIgnoreCase) -ge 0 }; if (-not $procs) { Write-Host 'Nenhum processo deste aplicativo foi encontrado.'; exit 0 }; foreach ($proc in $procs) { Stop-Process -Id $proc.ProcessId -Force; Write-Host ('Processo encerrado. PID: ' + $proc.ProcessId + ' - ' + $proc.CommandLine) }"
 goto pausa_menu
 
 :iniciar_app
