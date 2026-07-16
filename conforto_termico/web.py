@@ -143,6 +143,7 @@ zona_service = ZonaService(
     salvar_leitura=db.salvar_leitura,
     obter_configuracoes=db.obter_configuracoes,
     obter_historico=db.obter_historico_por_zona,
+    obter_painel_zonas=db.obter_painel_zonas,
 )
 # `SimuladorModbusZonas` precisa poder perguntar ao proprio zona_service
 # qual e o estado de resfriamento atual de uma zona (para decidir se a
@@ -552,6 +553,7 @@ def reset():
     sensor_simulado_service.limpar(especie, indice)
     if especie is None and indice is None:
         zona_service.limpar_historico_grafico()
+        zona_service.limpar_resfriador()
     _resfriador.desativar()
     return jsonify({"ok": True})
 
@@ -569,6 +571,11 @@ def listar_zonas():
 @app.route("/api/analises", methods=["GET"])
 def obter_analises():
     return jsonify(db.obter_estatisticas_zonas())
+
+
+@app.route("/api/analises/painel-executivo", methods=["GET"])
+def obter_painel_executivo():
+    return jsonify(zona_service.montar_painel_executivo())
 
 
 @app.route("/api/zonas", methods=["POST"])
@@ -605,6 +612,7 @@ def excluir_zona(zona_id):
     if not db.excluir_zona(zona_id):
         return jsonify({"erro": f"Zona {zona_id} não encontrada."}), 404
     zona_service.limpar_historico_grafico(zona_id)
+    zona_service.limpar_resfriador(zona_id)
     return jsonify({"ok": True})
 
 

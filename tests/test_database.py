@@ -449,6 +449,286 @@ class TestEstatisticasZonas(unittest.TestCase):
         self.assertEqual([zona_b["id"], zona_a["id"]], [s["zona_id"] for s in stats])
 
 
+class TestPainelExecutivoZonas(unittest.TestCase):
+    """Testa `obter_painel_zonas`, usada pelo card "Painel executivo por
+    zona" da aba Analises. Como a funcao depende de `datetime.datetime.
+    now()` internamente (mesmo padrao ja usado por `salvar_leitura`), os
+    testes gravam a leitura normalmente e depois "voltam no tempo" o
+    `criado_em` da linha via SQL direto -- igual ao teste de
+    TestEstatisticasZonas la em cima que ignora leituras de indice
+    anterior."""
+
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.db_path_original = db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
+        db.iniciar_banco()
+
+    def tearDown(self):
+        db.DB_PATH = self.db_path_original
+        self.tempdir.cleanup()
+
+    def _inserir_leitura(
+        self, zona_id, valor, status, quando, indice="ITU", especie="frangos", entradas=None
+    ):
+        self.assertTrue(
+            db.salvar_leitura(
+                especie,
+                indice,
+                valor,
+                status,
+                entradas if entradas is not None else {"tbs": 25, "tbu": 20},
+                intervalo_minutos=0,
+                zona_id=zona_id,
+            )
+        )
+        with db._conexao() as conn:
+            ultimo_id = conn.execute(
+                "SELECT id FROM leituras WHERE zona_id = ? ORDER BY id DESC LIMIT 1", (zona_id,)
+            ).fetchone()["id"]
+            conn.execute(
+                "UPDATE leituras SET criado_em = ? WHERE id = ?",
+                (quando.replace(microsecond=0).isoformat(timespec="seconds"), ultimo_id),
+            )
+
+    def test_zona_sem_leituras_devolve_campos_none(self):
+        zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
+
+        [painel] = db.obter_painel_zonas()
+
+        self.assertEqual(zona["id"], painel["zona_id"])
+        self.assertIsNone(painel["status_atual"])
+        self.assertIsNone(painel["valor_atual"])
+        self.assertIsNone(painel["ultima_leitura_em"])
+        self.assertEqual({"15min": None, "30min": None, "60min": None}, painel["tendencias"])
+        self.assertIsNone(painel["percentual_conforto_24h"])
+        self.assertIsNone(painel["tempo_continuo_status_minutos"])
+        self.assertIsNone(painel["nivel_maximo_dia"])
+        self.assertEqual(0.0, painel["minutos_perigo_dia"])
+        self.assertEqual(0.0, painel["minutos_emergencia_dia"])
+        self.assertEqual(
+            {"horario": None, "ja_ocorreu": False, "dias_amostrados": 0}, painel["pico_previsto"]
+        )
+        self.assertIsNone(painel["sensores_indisponiveis"])
+        self.assertEqual({"ventiladores": 0, "nebulizadores": 0}, painel["equipamentos_totais"])
+
+    def test_status_e_valor_atuais_vem_da_leitura_mais_recente(self):
+        zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
+        agora = datetime.datetime.now()
+        self._inserir_leitura(zona["id"], 70.0, "Conforto", agora - datetime.timedelta(minutes=5))
+        self._inserir_leitura(zona["id"], 82.0, "Perigo", agora)
+
+        [painel] = db.obter_painel_zonas()
+
+        self.assertEqual("Perigo", painel["status_atual"])
+        self.assertEqual(82.0, painel["valor_atual"])
+
+    def test_tendencia_classifica_subindo(self):
+        zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
+        agora = datetime.datetime.now()
+        self._inserir_leitura(zona["id"], 70.0, "Conforto", agora - datetime.timedelta(minutes=20))
+        self._inserir_leitura(zona["id"], 75.0, "Alerta", agora)
+
+        [painel] = db.obter_painel_zonas()
+
+        self.assertEqual("subindo", painel["tendencias"]["15min"])
+
+    def test_tendencia_classifica_descendo(self):
+        zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
+        agora = datetime.datetime.now()
+        self._inserir_leitura(zona["id"], 80.0, "Perigo", agora - datetime.timedelta(minutes=20))
+        self._inserir_leitura(zona["id"], 74.0, "Alerta", agora)
+
+        [painel] = db.obter_painel_zonas()
+
+        self.assertEqual("descendo", painel["tendencias"]["15min"])
+
+    def test_tendencia_classifica_estavel_dentro_do_epsilon(self):
+        zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
+        agora = datetime.datetime.now()
+        self._inserir_leitura(zona["id"], 75.2, "Alerta", agora - datetime.timedelta(minutes=20))
+        self._inserir_leitura(zona["id"], 75.0, "Alerta", agora)
+
+        [painel] = db.obter_painel_zonas()
+
+        self.assertEqual("estavel", painel["tendencias"]["15min"])
+
+    def test_tendencia_none_sem_leitura_na_janela(self):
+        zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
+        self._inserir_leitura(zona["id"], 75.0, "Alerta", datetime.datetime.now())
+
+        [painel] = db.obter_painel_zonas()
+
+        self.assertEqual({"15min": None, "30min": None, "60min": None}, painel["tendencias"])
+
+    def test_percentual_conforto_24h_ignora_leituras_mais_antigas(self):
+        zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
+        agora = datetime.datetime.now()
+        # Fora da janela de 24h -- nao deve entrar na conta.
+        self._inserir_leitura(
+            zona["id"], 90.0, "Emergência", agora - datetime.timedelta(hours=25)
+        )
+        self._inserir_leitura(zona["id"], 70.0, "Conforto", agora - datetime.timedelta(hours=2))
+        self._inserir_leitura(zona["id"], 71.0, "Conforto", agora - datetime.timedelta(hours=1))
+        self._inserir_leitura(zona["id"], 78.0, "Alerta", agora)
+
+        [painel] = db.obter_painel_zonas()
+
+        self.assertAlmostEqual(66.7, painel["percentual_conforto_24h"], places=1)
+
+    def test_tempo_continuo_status_atual_conta_desde_inicio_da_sequencia(self):
+        zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
+        agora = datetime.datetime.now()
+        self._inserir_leitura(zona["id"], 78.0, "Alerta", agora - datetime.timedelta(minutes=50))
+        self._inserir_leitura(zona["id"], 82.0, "Perigo", agora - datetime.timedelta(minutes=40))
+        self._inserir_leitura(zona["id"], 83.0, "Perigo", agora - datetime.timedelta(minutes=10))
+
+        [painel] = db.obter_painel_zonas()
+
+        self.assertAlmostEqual(40.0, painel["tempo_continuo_status_minutos"], delta=0.5)
+
+    def test_nivel_maximo_e_minutos_perigo_emergencia_hoje(self):
+        zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
+        agora = datetime.datetime.now()
+        self._inserir_leitura(zona["id"], 70.0, "Conforto", agora - datetime.timedelta(minutes=40))
+        self._inserir_leitura(zona["id"], 82.0, "Perigo", agora - datetime.timedelta(minutes=30))
+        self._inserir_leitura(
+            zona["id"], 90.0, "Emergência", agora - datetime.timedelta(minutes=20)
+        )
+        self._inserir_leitura(zona["id"], 72.0, "Conforto", agora - datetime.timedelta(minutes=5))
+
+        [painel] = db.obter_painel_zonas()
+
+        self.assertEqual("Emergência", painel["nivel_maximo_dia"])
+        self.assertAlmostEqual(10.0, painel["minutos_perigo_dia"], delta=0.2)
+        self.assertAlmostEqual(15.0, painel["minutos_emergencia_dia"], delta=0.2)
+
+    def test_pico_previsto_usa_media_dos_dias_anteriores_e_ignora_hoje(self):
+        zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
+        hoje = datetime.date.today()
+
+        def _quando(dia, hora, minuto):
+            return datetime.datetime.combine(dia, datetime.time(hora, minuto))
+
+        for dias_atras, hora, minuto in ((3, 13, 50), (2, 14, 0), (1, 14, 10)):
+            dia = hoje - datetime.timedelta(days=dias_atras)
+            # leitura mais baixa no mesmo dia, para garantir que o pico
+            # encontrado e o valor MAXIMO do dia, e nao qualquer leitura.
+            self._inserir_leitura(zona["id"], 70.0, "Conforto", _quando(dia, hora - 2, 0))
+            self._inserir_leitura(zona["id"], 88.0, "Perigo", _quando(dia, hora, minuto))
+
+        # Leitura de hoje: deve ficar de fora da media do padrao historico.
+        self._inserir_leitura(zona["id"], 92.0, "Emergência", datetime.datetime.now())
+
+        [painel] = db.obter_painel_zonas()
+        pico = painel["pico_previsto"]
+
+        self.assertEqual(3, pico["dias_amostrados"])
+        self.assertEqual("14:00", pico["horario"])
+
+    def test_pico_previsto_none_com_menos_de_dois_dias_anteriores(self):
+        zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
+        ontem = datetime.datetime.combine(
+            datetime.date.today() - datetime.timedelta(days=1), datetime.time(14, 0)
+        )
+        self._inserir_leitura(zona["id"], 88.0, "Perigo", ontem)
+        self._inserir_leitura(zona["id"], 75.0, "Alerta", datetime.datetime.now())
+
+        [painel] = db.obter_painel_zonas()
+
+        self.assertEqual(
+            {"horario": None, "ja_ocorreu": False, "dias_amostrados": 1}, painel["pico_previsto"]
+        )
+
+    def test_sensores_indisponiveis_detecta_campo_ausente_na_ultima_leitura(self):
+        zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
+        db.criar_equipamento(
+            zona["id"],
+            {
+                "tipo": "sensor",
+                "nome": "Sensor TBS",
+                "modo_conexao": "tcp",
+                "host": "10.0.0.5",
+                "tipo_registrador": "input",
+                "endereco_registrador": 1,
+                "campo_medido": "tbs",
+            },
+        )
+        db.criar_equipamento(
+            zona["id"],
+            {
+                "tipo": "sensor",
+                "nome": "Sensor TBU",
+                "modo_conexao": "tcp",
+                "host": "10.0.0.6",
+                "tipo_registrador": "input",
+                "endereco_registrador": 2,
+                "campo_medido": "tbu",
+            },
+        )
+        # `tbu` ausente nas entradas simula o sensor correspondente sem
+        # resposta na ultima leitura.
+        self._inserir_leitura(
+            zona["id"], 70.0, "Conforto", datetime.datetime.now(), entradas={"tbs": 25}
+        )
+
+        [painel] = db.obter_painel_zonas()
+
+        self.assertEqual(["Sensor TBU"], painel["sensores_indisponiveis"])
+
+    def test_sensores_indisponiveis_vazio_quando_todos_respondem(self):
+        zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
+        db.criar_equipamento(
+            zona["id"],
+            {
+                "tipo": "sensor",
+                "nome": "Sensor TBS",
+                "modo_conexao": "tcp",
+                "host": "10.0.0.5",
+                "tipo_registrador": "input",
+                "endereco_registrador": 1,
+                "campo_medido": "tbs",
+            },
+        )
+        self._inserir_leitura(
+            zona["id"], 70.0, "Conforto", datetime.datetime.now(), entradas={"tbs": 25, "tbu": 20}
+        )
+
+        [painel] = db.obter_painel_zonas()
+
+        self.assertEqual([], painel["sensores_indisponiveis"])
+
+    def test_equipamentos_totais_conta_ventiladores_e_nebulizadores(self):
+        zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
+        for indice_equip in range(2):
+            db.criar_equipamento(
+                zona["id"],
+                {
+                    "tipo": "ventilador",
+                    "nome": f"Ventilador {indice_equip}",
+                    "modo_conexao": "tcp",
+                    "host": "10.0.0.5",
+                    "tipo_registrador": "coil",
+                    "endereco_registrador": indice_equip,
+                },
+            )
+        db.criar_equipamento(
+            zona["id"],
+            {
+                "tipo": "nebulizador",
+                "nome": "Nebulizador 0",
+                "modo_conexao": "tcp",
+                "host": "10.0.0.5",
+                "tipo_registrador": "coil",
+                "endereco_registrador": 10,
+            },
+        )
+
+        [painel] = db.obter_painel_zonas()
+
+        self.assertEqual({"ventiladores": 2, "nebulizadores": 1}, painel["equipamentos_totais"])
+
+
 class TestEquipamentosCRUD(unittest.TestCase):
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()

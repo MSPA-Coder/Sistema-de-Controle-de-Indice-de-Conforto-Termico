@@ -953,6 +953,97 @@ td.status-emergencia { color: var(--status-emergencia); }
 .tabela-clicavel tbody tr { cursor: pointer; transition: background-color 0.12s ease; }
 .tabela-clicavel tbody tr:hover { background: var(--cor-painel-alt); }
 .tabela-clicavel tbody tr:focus-visible { outline: 2px solid var(--cor-acento); outline-offset: -2px; }
+
+/* ---------------------------------------------------------------------------
+   Painel executivo por zona (aba Analises)
+   ------------------------------------------------------------------------- */
+.executivo-lista { display: flex; flex-direction: column; gap: 1rem; }
+.executivo-cartao {
+  border: 1px solid var(--cor-borda);
+  border-radius: 8px;
+  padding: 1rem 1.1rem 1.1rem;
+  background: rgba(0, 0, 0, 0.16);
+}
+.executivo-cabecalho {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.9rem;
+}
+.executivo-titulo-grupo { display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap; }
+.executivo-nome { margin: 0; font-size: 1.02rem; color: var(--cor-texto); }
+.executivo-indice-valor {
+  font-family: var(--fonte-mono);
+  font-size: 0.8rem;
+  color: var(--cor-texto-mute);
+}
+.executivo-status-badge {
+  margin-top: 0;
+  display: inline-block;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+}
+.executivo-status-badge.faixa-status--vazio { letter-spacing: 0.06em; }
+.executivo-metricas {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+.executivo-metrica {
+  border: 1px solid var(--cor-borda);
+  border-radius: 6px;
+  padding: 0.55rem 0.65rem;
+  background: rgba(0, 0, 0, 0.18);
+  min-width: 0;
+}
+.executivo-metrica-rotulo {
+  margin: 0 0 0.32rem;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cor-texto-mute);
+}
+.executivo-metrica-valor {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: var(--cor-texto);
+  word-break: break-word;
+}
+.executivo-metrica-valor.cor-conforto,
+.executivo-metrica-valor .cor-conforto { color: var(--status-conforto); }
+.executivo-metrica-valor.cor-alerta,
+.executivo-metrica-valor .cor-alerta { color: var(--status-alerta); }
+.executivo-metrica-valor.cor-perigo,
+.executivo-metrica-valor .cor-perigo { color: var(--status-perigo); }
+.executivo-metrica-valor.cor-emergencia,
+.executivo-metrica-valor .cor-emergencia { color: var(--status-emergencia); }
+.executivo-metrica-nota { display: block; margin-top: 0.2rem; font-size: 0.7rem; color: var(--cor-texto-mute); }
+.executivo-recomendacao {
+  margin: 0.9rem 0 0;
+  padding: 0.65rem 0.85rem;
+  border-left: 3px solid var(--cor-acento);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.16);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--cor-texto);
+}
+.executivo-rodape {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.7rem;
+}
+@media (max-width: 1100px) {
+  .executivo-metricas { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+  .executivo-metricas { grid-template-columns: 1fr; }
+}
 .smtp-status { color: var(--cor-texto-mute); font-size: 0.82rem; margin: 0.9rem 0 0; line-height: 1.4; }
 .historico-paginacao {
   display: flex;

@@ -613,10 +613,12 @@ class TestZonasApi(unittest.TestCase):
         db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
         db.iniciar_banco()
         flask_app.zona_service.limpar_historico_grafico()
+        flask_app.zona_service.limpar_resfriador()
         self.client = flask_app.app.test_client()
 
     def tearDown(self):
         flask_app.zona_service.limpar_historico_grafico()
+        flask_app.zona_service.limpar_resfriador()
         db.DB_PATH = self.db_path_original
         self.tempdir.cleanup()
 
@@ -649,6 +651,28 @@ class TestZonasApi(unittest.TestCase):
         self.assertEqual(1, len(resposta.json))
         self.assertEqual(zona["id"], resposta.json[0]["zona_id"])
         self.assertIsNone(resposta.json[0]["percentuais"])
+
+    def test_painel_executivo_devolve_uma_entrada_por_zona_sem_leitura(self):
+        zona = self._criar_zona().json
+
+        resposta = self.client.get("/api/analises/painel-executivo")
+
+        self.assertEqual(200, resposta.status_code)
+        self.assertEqual(1, len(resposta.json))
+        painel = resposta.json[0]
+        self.assertEqual(zona["id"], painel["zona_id"])
+        self.assertIsNone(painel["status_atual"])
+        self.assertEqual(
+            {
+                "ventiladores_ligados": 0,
+                "ventiladores_total": 0,
+                "nebulizadores_ligados": 0,
+                "nebulizadores_total": 0,
+                "intensidade": None,
+            },
+            painel["equipamentos_ligados"],
+        )
+        self.assertIn("Ainda não há leitura", painel["recomendacao"])
 
     def test_obter_zona_inexistente_devolve_404(self):
         resposta = self.client.get("/api/zonas/9999")

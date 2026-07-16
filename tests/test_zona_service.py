@@ -363,5 +363,164 @@ class TestModoSimuladoZonaService(unittest.TestCase):
         self.assertFalse(resultado["modo_simulado"])
 
 
+class TestPainelExecutivo(unittest.TestCase):
+    """Testa `ZonaService.montar_painel_executivo`: a combinacao das
+    estatisticas persistidas (aqui, uma funcao falsa no lugar de
+    `database.obter_painel_zonas`) com o estado ATIVO de ventiladores/
+    nebulizadores mantido em memoria por este servico."""
+
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.db_path_original = db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
+        db.iniciar_banco()
+
+    def tearDown(self):
+        db.DB_PATH = self.db_path_original
+        self.tempdir.cleanup()
+
+    @staticmethod
+    def _painel_base(zona_id, **sobrescritas):
+        base = {
+            "zona_id": zona_id,
+            "nome": "Zona 1",
+            "especie": "frangos",
+            "indice": "ITU",
+            "equipamentos_totais": {"ventiladores": 2, "nebulizadores": 1},
+            "status_atual": "Perigo",
+            "valor_atual": 82.0,
+            "ultima_leitura_em": "2026-01-01T12:00:00",
+            "tendencias": {"15min": "subindo", "30min": "subindo", "60min": "estavel"},
+            "percentual_conforto_24h": 40.0,
+            "tempo_continuo_status_minutos": 12.0,
+            "nivel_maximo_dia": "Perigo",
+            "minutos_perigo_dia": 12.0,
+            "minutos_emergencia_dia": 0.0,
+            "pico_previsto": {"horario": None, "ja_ocorreu": False, "dias_amostrados": 0},
+            "sensores_indisponiveis": [],
+        }
+        base.update(sobrescritas)
+        return base
+
+    def test_sem_obter_painel_zonas_devolve_lista_vazia(self):
+        servico = ZonaService(
+            obter_zona=db.obter_zona,
+            salvar_leitura=db.salvar_leitura,
+            obter_configuracoes=db.obter_configuracoes,
+        )
+        self.assertEqual([], servico.montar_painel_executivo())
+
+    def test_equipamentos_ligados_reflete_estado_ativo_do_resfriador(self):
+        zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
+        servico = ZonaService(
+            obter_zona=db.obter_zona,
+            salvar_leitura=db.salvar_leitura,
+            obter_configuracoes=db.obter_configuracoes,
+            obter_painel_zonas=lambda: [self._painel_base(zona["id"])],
+        )
+        # Simula um ciclo de calculo que classificou a zona como "Perigo":
+        # aciona ventilador + nebulizador juntos (ver models.Resfriamento).
+        servico.resfriador_da_zona(zona["id"]).registrar_leitura("Perigo")
+
+        [painel] = servico.montar_painel_executivo()
+
+        self.assertEqual(
+            {
+                "ventiladores_ligados": 2,
+                "ventiladores_total": 2,
+                "nebulizadores_ligados": 1,
+                "nebulizadores_total": 1,
+                "intensidade": "media",
+            },
+            painel["equipamentos_ligados"],
+        )
+        self.assertNotIn("equipamentos_totais", painel)
+
+    def test_equipamentos_desligados_quando_resfriador_nunca_foi_acionado(self):
+        zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
+        servico = ZonaService(
+            obter_zona=db.obter_zona,
+            salvar_leitura=db.salvar_leitura,
+            obter_configuracoes=db.obter_configuracoes,
+            obter_painel_zonas=lambda: [self._painel_base(zona["id"], status_atual="Conforto")],
+        )
+
+        [painel] = servico.montar_painel_executivo()
+
+        self.assertEqual(0, painel["equipamentos_ligados"]["ventiladores_ligados"])
+        self.assertEqual(0, painel["equipamentos_ligados"]["nebulizadores_ligados"])
+
+    def test_limpar_resfriador_remove_estado_ativo_da_zona(self):
+        zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
+        servico = ZonaService(
+            obter_zona=db.obter_zona,
+            salvar_leitura=db.salvar_leitura,
+            obter_configuracoes=db.obter_configuracoes,
+        )
+        servico.resfriador_da_zona(zona["id"]).registrar_leitura("Perigo")
+        self.assertTrue(servico.resfriador_da_zona(zona["id"]).estado()["ativo"])
+
+        servico.limpar_resfriador(zona["id"])
+
+        # Depois de limpo, `resfriador_da_zona` recria um Resfriamento novo
+        # (desligado) para o mesmo id -- essencial para que um zona_id
+        # reaproveitado (zona excluida e uma nova criada com o mesmo id)
+        # nao herde o estado ligado da zona antiga.
+        self.assertFalse(servico.resfriador_da_zona(zona["id"]).estado()["ativo"])
+
+    def test_recomendacao_sem_leitura(self):
+        zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
+        servico = ZonaService(
+            obter_zona=db.obter_zona,
+            salvar_leitura=db.salvar_leitura,
+            obter_configuracoes=db.obter_configuracoes,
+            obter_painel_zonas=lambda: [
+                self._painel_base(
+                    zona["id"],
+                    status_atual=None,
+                    valor_atual=None,
+                    tendencias={"15min": None, "30min": None, "60min": None},
+                )
+            ],
+        )
+
+        [painel] = servico.montar_painel_executivo()
+
+        self.assertIn("Ainda não há leitura", painel["recomendacao"])
+
+    def test_recomendacao_menciona_tendencia_de_subida_em_perigo(self):
+        zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
+        servico = ZonaService(
+            obter_zona=db.obter_zona,
+            salvar_leitura=db.salvar_leitura,
+            obter_configuracoes=db.obter_configuracoes,
+            obter_painel_zonas=lambda: [self._painel_base(zona["id"], status_atual="Perigo")],
+        )
+
+        [painel] = servico.montar_painel_executivo()
+
+        self.assertIn("subindo", painel["recomendacao"])
+
+    def test_recomendacao_menciona_sensores_indisponiveis(self):
+        zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
+        servico = ZonaService(
+            obter_zona=db.obter_zona,
+            salvar_leitura=db.salvar_leitura,
+            obter_configuracoes=db.obter_configuracoes,
+            obter_painel_zonas=lambda: [
+                self._painel_base(
+                    zona["id"],
+                    status_atual="Conforto",
+                    tendencias={"15min": "estavel", "30min": "estavel", "60min": "estavel"},
+                    sensores_indisponiveis=["Sensor TBU"],
+                )
+            ],
+        )
+
+        [painel] = servico.montar_painel_executivo()
+
+        self.assertIn("1 sensor sem leitura recente", painel["recomendacao"])
+
+
 if __name__ == "__main__":
     unittest.main()
