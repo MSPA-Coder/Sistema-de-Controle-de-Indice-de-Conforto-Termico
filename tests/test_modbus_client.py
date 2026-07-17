@@ -14,8 +14,9 @@ from conforto_termico import modbus_client
 
 
 class _RespostaFalsa:
-    def __init__(self, registers=None, erro=False):
-        self.registers = registers or []
+    def __init__(self, registers=None, bits=None, erro=False):
+        self.registers = [] if registers is None else registers
+        self.bits = [] if bits is None else bits
         self._erro = erro
 
     def isError(self):
@@ -41,6 +42,9 @@ class _ClienteFalso:
         return self.resposta_leitura
 
     def read_input_registers(self, *args, **kwargs):
+        return self.resposta_leitura
+
+    def read_coils(self, *args, **kwargs):
         return self.resposta_leitura
 
     def write_register(self, *args, **kwargs):
@@ -187,6 +191,20 @@ class TestEscritaComClienteFalso(unittest.TestCase):
         with patch.object(modbus_client, "ModbusTcpClient", return_value=ClienteQuebrado()):
             resultado = modbus_client.escrever_valor(_equipamento_tcp(), True)
         self.assertFalse(resultado)
+
+    def test_confirmacao_de_coil_le_estado_real(self):
+        cliente = _ClienteFalso(resposta_leitura=_RespostaFalsa(bits=[True]))
+        with patch.object(modbus_client, "ModbusTcpClient", return_value=cliente):
+            confirmado = modbus_client.ler_estado_atuador(
+                _equipamento_tcp(tipo_registrador="coil")
+            )
+        self.assertTrue(confirmado)
+
+    def test_confirmacao_de_holding_register_le_estado_real(self):
+        cliente = _ClienteFalso(resposta_leitura=_RespostaFalsa(registers=[0]))
+        with patch.object(modbus_client, "ModbusTcpClient", return_value=cliente):
+            confirmado = modbus_client.ler_estado_atuador(_equipamento_tcp())
+        self.assertFalse(confirmado)
 
 
 class TestTestarConexao(unittest.TestCase):

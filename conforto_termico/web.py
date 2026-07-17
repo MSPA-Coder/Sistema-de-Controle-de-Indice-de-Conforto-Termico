@@ -33,6 +33,7 @@ from .app_factory import AppConfig, MENSAGEM_ERRO_INTERNO, criar_app, executar_s
 from .coletor.estado import (
     _resfriador,
     calculo_ict_service,
+    gerenciador_controle,
     historico_grafico_service,
     sensor_simulado_service,
     zona_service,

@@ -14,8 +14,9 @@
 <div class="app-shell">
 
   <nav class="abas-app" role="tablist" aria-label="Navegação do app">
-    {% if papel_app in (none, "coletor") %}
     <button class="aba-botao{{ ' ativo' if aba_inicial == 'principal' else '' }}" type="button" role="tab" data-aba="principal" aria-controls="aba-principal" aria-selected="{{ 'true' if aba_inicial == 'principal' else 'false' }}">Dashboard</button>
+    {% if papel_app in (none, "coletor") %}
+    <button class="aba-botao" type="button" role="tab" data-aba="operacao" aria-controls="aba-operacao" aria-selected="false">Operação</button>
     {% endif %}
     {% if papel_app in (none, "dashboard") %}
     <button class="aba-botao{{ ' ativo' if aba_inicial == 'analises' else '' }}" type="button" role="tab" data-aba="analises" aria-controls="aba-analises" aria-selected="{{ 'true' if aba_inicial == 'analises' else 'false' }}">Análises</button>
@@ -37,44 +38,19 @@
       </div>
     </section>
 
-    <!-- Selecao da zona e leitura ------------------------------------------------------>
-    <section class="painel entrada-painel">
+    <!-- Selecao e estado somente-leitura ---------------------------------------------->
+    <section class="painel dashboard-status-painel">
       <div class="zona-principal-linha">
         <div class="campo-config">
-          <label for="zona-principal">Zona ativa monitorada</label>
-          <select id="zona-principal"></select>
+          <label for="zona-dashboard">Zona monitorada</label>
+          <select id="zona-dashboard"></select>
         </div>
-        <button id="btn-calcular" class="botao botao--primario" type="button">
-          Ler zona agora
-        </button>
+        <div id="dashboard-coletor-status" class="coletor-status">Coletor: aguardando heartbeat</div>
       </div>
-      <div id="campos-entrada" class="campos-entrada"></div>
-
-      <div class="divisor"></div>
-
-      <div class="config-grade">
-        <label class="check"><input type="checkbox" id="cfg-coletar"><span>Coletar dados de sensores remotos</span></label>
-        <label class="check"><input type="checkbox" id="cfg-sons"><span>Habilitar sons de alerta</span></label>
-        <label class="check"><input type="checkbox" id="cfg-emails"><span>Enviar e-mails de aviso</span></label>
-        <label class="check"><input type="checkbox" id="cfg-equipamentos"><span>Habilitar equipamentos remotos</span></label>
+      <div class="dashboard-entradas-bloco">
+        <p class="grafico-titulo">Dados de entrada da última leitura</p>
+        <div id="campos-entrada-dashboard" class="campos-entrada campos-entrada--somente-leitura"></div>
       </div>
-
-      <div id="wrap-email-destino" class="campo-email-destino oculto">
-        <label for="email-destino">Enviar avisos para</label>
-        <input type="email" id="email-destino" placeholder="produtor@fazenda.com.br" value="produtor@fazenda.com.br">
-      </div>
-
-      <div class="divisor"></div>
-
-      <div class="acao-linha">
-        <label class="check check--automatico">
-          <input type="checkbox" id="cfg-auto">
-          <span>Modo automático</span>
-        </label>
-        <button id="btn-limpar" class="botao botao--perigo botao--compacto" type="button">Limpar histórico</button>
-      </div>
-
-      <p id="mensagem-erro" class="mensagem-erro oculto" role="alert"></p>
     </section>
 
     <div id="linhas-zonas-principal" class="linhas-zonas-principal"></div>
@@ -122,6 +98,86 @@
     </section>
 
   </main>
+
+  <!-- Renderizada nos dois papeis para manter um DOM unico; o dashboard nao tem -->
+  <!-- botao de navegacao nem rotas de escrita, portanto permanece inacessivel. -->
+  <section id="aba-operacao" class="grade aba-conteudo oculto" data-aba-conteudo="operacao" role="tabpanel">
+    <section class="painel operacao-painel">
+      <div class="operacao-cabecalho">
+        <div>
+          <h2 class="painel-titulo">Supervisão e operação</h2>
+          <p class="dashboard-somente-leitura">Selecione o modo antes de calcular ou enviar comandos. O ciclo automático roda no backend.</p>
+        </div>
+        <div id="operacao-coletor-status" class="coletor-status">Coletor: aguardando heartbeat</div>
+      </div>
+
+      <div class="operacao-grade">
+        <div class="campo-config">
+          <label for="zona-principal">Zona ativa</label>
+          <select id="zona-principal"></select>
+        </div>
+        <div class="campo-config">
+          <label for="operacao-modo">Modo operacional</label>
+          <select id="operacao-modo">
+            <option value="desligado">Desligado</option>
+            <option value="manual">Manual</option>
+            <option value="automatico">Automático</option>
+            <option value="manutencao">Manutenção</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="config-grade operacao-travas">
+        <label class="check"><input type="checkbox" id="cfg-equipamentos"><span>Permitir acionamento físico global</span></label>
+        <label class="check"><input type="checkbox" id="operacao-acionamento-zona"><span>Permitir acionamento físico desta zona</span></label>
+        <label class="check"><input type="checkbox" id="cfg-coletar"><span>Usar sensores remotos no ciclo manual</span></label>
+        <label class="check oculto"><input type="checkbox" id="cfg-auto"><span>Automático legado</span></label>
+        <label class="check oculto"><input type="checkbox" id="cfg-sons"><span>Habilitar sons de alerta</span></label>
+        <label class="check oculto"><input type="checkbox" id="cfg-emails"><span>Enviar e-mails de aviso</span></label>
+      </div>
+
+      <section class="operacao-ciclo-manual" aria-labelledby="operacao-ciclo-manual-titulo">
+        <h3 id="operacao-ciclo-manual-titulo" class="grafico-titulo">Dados processados do ciclo</h3>
+        <p class="operacao-ajuda">No modo manual, estes valores alimentam o cálculo da zona. No automático, mostram os últimos valores processados.</p>
+        <div id="campos-entrada" class="campos-entrada"></div>
+      </section>
+
+      <section class="operacao-equipamentos-secao" aria-labelledby="operacao-equipamentos-titulo">
+        <div class="operacao-secao-cabecalho">
+          <h3 id="operacao-equipamentos-titulo" class="grafico-titulo">Equipamentos da zona</h3>
+          <span class="operacao-ajuda">Identificação e estado de cada equipamento cadastrado</span>
+        </div>
+        <div id="operacao-equipamentos" class="operacao-equipamentos"></div>
+      </section>
+
+      <div class="acao-linha operacao-acoes operacao-acoes--ciclo">
+        <button id="btn-calcular" class="botao botao--primario" type="button">Executar ciclo manual</button>
+      </div>
+      <div class="operacao-comandos-grupo">
+        <p class="grafico-titulo">Comandos coletivos da zona</p>
+        <p class="operacao-ajuda">Cada comando mantém o comportamento atual e atua em todos os equipamentos do tipo selecionado.</p>
+        <div class="acao-linha operacao-acoes">
+        <button class="botao botao--fantasma" type="button" data-comando-tipo="ventilador" data-comando-ligar="true">Ligar ventilador</button>
+        <button class="botao botao--fantasma" type="button" data-comando-tipo="ventilador" data-comando-ligar="false">Desligar ventilador</button>
+        <button class="botao botao--fantasma" type="button" data-comando-tipo="nebulizador" data-comando-ligar="true">Ligar nebulizador</button>
+        <button class="botao botao--fantasma" type="button" data-comando-tipo="nebulizador" data-comando-ligar="false">Desligar nebulizador</button>
+        </div>
+      </div>
+      <div id="operacao-estado-atuadores" class="operacao-estado-atuadores">Sem estado operacional registrado.</div>
+      <p id="mensagem-erro" class="mensagem-erro oculto" role="alert"></p>
+    </section>
+
+    <section class="painel tabela-painel">
+      <div class="tabela-cabecalho"><p class="grafico-titulo">Eventos recentes de operação</p></div>
+      <div id="operacao-eventos" class="operacao-eventos"></div>
+    </section>
+
+    <div id="wrap-email-destino" class="campo-email-destino oculto">
+      <label for="email-destino">Enviar avisos para</label>
+      <input type="email" id="email-destino" placeholder="produtor@fazenda.com.br" value="produtor@fazenda.com.br">
+    </div>
+    <button id="btn-limpar" class="botao botao--perigo botao--compacto oculto" type="button">Limpar histórico</button>
+  </section>
 
   <section id="aba-analises" class="grade aba-conteudo{{ '' if aba_inicial == 'analises' else ' oculto' }}" data-aba-conteudo="analises" role="tabpanel">
     <section class="painel tabela-painel executivo-painel">

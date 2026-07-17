@@ -1186,3 +1186,132 @@ td.status-emergencia { color: var(--status-emergencia); }
 .dialog-app .campos-config { margin-top: 0.9rem; }
 .dialog-app .check { margin-top: 0.9rem; }
 .dialog-app .acao-linha { margin-top: 1.1rem; justify-content: flex-end; }
+
+/* Supervisao: Dashboard somente leitura + comandos isolados em Operacao. */
+.dashboard-status-painel { grid-column: span 16; }
+.dashboard-somente-leitura {
+  margin: 0.75rem 0 0;
+  color: var(--cor-texto-mute);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+.dashboard-entradas-bloco {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--cor-borda);
+}
+.campos-entrada--somente-leitura { margin: 0; }
+.campo-entrada-rotulo {
+  font-family: var(--fonte-mono);
+  font-size: 0.6rem;
+  line-height: 1.1;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.campo-entrada-valor {
+  display: block;
+  width: 100%;
+  max-width: 7.7rem;
+  justify-self: end;
+  padding: 0.38rem 0.55rem;
+  border: 1px solid var(--cor-borda);
+  border-radius: 6px;
+  background: var(--cor-painel-alt);
+  color: var(--cor-texto);
+  font-family: var(--fonte-mono);
+  font-size: 0.85rem;
+  text-align: right;
+}
+.coletor-status {
+  align-self: end;
+  padding: 0.62rem 0.8rem;
+  border: 1px solid var(--cor-borda);
+  border-radius: 7px;
+  color: var(--cor-texto-mute);
+  font-family: var(--fonte-mono);
+  font-size: 0.73rem;
+}
+.coletor-status--online { color: var(--status-conforto); border-color: var(--status-conforto); }
+.coletor-status--offline { color: var(--status-perigo); border-color: var(--status-perigo); }
+#aba-operacao { max-width: 1360px; margin: 1.5rem auto 0; }
+#aba-operacao > .painel { grid-column: span 16; }
+.operacao-cabecalho { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; }
+.operacao-grade { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-top: 1rem; }
+.operacao-travas { margin: 1rem 0; }
+.operacao-acoes { justify-content: flex-start; margin-top: 1rem; }
+.operacao-ajuda { margin: 0.3rem 0 0; color: var(--cor-texto-mute); font-size: 0.78rem; line-height: 1.45; }
+.operacao-ciclo-manual,
+.operacao-equipamentos-secao,
+.operacao-comandos-grupo {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--cor-borda);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.1);
+}
+.operacao-ciclo-manual .campos-entrada { margin-top: 0.8rem; }
+.operacao-acoes--ciclo { margin-top: 0.8rem; }
+.operacao-secao-cabecalho { display: flex; justify-content: space-between; gap: 1rem; align-items: baseline; }
+.operacao-secao-cabecalho .operacao-ajuda { margin: 0; text-align: right; }
+.operacao-equipamentos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.9rem; margin-top: 0.8rem; }
+.operacao-equipamento-grupo { min-width: 0; }
+.operacao-equipamento-grupo-cabecalho { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.55rem; }
+.operacao-equipamento-grupo-cabecalho h4 { margin: 0; color: var(--cor-texto); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.operacao-equipamento-grupo-cabecalho span {
+  min-width: 1.5rem;
+  padding: 0.12rem 0.42rem;
+  border-radius: 999px;
+  background: var(--cor-painel-alt);
+  color: var(--cor-texto-mute);
+  font-family: var(--fonte-mono);
+  font-size: 0.7rem;
+  text-align: center;
+}
+.operacao-equipamento-grade { display: grid; gap: 0.6rem; }
+.operacao-equipamento-card {
+  min-width: 0;
+  padding: 0.72rem;
+  border: 1px solid var(--cor-borda);
+  border-left: 3px solid var(--cor-acento);
+  border-radius: 7px;
+  background: var(--cor-painel-alt);
+}
+.operacao-equipamento-card--ventilador { border-left-color: #60a5fa; }
+.operacao-equipamento-card--nebulizador { border-left-color: #38bdf8; }
+.operacao-equipamento-card--falha { border-left-color: var(--status-perigo); }
+.operacao-equipamento-cabecalho { display: flex; justify-content: space-between; gap: 0.6rem; align-items: flex-start; margin-bottom: 0.55rem; }
+.operacao-equipamento-cabecalho > strong { min-width: 0; overflow-wrap: anywhere; color: var(--cor-texto); font-size: 0.83rem; }
+.operacao-equipamento-status { flex: 0 0 auto; padding: 0.14rem 0.42rem; border-radius: 999px; background: rgba(148, 163, 184, 0.14); color: var(--cor-texto-mute); font-size: 0.66rem; text-transform: uppercase; }
+.operacao-equipamento-status.status--ok { color: var(--status-conforto); background: rgba(34, 197, 94, 0.12); }
+.operacao-equipamento-status.status--ativo { color: #60a5fa; background: rgba(96, 165, 250, 0.12); }
+.operacao-equipamento-status.status--falha { color: var(--status-perigo); background: rgba(239, 68, 68, 0.12); }
+.operacao-equipamento-dado { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); gap: 0.5rem; padding: 0.25rem 0; border-top: 1px solid rgba(148, 163, 184, 0.08); font-size: 0.7rem; line-height: 1.35; }
+.operacao-equipamento-dado span { color: var(--cor-texto-mute); }
+.operacao-equipamento-dado strong { min-width: 0; color: var(--cor-texto); font-family: var(--fonte-mono); font-weight: 500; overflow-wrap: anywhere; text-align: right; }
+.operacao-equipamento-vazio { margin: 0; padding: 0.8rem; border: 1px dashed var(--cor-borda); border-radius: 7px; color: var(--cor-texto-mute); font-size: 0.75rem; text-align: center; }
+.operacao-estado-atuadores {
+  margin-top: 1rem;
+  padding: 0.8rem;
+  border-left: 3px solid var(--cor-acento);
+  background: rgba(0, 0, 0, 0.16);
+  color: var(--cor-texto);
+  font-family: var(--fonte-mono);
+  font-size: 0.76rem;
+  line-height: 1.55;
+}
+.operacao-eventos { display: grid; gap: 0.4rem; color: var(--cor-texto-mute); font-size: 0.8rem; }
+.operacao-evento { display: grid; grid-template-columns: 5rem 1fr; gap: 0.75rem; padding: 0.45rem 0; border-bottom: 1px solid var(--cor-borda); }
+.operacao-evento time { color: var(--cor-acento); font-family: var(--fonte-mono); }
+@media (max-width: 700px) {
+  .operacao-cabecalho { flex-direction: column; }
+  .operacao-grade { grid-template-columns: 1fr; }
+  .operacao-secao-cabecalho { display: block; }
+  .operacao-secao-cabecalho .operacao-ajuda { margin-top: 0.3rem; text-align: left; }
+  .operacao-equipamentos { grid-template-columns: 1fr; }
+}
+@media (min-width: 701px) and (max-width: 1050px) {
+  .operacao-equipamentos { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

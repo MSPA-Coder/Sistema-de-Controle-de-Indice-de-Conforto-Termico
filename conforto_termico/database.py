@@ -43,6 +43,10 @@ INTERVALO_MINIMO_LEITURAS = datetime.timedelta(minutes=1)
 # externa) escrevendo no mesmo arquivo ao mesmo tempo.
 TIMEOUT_CONEXAO_SEGUNDOS = 30.0
 
+MODOS_OPERACAO = ("desligado", "manual", "automatico", "manutencao")
+MODO_OPERACAO_PADRAO = "manual"
+_NAO_INFORMADO = object()
+
 CONFIGURACOES_PADRAO = {
     "coletarDados": False,
     "habilitarSons": False,
@@ -123,7 +127,9 @@ def _conexao(*, escrita: bool = True) -> Iterator[sqlite3.Connection]:
             conn.close()
 
 
-_TABELAS_CONHECIDAS = frozenset({"leituras", "zonas", "equipamentos", "configuracoes"})
+_TABELAS_CONHECIDAS = frozenset(
+    {"leituras", "zonas", "equipamentos", "configuracoes", "estado_equipamentos"}
+)
 
 
 def _coluna_existe(conn: sqlite3.Connection, tabela: str, coluna: str) -> bool:
@@ -234,6 +240,81 @@ def iniciar_banco() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS controle_zonas (
+                zona_id INTEGER PRIMARY KEY REFERENCES zonas(id) ON DELETE CASCADE,
+                modo TEXT NOT NULL DEFAULT 'manual',
+                acionamento_habilitado INTEGER NOT NULL DEFAULT 0,
+                atualizado_em TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS estado_coletor (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                status TEXT NOT NULL,
+                iniciado_em TEXT,
+                heartbeat_em TEXT,
+                ultimo_ciclo_em TEXT,
+                proximo_ciclo_em TEXT,
+                erro TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS eventos_operacao (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                zona_id INTEGER REFERENCES zonas(id) ON DELETE SET NULL,
+                tipo TEXT NOT NULL,
+                acao TEXT NOT NULL,
+                detalhes TEXT NOT NULL,
+                criado_em TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_eventos_operacao_zona_id "
+            "ON eventos_operacao (zona_id, id)"
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS leituras_recentes_zona (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                zona_id INTEGER NOT NULL REFERENCES zonas(id) ON DELETE CASCADE,
+                especie TEXT NOT NULL,
+                indice TEXT NOT NULL,
+                valor REAL NOT NULL,
+                status TEXT NOT NULL,
+                entradas TEXT NOT NULL,
+                criado_em TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_leituras_recentes_zona_id "
+            "ON leituras_recentes_zona (zona_id, id)"
+        )
+
+        # Evolucao do resumo legado para distinguir aquilo que o algoritmo
+        # pediu daquilo que o equipamento realmente confirmou. Instalacoes
+        # existentes recebem as colunas sem perder o estado ja persistido.
+        colunas_estado = {
+            "ventilador_desejado": "INTEGER",
+            "nebulizador_desejado": "INTEGER",
+            "ventilador_confirmado": "INTEGER",
+            "nebulizador_confirmado": "INTEGER",
+            "falhas": "TEXT NOT NULL DEFAULT '[]'",
+            "qualidade": "TEXT NOT NULL DEFAULT 'sem_leitura'",
+            "ultimo_ciclo_em": "TEXT",
+        }
+        for coluna, definicao in colunas_estado.items():
+            if not _coluna_existe(conn, "estado_equipamentos", coluna):
+                conn.execute(
+                    f"ALTER TABLE estado_equipamentos ADD COLUMN {coluna} {definicao}"
+                )
 
         # MIGRACAO: `zona_id` foi adicionado depois que a tabela `leituras`
         # ja existia em instalacoes anteriores (recurso de Zonas Modbus).
@@ -357,6 +438,55 @@ def obter_historico_por_zona(zona_id: int, limite: int = 20) -> list[dict]:
     return dados
 
 
+def salvar_leitura_recente_zona(
+    zona_id: int,
+    especie: str,
+    indice: str,
+    valor: float,
+    status: str,
+    entradas: dict,
+    limite: int = 30,
+) -> None:
+    """Mantem uma janela curta para graficos entre processos separados."""
+    agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+    limite = max(1, min(200, int(limite)))
+    with _conexao() as conn:
+        conn.execute(
+            """
+            INSERT INTO leituras_recentes_zona
+                (zona_id, especie, indice, valor, status, entradas, criado_em)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (zona_id, especie, indice, valor, status, json.dumps(entradas), agora),
+        )
+        conn.execute(
+            """
+            DELETE FROM leituras_recentes_zona
+            WHERE zona_id = ? AND id NOT IN (
+                SELECT id FROM leituras_recentes_zona
+                WHERE zona_id = ? ORDER BY id DESC LIMIT ?
+            )
+            """,
+            (zona_id, zona_id, limite),
+        )
+
+
+def obter_leituras_recentes_zona(zona_id: int, limite: int = 30) -> list[dict]:
+    limite = max(1, min(200, int(limite)))
+    with _conexao(escrita=False) as conn:
+        linhas = conn.execute(
+            """
+            SELECT * FROM leituras_recentes_zona
+            WHERE zona_id = ? ORDER BY id DESC LIMIT ?
+            """,
+            (zona_id, limite),
+        ).fetchall()
+    dados = [dict(linha) for linha in reversed(linhas)]
+    for item in dados:
+        item["entradas"] = json.loads(item["entradas"])
+    return dados
+
+
 def obter_historico_leituras(
     limite: int = 30,
     deslocamento: int | None = None,
@@ -426,10 +556,16 @@ def limpar_historico(especie: str | None = None, indice: str | None = None) -> N
             conn.execute(
                 "DELETE FROM leituras WHERE especie = ? AND indice = ?", (especie, indice)
             )
+            conn.execute(
+                "DELETE FROM leituras_recentes_zona WHERE especie = ? AND indice = ?",
+                (especie, indice),
+            )
         elif especie:
             conn.execute("DELETE FROM leituras WHERE especie = ?", (especie,))
+            conn.execute("DELETE FROM leituras_recentes_zona WHERE especie = ?", (especie,))
         else:
             conn.execute("DELETE FROM leituras")
+            conn.execute("DELETE FROM leituras_recentes_zona")
 
 
 def criar_backup_banco() -> dict:
@@ -463,39 +599,238 @@ def salvar_estado_equipamentos(
     ventilador_ligado: bool,
     nebulizador_ligado: bool,
     intensidade: str | None,
+    ventilador_desejado=_NAO_INFORMADO,
+    nebulizador_desejado=_NAO_INFORMADO,
+    ventilador_confirmado=_NAO_INFORMADO,
+    nebulizador_confirmado=_NAO_INFORMADO,
+    falhas: list[str] | None = None,
+    qualidade: str = "boa",
 ) -> None:
-    """Persiste o estado ATUAL (ligado/desligado, intensidade) dos atuadores
-    de uma zona -- chamada pelo `ZonaService` a cada ciclo de calculo (ver
-    `zona_service.ZonaService.calcular`). E o que permite ao "Painel
-    executivo por zona" (`obter_painel_zonas`) reportar quantos
-    equipamentos estao ligados sem depender do estado em memoria do
-    processo que roda a malha de controle.
+    """Persiste estado desejado, confirmado e qualidade do ultimo ciclo.
 
-    `intensidade` e `None` quando o `Resfriamento` da zona nunca chegou a
-    ser acionado (mesma convencao de `models.Resfriamento.estado()`).
+    Os quatro primeiros argumentos preservam o contrato anterior. Quando os
+    novos campos nao sao informados, o estado legado e tratado como desejado
+    e confirmado; quando a confirmacao e explicitamente ``None``, a interface
+    mostra que houve comando sem realimentacao disponivel.
+    """
+    if ventilador_desejado is _NAO_INFORMADO:
+        ventilador_desejado = bool(ventilador_ligado)
+    if nebulizador_desejado is _NAO_INFORMADO:
+        nebulizador_desejado = bool(nebulizador_ligado)
+    if ventilador_confirmado is _NAO_INFORMADO:
+        ventilador_confirmado = bool(ventilador_ligado)
+    if nebulizador_confirmado is _NAO_INFORMADO:
+        nebulizador_confirmado = bool(nebulizador_ligado)
 
-    UPSERT: sempre uma linha por zona (nunca acumula historico aqui)."""
+    def _bool_sql(valor):
+        return None if valor is None else int(bool(valor))
+
     agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
     with _conexao() as conn:
         conn.execute(
             """
             INSERT INTO estado_equipamentos
-                (zona_id, ventilador_ligado, nebulizador_ligado, intensidade, atualizado_em)
-            VALUES (?, ?, ?, ?, ?)
+                (zona_id, ventilador_ligado, nebulizador_ligado, intensidade, atualizado_em,
+                 ventilador_desejado, nebulizador_desejado,
+                 ventilador_confirmado, nebulizador_confirmado,
+                 falhas, qualidade, ultimo_ciclo_em)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(zona_id) DO UPDATE SET
                 ventilador_ligado = excluded.ventilador_ligado,
                 nebulizador_ligado = excluded.nebulizador_ligado,
                 intensidade = excluded.intensidade,
-                atualizado_em = excluded.atualizado_em
+                atualizado_em = excluded.atualizado_em,
+                ventilador_desejado = excluded.ventilador_desejado,
+                nebulizador_desejado = excluded.nebulizador_desejado,
+                ventilador_confirmado = excluded.ventilador_confirmado,
+                nebulizador_confirmado = excluded.nebulizador_confirmado,
+                falhas = excluded.falhas,
+                qualidade = excluded.qualidade,
+                ultimo_ciclo_em = excluded.ultimo_ciclo_em
             """,
             (
                 zona_id,
-                int(bool(ventilador_ligado)),
-                int(bool(nebulizador_ligado)),
+                int(bool(ventilador_confirmado)) if ventilador_confirmado is not None else 0,
+                int(bool(nebulizador_confirmado)) if nebulizador_confirmado is not None else 0,
                 intensidade,
+                agora,
+                _bool_sql(ventilador_desejado),
+                _bool_sql(nebulizador_desejado),
+                _bool_sql(ventilador_confirmado),
+                _bool_sql(nebulizador_confirmado),
+                json.dumps(falhas or []),
+                qualidade,
                 agora,
             ),
         )
+
+
+def salvar_comando_manual_atuador(
+    zona_id: int,
+    tipo: str,
+    desejado: bool,
+    confirmado: bool | None,
+    falhas: list[str] | None = None,
+) -> None:
+    """Atualiza apenas o atuador comandado, preservando o outro grupo."""
+    if tipo not in ("ventilador", "nebulizador"):
+        raise ValueError("Tipo de atuador invalido.")
+    agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+    coluna_desejada = f"{tipo}_desejado"
+    coluna_confirmada = f"{tipo}_confirmado"
+    coluna_legada = f"{tipo}_ligado"
+    qualidade = "boa" if not falhas else "degradada"
+
+    with _conexao() as conn:
+        conn.execute(
+            """
+            INSERT INTO estado_equipamentos
+                (zona_id, ventilador_ligado, nebulizador_ligado, intensidade,
+                 atualizado_em, ventilador_desejado, nebulizador_desejado,
+                 ventilador_confirmado, nebulizador_confirmado, falhas,
+                 qualidade, ultimo_ciclo_em)
+            VALUES (?, 0, 0, 'manual', ?, 0, 0, NULL, NULL, ?, ?, ?)
+            ON CONFLICT(zona_id) DO NOTHING
+            """,
+            (zona_id, agora, json.dumps(falhas or []), qualidade, agora),
+        )
+        # Os nomes de coluna nunca vem de entrada externa: foram escolhidos
+        # pelo allowlist de ``tipo`` acima.
+        conn.execute(
+            f"""
+            UPDATE estado_equipamentos
+            SET {coluna_desejada} = ?,
+                {coluna_confirmada} = ?,
+                {coluna_legada} = ?,
+                intensidade = 'manual',
+                falhas = ?, qualidade = ?,
+                atualizado_em = ?, ultimo_ciclo_em = ?
+            WHERE zona_id = ?
+            """,
+            (
+                int(desejado),
+                None if confirmado is None else int(confirmado),
+                int(bool(confirmado)) if confirmado is not None else 0,
+                json.dumps(falhas or []),
+                qualidade,
+                agora,
+                agora,
+                zona_id,
+            ),
+        )
+
+
+def registrar_falha_operacional_zona(zona_id: int, mensagem: str) -> None:
+    """Marca falha do ciclo sem inventar um novo estado dos equipamentos."""
+    agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+    with _conexao() as conn:
+        conn.execute(
+            """
+            INSERT INTO estado_equipamentos
+                (zona_id, ventilador_ligado, nebulizador_ligado, intensidade,
+                 atualizado_em, falhas, qualidade, ultimo_ciclo_em)
+            VALUES (?, 0, 0, NULL, ?, ?, 'falha', ?)
+            ON CONFLICT(zona_id) DO UPDATE SET
+                falhas = excluded.falhas,
+                qualidade = excluded.qualidade,
+                atualizado_em = excluded.atualizado_em,
+                ultimo_ciclo_em = excluded.ultimo_ciclo_em
+            """,
+            (zona_id, agora, json.dumps([mensagem]), agora),
+        )
+
+
+def salvar_status_coletor(
+    status: str,
+    *,
+    iniciado_em: str | None = None,
+    ultimo_ciclo_em: str | None = None,
+    proximo_ciclo_em: str | None = None,
+    erro: str | None = None,
+) -> dict:
+    agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+    with _conexao() as conn:
+        atual = conn.execute("SELECT * FROM estado_coletor WHERE id = 1").fetchone()
+        inicio = iniciado_em or (atual["iniciado_em"] if atual else None) or agora
+        ultimo = ultimo_ciclo_em or (atual["ultimo_ciclo_em"] if atual else None)
+        conn.execute(
+            """
+            INSERT INTO estado_coletor
+                (id, status, iniciado_em, heartbeat_em, ultimo_ciclo_em, proximo_ciclo_em, erro)
+            VALUES (1, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                status = excluded.status,
+                iniciado_em = excluded.iniciado_em,
+                heartbeat_em = excluded.heartbeat_em,
+                ultimo_ciclo_em = excluded.ultimo_ciclo_em,
+                proximo_ciclo_em = excluded.proximo_ciclo_em,
+                erro = excluded.erro
+            """,
+            (status, inicio, agora, ultimo, proximo_ciclo_em, erro),
+        )
+    return {
+        "status": status,
+        "iniciado_em": inicio,
+        "heartbeat_em": agora,
+        "ultimo_ciclo_em": ultimo,
+        "proximo_ciclo_em": proximo_ciclo_em,
+        "erro": erro,
+    }
+
+
+def obter_status_coletor() -> dict:
+    with _conexao(escrita=False) as conn:
+        linha = conn.execute("SELECT * FROM estado_coletor WHERE id = 1").fetchone()
+    if linha is None:
+        return {
+            "status": "offline",
+            "online": False,
+            "iniciado_em": None,
+            "heartbeat_em": None,
+            "ultimo_ciclo_em": None,
+            "proximo_ciclo_em": None,
+            "erro": None,
+        }
+
+    dados = dict(linha)
+    heartbeat = datetime.datetime.fromisoformat(dados["heartbeat_em"])
+    intervalo = float(obter_configuracoes().get("intervaloLeituraSegundos") or 1)
+    limite = datetime.timedelta(seconds=max(10.0, intervalo * 3))
+    dados["online"] = (
+        dados["status"] == "online" and datetime.datetime.now() - heartbeat <= limite
+    )
+    if not dados["online"] and dados["status"] == "online":
+        dados["status"] = "sem_heartbeat"
+    dados.pop("id", None)
+    return dados
+
+
+def registrar_evento_operacao(
+    tipo: str, acao: str, *, zona_id: int | None = None, detalhes: dict | None = None
+) -> None:
+    agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+    with _conexao() as conn:
+        conn.execute(
+            "INSERT INTO eventos_operacao (zona_id, tipo, acao, detalhes, criado_em) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (zona_id, tipo, acao, json.dumps(detalhes or {}), agora),
+        )
+
+
+def listar_eventos_operacao(zona_id: int | None = None, limite: int = 30) -> list[dict]:
+    filtro = "WHERE zona_id = ?" if zona_id is not None else ""
+    parametros = (zona_id, limite) if zona_id is not None else (limite,)
+    with _conexao(escrita=False) as conn:
+        linhas = conn.execute(
+            f"SELECT * FROM eventos_operacao {filtro} ORDER BY id DESC LIMIT ?",
+            parametros,
+        ).fetchall()
+    resultado = []
+    for linha in linhas:
+        item = dict(linha)
+        item["detalhes"] = json.loads(item["detalhes"])
+        resultado.append(item)
+    return resultado
 
 
 def contar_leituras() -> int:
@@ -535,6 +870,71 @@ class ZonaNaoEncontradaError(ZonaInvalidaError):
     devolver 404 (em vez de 400) SEM precisar refazer a consulta "a zona
     existe?" -- que ja foi respondida, atomicamente, dentro da mesma
     transacao que tentou a operacao (ver `criar_equipamento`)."""
+
+
+def obter_controle_zona(zona_id: int) -> dict | None:
+    """Devolve modo e permissao de acionamento persistidos para a zona."""
+    with _conexao(escrita=False) as conn:
+        zona = conn.execute("SELECT 1 FROM zonas WHERE id = ?", (zona_id,)).fetchone()
+        if zona is None:
+            return None
+        linha = conn.execute(
+            "SELECT modo, acionamento_habilitado, atualizado_em "
+            "FROM controle_zonas WHERE zona_id = ?",
+            (zona_id,),
+        ).fetchone()
+    if linha is None:
+        return {
+            "zona_id": zona_id,
+            "modo": MODO_OPERACAO_PADRAO,
+            "acionamento_habilitado": False,
+            "atualizado_em": None,
+        }
+    return {
+        "zona_id": zona_id,
+        "modo": linha["modo"],
+        "acionamento_habilitado": bool(linha["acionamento_habilitado"]),
+        "atualizado_em": linha["atualizado_em"],
+    }
+
+
+def salvar_controle_zona(zona_id: int, dados: dict) -> dict:
+    atual = obter_controle_zona(zona_id)
+    if atual is None:
+        raise ZonaNaoEncontradaError(f"Zona {zona_id} nao encontrada.")
+
+    modo = dados.get("modo", atual["modo"])
+    if modo not in MODOS_OPERACAO:
+        raise ZonaInvalidaError(
+            f"Modo operacional invalido: {modo!r} (esperado um de {MODOS_OPERACAO})."
+        )
+
+    acionamento = dados.get(
+        "acionamento_habilitado", atual["acionamento_habilitado"]
+    )
+    if not isinstance(acionamento, bool):
+        raise ZonaInvalidaError("acionamento_habilitado precisa ser booleano.")
+
+    agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+    with _conexao() as conn:
+        conn.execute(
+            """
+            INSERT INTO controle_zonas
+                (zona_id, modo, acionamento_habilitado, atualizado_em)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(zona_id) DO UPDATE SET
+                modo = excluded.modo,
+                acionamento_habilitado = excluded.acionamento_habilitado,
+                atualizado_em = excluded.atualizado_em
+            """,
+            (zona_id, modo, int(acionamento), agora),
+        )
+    return {
+        "zona_id": zona_id,
+        "modo": modo,
+        "acionamento_habilitado": acionamento,
+        "atualizado_em": agora,
+    }
 
 
 def _validar_inteiro(valor, nome_campo: str, minimo: int, maximo: int) -> int:
@@ -666,6 +1066,11 @@ def criar_zona(dados: dict) -> dict:
             (validado["nome"], validado["especie"], validado["indice"], int(validado["ativa"]), agora),
         )
         zona_id = cursor.lastrowid
+        conn.execute(
+            "INSERT INTO controle_zonas "
+            "(zona_id, modo, acionamento_habilitado, atualizado_em) VALUES (?, ?, 0, ?)",
+            (zona_id, MODO_OPERACAO_PADRAO, agora),
+        )
     # Monta o retorno com os dados ja em maos, em vez de abrir uma segunda
     # conexao so para reler o que acabamos de gravar: uma zona recem-criada
     # nunca tem equipamentos (sao cadastrados depois, num POST separado).
@@ -677,6 +1082,11 @@ def criar_zona(dados: dict) -> dict:
         "ativa": validado["ativa"],
         "criado_em": agora,
         "equipamentos": [],
+        "controle": {
+            "modo": MODO_OPERACAO_PADRAO,
+            "acionamento_habilitado": False,
+            "atualizado_em": agora,
+        },
     }
 
 
@@ -690,15 +1100,28 @@ def listar_zonas(*, apenas_ativas: bool = False) -> list[dict]:
         linhas_equipamentos = conn.execute(
             "SELECT * FROM equipamentos ORDER BY zona_id, tipo, id"
         ).fetchall()
+        linhas_controle = conn.execute(
+            "SELECT zona_id, modo, acionamento_habilitado, atualizado_em "
+            "FROM controle_zonas ORDER BY zona_id"
+        ).fetchall()
 
     equipamentos_por_zona: dict[int, list[dict]] = {}
     for linha in linhas_equipamentos:
         equipamentos_por_zona.setdefault(linha["zona_id"], []).append(dict(linha))
 
     zonas = [dict(linha) for linha in linhas_zonas]
+    controle_por_zona = {linha["zona_id"]: linha for linha in linhas_controle}
     for zona in zonas:
         zona["ativa"] = bool(zona["ativa"])
         zona["equipamentos"] = equipamentos_por_zona.get(zona["id"], [])
+        controle = controle_por_zona.get(zona["id"])
+        zona["controle"] = {
+            "modo": controle["modo"] if controle else MODO_OPERACAO_PADRAO,
+            "acionamento_habilitado": bool(controle["acionamento_habilitado"])
+            if controle
+            else False,
+            "atualizado_em": controle["atualizado_em"] if controle else None,
+        }
     return zonas
 
 
@@ -710,10 +1133,64 @@ def obter_zona(zona_id: int) -> dict | None:
         equipamentos = conn.execute(
             "SELECT * FROM equipamentos WHERE zona_id = ? ORDER BY tipo, id", (zona_id,)
         ).fetchall()
+        controle = conn.execute(
+            "SELECT modo, acionamento_habilitado, atualizado_em "
+            "FROM controle_zonas WHERE zona_id = ?",
+            (zona_id,),
+        ).fetchone()
     zona = dict(linha)
     zona["ativa"] = bool(zona["ativa"])
     zona["equipamentos"] = [dict(e) for e in equipamentos]
+    zona["controle"] = {
+        "modo": controle["modo"] if controle else MODO_OPERACAO_PADRAO,
+        "acionamento_habilitado": bool(controle["acionamento_habilitado"])
+        if controle
+        else False,
+        "atualizado_em": controle["atualizado_em"] if controle else None,
+    }
     return zona
+
+
+def obter_estado_operacional_zonas() -> list[dict]:
+    """Snapshot somente-leitura usado pelo Dashboard e pela aba Operacao."""
+    zonas = listar_zonas()
+    with _conexao(escrita=False) as conn:
+        linhas = conn.execute("SELECT * FROM estado_equipamentos ORDER BY zona_id").fetchall()
+    estados = {linha["zona_id"]: dict(linha) for linha in linhas}
+
+    def _bool_opcional(valor):
+        return None if valor is None else bool(valor)
+
+    resultado = []
+    for zona in zonas:
+        estado = estados.get(zona["id"], {})
+        falhas = estado.get("falhas") or "[]"
+        try:
+            falhas = json.loads(falhas)
+        except (TypeError, json.JSONDecodeError):
+            falhas = []
+        resultado.append(
+            {
+                "zona_id": zona["id"],
+                "zona_nome": zona["nome"],
+                "ativa": zona["ativa"],
+                "modo": zona["controle"]["modo"],
+                "acionamento_habilitado": zona["controle"]["acionamento_habilitado"],
+                "desejado": {
+                    "ventilador": _bool_opcional(estado.get("ventilador_desejado")),
+                    "nebulizador": _bool_opcional(estado.get("nebulizador_desejado")),
+                },
+                "confirmado": {
+                    "ventilador": _bool_opcional(estado.get("ventilador_confirmado")),
+                    "nebulizador": _bool_opcional(estado.get("nebulizador_confirmado")),
+                },
+                "intensidade": estado.get("intensidade"),
+                "qualidade": estado.get("qualidade") or "sem_leitura",
+                "falhas": falhas,
+                "ultimo_ciclo_em": estado.get("ultimo_ciclo_em"),
+            }
+        )
+    return resultado
 
 
 def atualizar_zona(zona_id: int, dados: dict) -> dict | None:
@@ -740,9 +1217,21 @@ def atualizar_zona(zona_id: int, dados: dict) -> dict | None:
         equipamentos = conn.execute(
             "SELECT * FROM equipamentos WHERE zona_id = ? ORDER BY tipo, id", (zona_id,)
         ).fetchall()
+        controle = conn.execute(
+            "SELECT modo, acionamento_habilitado, atualizado_em "
+            "FROM controle_zonas WHERE zona_id = ?",
+            (zona_id,),
+        ).fetchone()
     zona = dict(zona_linha)
     zona["ativa"] = bool(zona["ativa"])
     zona["equipamentos"] = [dict(e) for e in equipamentos]
+    zona["controle"] = {
+        "modo": controle["modo"] if controle else MODO_OPERACAO_PADRAO,
+        "acionamento_habilitado": bool(controle["acionamento_habilitado"])
+        if controle
+        else False,
+        "atualizado_em": controle["atualizado_em"] if controle else None,
+    }
     return zona
 
 

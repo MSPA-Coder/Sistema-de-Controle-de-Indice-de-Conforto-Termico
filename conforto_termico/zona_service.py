@@ -75,10 +75,13 @@ class ZonaService:
         obter_configuracoes: Callable,
         obter_historico: Callable,
         salvar_estado_equipamentos: Callable[[int, bool, bool, str], None],
+        obter_controle_zona: Callable[[int], dict | None] | None = None,
         ler_modbus_real: Callable = modbus_client.ler_valor,
         escrever_modbus_real: Callable = modbus_client.escrever_valor,
+        ler_estado_atuador_real: Callable | None = None,
         simulador=None,
         limite_historico_grafico: int = 30,
+        salvar_leitura_recente: Callable | None = None,
     ):
         self._obter_zona = obter_zona
         self._salvar_leitura = salvar_leitura
@@ -90,8 +93,10 @@ class ZonaService:
         # `database.obter_painel_zonas`) saber quantos equipamentos estao
         # ligados sem depender do estado em memoria deste servico.
         self._salvar_estado_equipamentos = salvar_estado_equipamentos
+        self._obter_controle_zona = obter_controle_zona
         self._ler_modbus_real = ler_modbus_real
         self._escrever_modbus_real = escrever_modbus_real
+        self._ler_estado_atuador_real = ler_estado_atuador_real
         # `simulador` (um `modbus_simulador.SimuladorModbusZonas`, opcional)
         # substitui a comunicacao Modbus real por valores simulados quando
         # a configuracao `modoSimuladoZonas` estiver ligada (ver
@@ -104,6 +109,7 @@ class ZonaService:
         self._resfriadores: dict[int, Resfriamento] = {}
         self._historicos_grafico: dict[int, list[dict]] = {}
         self._limite_historico_grafico = limite_historico_grafico
+        self._salvar_leitura_recente = salvar_leitura_recente
         self._lock = threading.Lock()
 
     @staticmethod
@@ -214,6 +220,43 @@ class ZonaService:
             return self._simulador.escrever_valor(equipamento, ligar)
         return self._escrever_modbus_real(equipamento, ligar)
 
+    def _ler_estado_atuador(self, equipamento: dict) -> bool | None:
+        if self._em_modo_simulado() and self._simulador:
+            leitor = getattr(self._simulador, "ler_estado_atuador", None)
+            return leitor(equipamento) if leitor else None
+        if not self._ler_estado_atuador_real:
+            return None
+        return self._ler_estado_atuador_real(equipamento)
+
+    def _controle_da_zona(self, zona_id: int) -> dict:
+        if not self._obter_controle_zona:
+            return {"modo": "manual", "acionamento_habilitado": True}
+        controle = self._obter_controle_zona(zona_id)
+        return controle or {"modo": "desligado", "acionamento_habilitado": False}
+
+    def _permissao_acionamento(self, zona_id: int) -> tuple[bool, str | None]:
+        # Integracoes antigas instanciavam o servico sem a camada de
+        # controle operacional. Mantemos esse contrato nos testes e em
+        # consumidores legados; a composicao de producao sempre injeta
+        # ``obter_controle_zona`` e, portanto, aplica as duas travas.
+        if not self._obter_controle_zona:
+            return True, None
+        controle = self._controle_da_zona(zona_id)
+        modo = controle.get("modo")
+        if modo in ("desligado", "manutencao"):
+            return False, f"Zona em modo {modo}."
+        if not controle.get("acionamento_habilitado"):
+            return False, "Acionamento fisico bloqueado para esta zona."
+        try:
+            global_habilitado = bool(
+                self._obter_configuracoes().get("habilitarEquipamentos", False)
+            )
+        except Exception:
+            global_habilitado = False
+        if not global_habilitado:
+            return False, "Acionamento fisico bloqueado na configuracao global."
+        return True, None
+
     def ler_sensores(self, equipamentos: list[dict]) -> dict:
         """Le todos os sensores informados via Modbus e devolve a MEDIA das
         leituras por campo, quando ha mais de um sensor para o mesmo
@@ -291,6 +334,22 @@ class ZonaService:
         historico_grafico = self._registrar_historico_grafico(
             zona, valor, status, entradas_historico, logger
         )
+        if self._salvar_leitura_recente:
+            try:
+                self._salvar_leitura_recente(
+                    zona_id,
+                    zona["especie"],
+                    zona["indice"],
+                    valor,
+                    status,
+                    entradas_historico,
+                    self._limite_historico_grafico,
+                )
+            except Exception:
+                if logger:
+                    logger.exception(
+                        "Falha ao persistir janela em tempo real da zona %s", zona_id
+                    )
 
         gravado = False
         try:
@@ -319,15 +378,39 @@ class ZonaService:
         )
 
         estado_atuadores = resfriador.estado()
-        atuadores_com_falha = self._aplicar_atuadores(equipamentos, resfriador, logger)
+        permitido, bloqueio_atuadores = self._permissao_acionamento(zona_id)
+        if permitido:
+            resultado_atuadores = self._aplicar_atuadores(
+                equipamentos, estado_atuadores, logger
+            )
+        else:
+            resultado_atuadores = {
+                "falhas": [],
+                "confirmado": {"ventilador": None, "nebulizador": None},
+            }
+        atuadores_com_falha = resultado_atuadores["falhas"]
+        qualidade = "degradada" if sensores_com_falha or atuadores_com_falha else "boa"
 
         try:
-            self._salvar_estado_equipamentos(
+            argumentos_estado = (
                 zona_id,
                 estado_atuadores["ativo"],
                 estado_atuadores["nebulizador"],
                 estado_atuadores["intensidade"],
+                estado_atuadores["ventilador"],
+                estado_atuadores["nebulizador"],
+                resultado_atuadores["confirmado"]["ventilador"],
+                resultado_atuadores["confirmado"]["nebulizador"],
+                sensores_com_falha + atuadores_com_falha,
+                qualidade,
             )
+            try:
+                self._salvar_estado_equipamentos(*argumentos_estado)
+            except TypeError:
+                # Compatibilidade com integracoes antigas que implementam o
+                # callback de persistencia com apenas os quatro argumentos
+                # originais.
+                self._salvar_estado_equipamentos(*argumentos_estado[:4])
         except Exception:
             if logger:
                 logger.exception(
@@ -357,7 +440,15 @@ class ZonaService:
             "leitura_gravada": gravado,
             "sensores_com_falha": sensores_com_falha,
             "equipamento": resfriador.estado(),
+            "estado_desejado": {
+                "ventilador": estado_atuadores["ventilador"],
+                "nebulizador": estado_atuadores["nebulizador"],
+            },
+            "estado_confirmado": resultado_atuadores["confirmado"],
             "atuadores_com_falha": atuadores_com_falha,
+            "acionamento_bloqueado": bloqueio_atuadores,
+            "modo_operacao": self._controle_da_zona(zona_id).get("modo"),
+            "qualidade": qualidade,
             "modo_simulado": self._em_modo_simulado(),
         }
 
@@ -380,10 +471,13 @@ class ZonaService:
             return None
 
     def _aplicar_atuadores(
-        self, equipamentos: list[dict], resfriador: Resfriamento, logger
-    ) -> list[str]:
-        estado = resfriador.estado()
+        self, equipamentos: list[dict], estado: dict, logger
+    ) -> dict:
         falhas: list[str] = []
+        confirmacoes: dict[str, list[bool | None]] = {
+            "ventilador": [],
+            "nebulizador": [],
+        }
         for equipamento in equipamentos:
             if equipamento.get("tipo") == "ventilador":
                 ligar = estado["ventilador"]
@@ -393,10 +487,101 @@ class ZonaService:
                 continue
 
             sucesso = self._escrever_modbus(equipamento, ligar)
+            confirmado = self._ler_estado_atuador(equipamento) if sucesso else None
+            confirmacoes[equipamento["tipo"]].append(confirmado)
             if not sucesso:
                 falhas.append(equipamento["nome"])
                 if logger:
                     logger.warning(
                         "Falha ao acionar equipamento Modbus '%s'", equipamento["nome"]
                     )
-        return falhas
+            elif confirmado is None:
+                falhas.append(f"{equipamento['nome']} (sem confirmacao)")
+            elif confirmado != ligar:
+                falhas.append(f"{equipamento['nome']} (estado divergente)")
+
+        def _consolidar(valores: list[bool | None]) -> bool | None:
+            if not valores or any(valor is None for valor in valores):
+                return None
+            unicos = set(valores)
+            return valores[0] if len(unicos) == 1 else None
+
+        return {
+            "falhas": falhas,
+            "confirmado": {
+                tipo: _consolidar(valores) for tipo, valores in confirmacoes.items()
+            },
+        }
+
+    def comandar_manual(
+        self, zona_id: int, tipo: str, ligar: bool, logger=None
+    ) -> dict:
+        """Comanda um grupo de atuadores somente no modo manual.
+
+        O metodo nao altera sensores nem calcula indice. A persistencia do
+        resultado parcial fica com o gerenciador da malha, que consegue
+        preservar o estado do outro tipo de atuador no banco.
+        """
+        if tipo not in ("ventilador", "nebulizador"):
+            raise ZonaCalculoError("Tipo de atuador invalido.")
+        if not isinstance(ligar, bool):
+            raise ZonaCalculoError("O estado do comando precisa ser booleano.")
+
+        zona = self._obter_zona(zona_id)
+        if not zona:
+            raise ZonaCalculoError(f"Zona {zona_id} nao encontrada.")
+        if not zona["ativa"]:
+            raise ZonaCalculoError(f"A zona '{zona['nome']}' esta desativada.")
+
+        controle = self._controle_da_zona(zona_id)
+        if self._obter_controle_zona and controle.get("modo") != "manual":
+            raise ZonaCalculoError("Comandos diretos so sao aceitos no modo manual.")
+
+        permitido, bloqueio = self._permissao_acionamento(zona_id)
+        if not permitido:
+            raise ZonaCalculoError(bloqueio or "Acionamento fisico bloqueado.")
+
+        equipamentos = [
+            equipamento
+            for equipamento in zona["equipamentos"]
+            if equipamento.get("tipo") == tipo
+        ]
+        if not equipamentos:
+            raise ZonaCalculoError(
+                f"A zona '{zona['nome']}' nao possui {tipo} cadastrado."
+            )
+
+        estado = {"ventilador": False, "nebulizador": False}
+        estado[tipo] = ligar
+        resultado = self._aplicar_atuadores(equipamentos, estado, logger)
+        return {
+            "zona_id": zona_id,
+            "zona_nome": zona["nome"],
+            "tipo": tipo,
+            "desejado": ligar,
+            "confirmado": resultado["confirmado"][tipo],
+            "atuadores_com_falha": resultado["falhas"],
+            "qualidade": "boa" if not resultado["falhas"] else "degradada",
+        }
+
+    def desativar_atuadores(self, zona_id: int, logger=None) -> dict:
+        """Solicita desligamento de todos os atuadores de uma zona.
+
+        Esta operacao e usada ao entrar em modo desligado/manutencao e nao
+        depende das travas de acionamento: desligar e a transicao segura.
+        """
+        zona = self._obter_zona(zona_id)
+        if not zona:
+            raise ZonaCalculoError(f"Zona {zona_id} nao encontrada.")
+
+        estado = {"ventilador": False, "nebulizador": False}
+        resultado = self._aplicar_atuadores(zona["equipamentos"], estado, logger)
+        self.resfriador_da_zona(zona_id).desativar()
+        return {
+            "zona_id": zona_id,
+            "zona_nome": zona["nome"],
+            "desejado": estado,
+            "confirmado": resultado["confirmado"],
+            "atuadores_com_falha": resultado["falhas"],
+            "qualidade": "boa" if not resultado["falhas"] else "degradada",
+        }

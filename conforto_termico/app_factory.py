@@ -37,8 +37,10 @@ servico propositalmente.
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from types import MappingProxyType
 
 from flask import Flask, jsonify, request
@@ -58,23 +60,57 @@ MENSAGEM_ERRO_INTERNO = "Erro interno inesperado. Consulte o log do servidor par
 # Os tres papeis validos de app (ver docstring do modulo). `None` so existe
 # para a composicao "tudo num processo so" da Fase 0 (`web.py`).
 PAPEIS_APP = (None, "coletor", "dashboard")
+CONFIG_SERVIDOR_PATH = Path(__file__).resolve().parents[1] / "config" / "servidor.json"
 
 
-def _ler_bool_env(nome: str, padrao: bool) -> bool:
-    valor = os.environ.get(nome)
+def _ler_config_servidor(papel_app: str | None) -> dict:
+    """Le configuracoes locais versionadas para cada papel do servidor.
+
+    Variaveis de ambiente continuam tendo precedencia. Se o arquivo estiver
+    ausente ou malformado, os padroes seguros em codigo continuam valendo.
+    """
+    try:
+        with CONFIG_SERVIDOR_PATH.open("r", encoding="utf-8") as arquivo:
+            bruto = json.load(arquivo)
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+    if not isinstance(bruto, dict):
+        return {}
+
+    config = {}
+    for chave in ("padrao", papel_app):
+        valores = bruto.get(chave)
+        if isinstance(valores, dict):
+            config.update(valores)
+    return config
+
+
+def _coagir_bool(valor, padrao: bool) -> bool:
     if valor is None:
         return padrao
-    return valor.strip().lower() in ("1", "true", "sim", "on")
+    if isinstance(valor, bool):
+        return valor
+    return str(valor).strip().lower() in ("1", "true", "sim", "on")
 
 
-def _ler_int_env(nome: str, padrao: int) -> int:
-    valor = os.environ.get(nome)
+def _coagir_int(valor, padrao: int) -> int:
     if valor is None:
         return padrao
     try:
         return int(valor)
-    except ValueError:
+    except (TypeError, ValueError):
         return padrao
+
+
+def _ler_bool_env(nome: str, padrao: bool) -> bool:
+    valor = os.environ.get(nome)
+    return _coagir_bool(valor, padrao)
+
+
+def _ler_int_env(nome: str, padrao: int) -> int:
+    valor = os.environ.get(nome)
+    return _coagir_int(valor, padrao)
 
 
 @dataclass(frozen=True)
@@ -91,17 +127,26 @@ class AppConfig:
     max_content_length: int
 
     @classmethod
-    def from_env(cls) -> "AppConfig":
+    def from_env(cls, papel_app: str | None = None) -> "AppConfig":
+        if papel_app not in PAPEIS_APP:
+            raise ValueError(f"papel_app invalido: {papel_app!r} (esperado um de {PAPEIS_APP})")
+
+        config_arquivo = _ler_config_servidor(papel_app)
         return cls(
-            debug=_ler_bool_env("CONFORTO_DEBUG", False),
-            host=os.environ.get("CONFORTO_HOST", "127.0.0.1"),
-            port=_ler_int_env("CONFORTO_PORT", 5000),
-            threaded=_ler_bool_env("CONFORTO_THREADED", True),
+            debug=_ler_bool_env("CONFORTO_DEBUG", _coagir_bool(config_arquivo.get("debug"), False)),
+            host=os.environ.get("CONFORTO_HOST", str(config_arquivo.get("host") or "127.0.0.1")),
+            port=_ler_int_env("CONFORTO_PORT", _coagir_int(config_arquivo.get("port"), 5000)),
+            threaded=_ler_bool_env(
+                "CONFORTO_THREADED", _coagir_bool(config_arquivo.get("threaded"), True)
+            ),
             # 1 MiB e generoso para o payload JSON desta API (entradas de
             # sensor e configuracoes sao poucas dezenas de campos numericos)
             # e evita que uma requisicao com corpo gigante consuma memoria
             # do processo desnecessariamente.
-            max_content_length=_ler_int_env("CONFORTO_MAX_CONTENT_LENGTH", 1_000_000),
+            max_content_length=_ler_int_env(
+                "CONFORTO_MAX_CONTENT_LENGTH",
+                _coagir_int(config_arquivo.get("max_content_length"), 1_000_000),
+            ),
         )
 
 
@@ -127,9 +172,9 @@ def criar_app(papel_app: str | None = None, config: AppConfig | None = None) -> 
     """Monta e devolve um app Flask pronto para uso. Ver docstring do
     modulo para o significado de `papel_app`."""
     if papel_app not in PAPEIS_APP:
-        raise ValueError(f"papel_app inválido: {papel_app!r} (esperado um de {PAPEIS_APP})")
+        raise ValueError(f"papel_app invalido: {papel_app!r} (esperado um de {PAPEIS_APP})")
 
-    config = config or AppConfig.from_env()
+    config = config or AppConfig.from_env(papel_app)
 
     app = Flask(__name__)
     app.json = ProvedorJSON(app)
@@ -214,10 +259,22 @@ def executar_servidor(app: Flask, config: AppConfig) -> None:
     O reloader cria um processo pai e um filho. Em execucoes locais pelo
     PyCharm, terminal ou automacao, isso pode deixar processos Flask
     aparentes depois que a janela principal foi encerrada."""
-    app.run(
-        debug=config.debug,
-        host=config.host,
-        port=config.port,
-        threaded=config.threaded,
-        use_reloader=False,
-    )
+    gerenciador = None
+    if app.config.get("CONFORTO_PAPEL_APP") in (None, "coletor"):
+        # Importacao deliberadamente tardia: o processo dashboard continua
+        # sem carregar qualquer codigo Modbus ou de acionamento.
+        from .coletor.estado import gerenciador_controle
+
+        gerenciador = gerenciador_controle
+        gerenciador.iniciar(app.logger)
+    try:
+        app.run(
+            debug=config.debug,
+            host=config.host,
+            port=config.port,
+            threaded=config.threaded,
+            use_reloader=False,
+        )
+    finally:
+        if gerenciador:
+            gerenciador.parar()

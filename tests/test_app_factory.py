@@ -59,6 +59,15 @@ class TestCriarAppPorPapel(unittest.TestCase):
         # rotas comuns continuam presentes
         self.assertIn("/api/historico-leituras", rotas_get)
         self.assertIn("/api/zonas", rotas_get)
+        rotas_put = self._rotas(app, "PUT")
+        self.assertIn("/api/zonas/<int:zona_id>/controle", rotas_put)
+        pagina = app.test_client().get("/").get_data(as_text=True)
+        self.assertIn('id="campos-entrada-dashboard"', pagina)
+        self.assertNotIn("Visualização somente leitura", pagina)
+        self.assertIn('data-aba="operacao"', pagina)
+        self.assertIn('id="campos-entrada"', pagina)
+        self.assertIn('id="operacao-equipamentos"', pagina)
+        self.assertIn("Comandos coletivos da zona", pagina)
 
     def test_papel_dashboard_so_tem_rotas_de_leitura(self):
         app = criar_app(papel_app="dashboard")
@@ -69,6 +78,8 @@ class TestCriarAppPorPapel(unittest.TestCase):
         self.assertIn("/api/analises/painel-executivo", rotas_get)
         self.assertIn("/api/historico-leituras", rotas_get)  # comum
         self.assertIn("/api/zonas", rotas_get)  # comum, so listagem (GET)
+        self.assertIn("/api/operacao/status", rotas_get)
+        self.assertIn("/api/zonas/<int:zona_id>/historico", rotas_get)
 
         # nada que fale Modbus, calcule ou grave
         self.assertNotIn("/api/zonas/<int:zona_id>/calcular", rotas_post)
@@ -77,6 +88,14 @@ class TestCriarAppPorPapel(unittest.TestCase):
         self.assertNotIn("/api/configuracoes", rotas_post)
         self.assertNotIn("/api/backup-banco", rotas_post)
         self.assertNotIn("/api/zonas", rotas_post)  # criar zona e do coletor
+        self.assertNotIn(
+            "/api/zonas/<int:zona_id>/controle", self._rotas(app, "PUT")
+        )
+
+        pagina = app.test_client().get("/").get_data(as_text=True)
+        self.assertIn('data-aba="principal"', pagina)
+        self.assertNotIn('data-aba="operacao"', pagina)
+        self.assertIn('id="campos-entrada-dashboard"', pagina)
 
     def test_app_dashboard_nao_importa_modulos_de_modbus(self):
         """Nao basta a rota nao existir: um processo de dashboard genuino
@@ -152,6 +171,13 @@ class TestColetorEDashboardCompartilhamOMesmoBanco(unittest.TestCase):
                 "tipo_registrador": "coil",
                 "endereco_registrador": 0,
             },
+        )
+        self.coletor.post(
+            "/api/configuracoes", json={"habilitarEquipamentos": True}
+        )
+        self.coletor.put(
+            f"/api/zonas/{zona_id}/controle",
+            json={"modo": "manual", "acionamento_habilitado": True},
         )
 
         resposta_calculo = self.coletor.post(

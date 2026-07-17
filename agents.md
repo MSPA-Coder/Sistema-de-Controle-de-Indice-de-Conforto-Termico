@@ -269,10 +269,11 @@ separate MACHINES (which would need a client-server database instead of
 a shared SQLite file, or a push/API layer), is a later decision, not
 something this codebase blocks on.
 
-**Equipment on/off state is persisted, not just kept in memory.**
+**Desired and confirmed equipment state is persisted, not just kept in memory.**
 `database.salvar_estado_equipamentos` (table `estado_equipamentos`, one
 row per zone, upserted) is called by `ZonaService.calcular`/
-`calcular_manual` after every control cycle. This is what lets
+`calcular_manual` after every control cycle. The row distinguishes the
+algorithm request from Modbus readback and records quality/faults. This is what lets
 `database.obter_painel_zonas` report how many fans/misters are on without
 depending on any in-memory state from the process running the control
 loop -- essential once coletor and dashboard are genuinely different
@@ -281,38 +282,32 @@ same machine). `_recomendacao_operacional` (the executive panel's
 operational recommendation text) lives in `database.py` for the same
 reason: the whole panel is reproducible from the database alone.
 
-**The "Dashboard" tab (`aba-principal` / `data-aba="principal"`) belongs
-to the COLETOR role, not the dashboard role**, despite the name. It is the
-live manual-control panel (zone selector, "Ler zona agora" button,
-automatic-mode toggle, live zone cards) -- it triggers real Modbus reads
-and shows live control state, so it needs `coletor_bp` routes
-(`/api/zonas/<id>/calcular`, `/api/zonas/calcular-ativas`,
-`/api/configuracoes` POST, etc.) to function. If a person asks for
-"dashboard" to mean this tab specifically, clarify this naming collision
-before regrouping tabs -- moving this tab's nav button into the dashboard
-role without also exposing those routes there would just make its buttons
-404.
+**The "Dashboard" tab (`aba-principal` / `data-aba="principal"`) is
+read-only and belongs to every role.** It keeps live zone cards, charts,
+equipment status and history using common GET routes. Calculations, mode
+changes, physical locks and direct commands live in the separate
+`operacao` tab, whose nav button is collector-only. Never add a write route
+to the dashboard role to make a control work; move that control to
+Operacao instead.
 
 **Template tab visibility follows `papel_app`.** `rotas_comuns.index`
-passes `papel_app` and `aba_inicial` ("principal" for coletor/None,
-"analises" for dashboard) to `templates/index.html`, which conditionally
+passes `papel_app` and `aba_inicial` (`"principal"` for every role) to
+`templates/index.html`, which conditionally
 renders each nav button. Content `<section>`/`<main>` elements are
 **always** rendered regardless of role (only the nav buttons are
 conditional) -- `static/js/app.js`'s `DOMContentLoaded` handler does many
-unguarded `document.getElementById(...)` calls for coletor-only elements
+unguarded `document.getElementById(...)` calls for operation-only elements
 (`#btn-calcular`, etc.); hiding those elements from the DOM entirely would
 throw and break initialization for the whole page. Keep it this way
-unless those call sites are also made defensive. Because `ativarAba` (the
-function that would normally trigger `carregarAnalises()`) only runs on a
-nav click, and a dashboard-role page loads directly into the Analises tab
-with no "Dashboard" button to click away from, `app.js` explicitly calls
-`carregarAnalises()` on load when `CONFIG_APP.abaInicial === "analises"`.
+unless those call sites are also made defensive. Operation content remains
+rendered but has no navigation entry in the dashboard role; the dashboard
+server also has no write routes.
 
 **Backward compatibility.** `conforto_termico/web.py` re-exports (not
 copies) the objects tests and `app.py` already import from it: `app`,
 `AppConfig`, `MENSAGEM_ERRO_INTERNO`, `_resfriador`,
 `historico_grafico_service`, `sensor_simulado_service`, `zona_service`,
-`calculo_ict_service`, `executar_servidor_local`. If you add a new
+`calculo_ict_service`, `gerenciador_controle`, `executar_servidor_local`. If you add a new
 process-wide singleton, add it to `coletor/estado.py` and re-export it
 from `web.py` too, or `tests/test_app.py`'s `patch.object(flask_app.X,
 ...)` calls will silently patch a different object than the one the
@@ -383,7 +378,7 @@ routes actually use.
   simulator needs `zona_service.resfriador_da_zona` to know current cooling
   state, which only exists after `ZonaService` itself is constructed (see
   the wiring in `web.py`).
-- **Seeding example zones.** `seed_zonas.py` (project root, not part of the
+- **Seeding example zones.** `scripts/seed_zonas.py` (not part of the
   running app) creates 5 example zones with realistic Modbus parameters
   for demonstration/testing. It's idempotent by default (does nothing if
   zones already exist; `--forcar` overrides). If you change
@@ -391,20 +386,14 @@ routes actually use.
   keep this script's sensor sets covering whatever fields the configured
   índice actually needs -- a zone that can never calculate its own índice
   is a bad example, not a realistic one.
-- **Per-zone automatic mode and charts (frontend only).** The Zonas tab has
-  its own "modo automático" toggle (`cfg-zonas-auto`,
-  `alternarModoAutomaticoZonas`/`cicloAutomaticoZonas` in app.js) that
-  cycles through active zones SEQUENTIALLY (mirrors a real RS-485 bus:
-  one device at a time), reusing the exact same non-overlapping-cycle
-  pattern as the Principal tab's automatic mode (`autoZonasEmExecucao`/
-  `autoZonasTimeoutId` mirror `autoEmExecucao`/`autoTimeoutId`). Each zone
-  card renders its own Chart.js chart of that zone's calculated index over
-  time (`atualizarGraficoZona`, fed by `/api/zonas/<id>/historico`) --
-  replacing the single shared chart the Principal tab shows for one
-  dataset. `cfg-zonas-simulado` persists to the `modoSimuladoZonas` config
-  key through the same `coletarConfig`/`aplicarConfiguracoes` pipeline as
-  every other config checkbox, even though it physically lives in the
-  Zonas tab rather than Configurações.
+- **Per-zone automatic mode is backend-owned.**
+  `coletor/controle.py::GerenciadorControleZonas` runs active zones whose
+  persisted mode is `automatico`; the browser never schedules control
+  cycles. It also owns the per-zone lock, collector heartbeat and operation
+  event log. `/api/zonas/<id>/historico` reads the shared real-time window
+  in SQLite so collector and dashboard processes render the same charts.
+  `cfg-zonas-simulado` still persists to `modoSimuladoZonas` through the
+  normal configuration pipeline.
 
 ## Verification
 

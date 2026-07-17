@@ -3,8 +3,10 @@
 import os
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
+from conforto_termico import app_factory
 from conforto_termico import database as db
 from conforto_termico import web as flask_app
 
@@ -469,6 +471,33 @@ class TestServidorLocal(unittest.TestCase):
         self.assertEqual("127.0.0.1", config.host)
         self.assertEqual(5000, config.port)
 
+    def test_app_config_from_env_usa_config_por_papel(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            config_path = Path(tempdir) / "servidor.json"
+            config_path.write_text(
+                """
+{
+  "padrao": {"host": "127.0.0.1", "port": 5000},
+  "coletor": {"port": 5100},
+  "dashboard": {"port": 5101}
+}
+""".strip(),
+                encoding="utf-8",
+            )
+            ambiente_limpo = {
+                chave: valor
+                for chave, valor in os.environ.items()
+                if not chave.startswith("CONFORTO_")
+            }
+
+            with patch.object(app_factory, "CONFIG_SERVIDOR_PATH", config_path):
+                with patch.dict(os.environ, ambiente_limpo, clear=True):
+                    coletor = flask_app.AppConfig.from_env("coletor")
+                    dashboard = flask_app.AppConfig.from_env("dashboard")
+
+        self.assertEqual(5100, coletor.port)
+        self.assertEqual(5101, dashboard.port)
+
     def test_app_config_from_env_le_variaveis_customizadas(self):
         variaveis = {
             "CONFORTO_DEBUG": "1",
@@ -636,6 +665,57 @@ class TestZonasApi(unittest.TestCase):
         self.assertEqual(200, lista.status_code)
         self.assertEqual(1, len(lista.json))
         self.assertEqual(zona_id, lista.json[0]["id"])
+
+    def test_modos_travas_comando_e_estado_confirmado(self):
+        zona_id = self._criar_zona().json["id"]
+        self.client.post(
+            f"/api/zonas/{zona_id}/equipamentos",
+            json={
+                "tipo": "ventilador",
+                "nome": "VENT-OPERACAO",
+                "modo_conexao": "tcp",
+                "host": "127.0.0.1",
+                "tipo_registrador": "coil",
+                "endereco_registrador": 0,
+            },
+        )
+
+        bloqueado = self.client.post(
+            f"/api/zonas/{zona_id}/comando",
+            json={"tipo": "ventilador", "ligar": True},
+        )
+        self.assertEqual(400, bloqueado.status_code)
+
+        self.client.post("/api/configuracoes", json={"habilitarEquipamentos": True})
+        controle = self.client.put(
+            f"/api/zonas/{zona_id}/controle",
+            json={"modo": "manual", "acionamento_habilitado": True},
+        )
+        self.assertEqual(200, controle.status_code)
+
+        comando = self.client.post(
+            f"/api/zonas/{zona_id}/comando",
+            json={"tipo": "ventilador", "ligar": True},
+        )
+        self.assertEqual(200, comando.status_code)
+        self.assertTrue(comando.json["desejado"])
+        self.assertTrue(comando.json["confirmado"])
+
+        status = self.client.get("/api/operacao/status").json
+        [estado_zona] = status["zonas"]
+        self.assertEqual("manual", estado_zona["modo"])
+        self.assertTrue(estado_zona["desejado"]["ventilador"])
+        self.assertTrue(estado_zona["confirmado"]["ventilador"])
+        self.assertTrue(self.client.get(f"/api/operacao/eventos?zona_id={zona_id}").json)
+
+        self.client.put(
+            f"/api/zonas/{zona_id}/controle", json={"modo": "automatico"}
+        )
+        manual_fora_do_modo = self.client.post(
+            f"/api/zonas/{zona_id}/calcular",
+            json={"entradas": {"tbs": 25, "tbu": 20}},
+        )
+        self.assertEqual(400, manual_fora_do_modo.status_code)
 
     def test_criar_zona_invalida_devolve_400(self):
         resposta = self._criar_zona(nome="")
@@ -847,6 +927,9 @@ class TestZonasApi(unittest.TestCase):
         zona_emergencia = self._criar_zona(nome="Zona Emergencia").json["id"]
 
         for zona_id in (zona_conforto, zona_emergencia):
+            self.client.put(
+                f"/api/zonas/{zona_id}/controle", json={"modo": "automatico"}
+            )
             for campo in ("tbs", "tbu"):
                 self.client.post(
                     f"/api/zonas/{zona_id}/equipamentos",
@@ -889,6 +972,9 @@ class TestZonasApi(unittest.TestCase):
         zona_b = self._criar_zona(nome="Zona B").json["id"]
         zona_inativa = self._criar_zona(nome="Zona Inativa", ativa=False).json["id"]
         for zona_id in (zona_a, zona_b, zona_inativa):
+            self.client.put(
+                f"/api/zonas/{zona_id}/controle", json={"modo": "automatico"}
+            )
             for campo in ("tbs", "tbu"):
                 self.client.post(
                     f"/api/zonas/{zona_id}/equipamentos",
@@ -917,6 +1003,9 @@ class TestZonasApi(unittest.TestCase):
 
     def test_calcular_zonas_ativas_nao_derruba_rota_com_entrada_invalida(self):
         zona_id = self._criar_zona(nome="Zona ITUV", indice="ITUV").json["id"]
+        self.client.put(
+            f"/api/zonas/{zona_id}/controle", json={"modo": "automatico"}
+        )
         for campo in ("tbs", "tbu", "v"):
             self.client.post(
                 f"/api/zonas/{zona_id}/equipamentos",

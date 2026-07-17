@@ -39,6 +39,7 @@ A interface e em portugues do Brasil. Os identificadores internos do projeto
 ├── app.py                              # lancador (1 processo so): python app.py
 ├── run_coletor.py                      # lancador do processo COLETOR (fase 1)
 ├── run_dashboard.py                    # lancador do processo DASHBOARD (fase 1)
+├── config/servidor.json                # portas/defaults por papel do servidor
 ├── conforto_termico/
 │   ├── web.py                          # composicao "1 processo so" (fase 0); reexporta app/servicos
 │   ├── app_factory.py                  # criar_app(papel_app): monta o Flask a partir dos blueprints
@@ -60,7 +61,7 @@ A interface e em portugues do Brasil. Os identificadores internos do projeto
 │       ├── css/style.css
 │       └── js/app.js
 ├── tests/                              # unittest
-├── seed_zonas.py                       # cria zonas de exemplo
+├── scripts/seed_zonas.py               # cria zonas de exemplo
 ├── requirements.txt
 └── instance/
     └── historico.db                    # banco local criado/usado em runtime
@@ -75,8 +76,11 @@ para eventualmente rodar em processos -- e maquinas -- separados:
   sensores, calcula o indice, aciona ventilador/nebulizador e grava tudo
   no banco (leituras, estado dos equipamentos). E aqui que fica a malha de
   controle (`zona_service.py`) -- ela precisa continuar funcionando mesmo
-  que nenhum dashboard esteja de pe.
+  que nenhum dashboard esteja de pe. O agendador de backend
+  (`coletor/controle.py`) executa somente zonas em modo `automatico`, com
+  lock por zona e heartbeat persistido.
 - **dashboard** (`dashboard/rotas.py`): so leitura -- estatisticas e o
+  Dashboard de monitoramento, historico, estatisticas e o
   "Painel executivo por zona" da aba Analises. Depende SOMENTE de
   `database.py`; nunca importa `modbus_client` nem `zona_service`.
 - **comum** (`rotas_comuns.py`): pagina inicial, lista de zonas,
@@ -84,20 +88,21 @@ para eventualmente rodar em processos -- e maquinas -- separados:
   leitura uteis nos dois papeis.
 
 `app_factory.criar_app(papel_app)` monta o Flask a partir desses
-Blueprints. Hoje (`papel_app=None`, ver `web.py`/`app.py`) os dois papeis
-rodam juntos, no mesmo processo -- e o unico modo suportado por
-enquanto. `run_coletor.py`/`run_dashboard.py` ja existem e funcionam
-(`papel_app="coletor"`/`"dashboard"`, cada um so com as rotas do seu
-papel), preparando o terreno para rodar como dois processos de verdade
-quando fizer sentido; ver a secao "Como rodar" abaixo. Os dois processos
-compartilham o MESMO arquivo `instance/historico.db` -- o `_conexao()` de
-`database.py` ja liga WAL e usa timeout de lock pensando nesse cenario.
+Blueprints. O modo combinado (`papel_app=None`, ver `web.py`/`app.py`) ainda
+existe por compatibilidade e desenvolvimento local. `run_coletor.py` e
+`run_dashboard.py` tambem funcionam de forma independente
+(`papel_app="coletor"`/`"dashboard"`, cada um so com as rotas do seu papel).
+Os dois processos compartilham o MESMO arquivo `instance/historico.db` -- o
+`_conexao()` de `database.py` ja liga WAL e usa timeout de lock pensando
+nesse cenario.
 
-O estado ligado/desligado de cada equipamento e persistido a cada ciclo de
-calculo (`database.salvar_estado_equipamentos`, tabela
-`estado_equipamentos`) -- e assim que o dashboard sabe quantos
-equipamentos estao ligados sem depender de nenhum estado em memoria do
-processo que roda a malha de controle.
+O estado desejado e o estado confirmado de cada equipamento sao persistidos
+a cada ciclo (`database.salvar_estado_equipamentos`, tabela
+`estado_equipamentos`). Uma janela curta de todas as leituras tambem e
+persistida em `leituras_recentes_zona`, para que os graficos ao vivo nao
+dependam da memoria do coletor. A operacao usa quatro modos por zona:
+`desligado`, `manual`, `automatico` e `manutencao`; o acionamento fisico
+exige tanto a trava global quanto a trava da propria zona.
 
 O unico modulo que importa `pymodbus` diretamente e `modbus_client.py`.
 
@@ -128,41 +133,46 @@ pip install -r requirements.txt
 python app.py
 ```
 
-Acesse `http://127.0.0.1:5000` -- todas as abas (Dashboard, Analises,
-Historico, Zonas, Configuracoes) ficam disponiveis nesse unico processo.
+Acesse `http://127.0.0.1:5000` -- todas as abas (Dashboard, Operacao,
+Analises, Historico, Zonas, Configuracoes) ficam disponiveis nesse unico
+processo.
 
 No PyCharm, abra a pasta do projeto, selecione o interpretador Python do
 ambiente virtual e rode `app.py`.
 
 ### Dois processos (coletor + dashboard)
 
-Cada um numa porta diferente, mesma maquina:
+Cada um numa porta diferente, mesma maquina. As portas padrao ja estao em
+`config/servidor.json` (`5000` para coletor, `5001` para dashboard):
 
 ```powershell
-set CONFORTO_PORT=5000
 python run_coletor.py
 ```
 
 ```powershell
-set CONFORTO_PORT=5001
 python run_dashboard.py
 ```
 
-O coletor (`5000`) mostra Dashboard/Zonas/Configuracoes; o dashboard
-(`5001`) mostra Analises/Historico. Os dois leem e gravam no mesmo
-`instance/historico.db` -- nenhuma variavel extra e necessaria para isso.
+O coletor (`5000`) mostra Dashboard/Operacao/Zonas/Configuracoes; o
+dashboard (`5001`) mostra Dashboard/Analises/Historico. Apenas o coletor
+grava e comanda; o dashboard acessa as tabelas compartilhadas em modo
+somente leitura. Os dois usam o mesmo `instance/historico.db`.
 
 ## Configuracao do servidor
 
-As variaveis abaixo sao opcionais. Sem configuracao, o servidor escuta apenas
-em `127.0.0.1:5000` com debug desligado. Valem tanto para `app.py` quanto
-para `run_coletor.py`/`run_dashboard.py`.
+O arquivo `config/servidor.json` define defaults versionados por papel. Sem
+variaveis de ambiente, `app.py` usa `padrao.port` (`5000`), `run_coletor.py`
+usa `coletor.port` (`5000`) e `run_dashboard.py` usa `dashboard.port`
+(`5001`).
+
+As variaveis abaixo sao opcionais e sempre sobrescrevem o arquivo. Valem tanto
+para `app.py` quanto para `run_coletor.py`/`run_dashboard.py`.
 
 | Variavel | Padrao | Descricao |
 |---|---:|---|
 | `CONFORTO_DEBUG` | `0` | Liga o debugger do Werkzeug. Use apenas em desenvolvimento local. |
 | `CONFORTO_HOST` | `127.0.0.1` | Interface de rede do Flask. |
-| `CONFORTO_PORT` | `5000` | Porta TCP. |
+| `CONFORTO_PORT` | `config/servidor.json` | Porta TCP. |
 | `CONFORTO_THREADED` | `1` | Atende requisicoes concorrentes no servidor de desenvolvimento. |
 | `CONFORTO_MAX_CONTENT_LENGTH` | `1000000` | Tamanho maximo do corpo da requisicao, em bytes. |
 
@@ -262,14 +272,14 @@ escrita/teste.
 Para popular o banco com cinco zonas demonstrativas:
 
 ```powershell
-python seed_zonas.py
+python scripts/seed_zonas.py
 ```
 
 O script e idempotente: se ja houver zonas, ele nao cria duplicatas. Para
 forcar nova insercao:
 
 ```powershell
-python seed_zonas.py --forcar
+python scripts/seed_zonas.py --forcar
 ```
 
 ## API principal
@@ -355,7 +365,7 @@ Regras de manutencao importantes:
 - Nao importe `pymodbus` fora de `modbus_client.py`.
 - Para novas configuracoes persistidas, adicione coercao em
   `_sanitizar_configuracoes`.
-- Para novos campos/indices/especies, atualize testes e `seed_zonas.py`.
+- Para novos campos/indices/especies, atualize testes e `scripts/seed_zonas.py`.
 - Preserve campos JSON existentes, salvo quando uma mudanca de contrato for
   explicitamente desejada.
 

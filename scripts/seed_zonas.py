@@ -7,8 +7,8 @@ zonas de exemplo, cada uma com sensores/ventiladores/nebulizadores
 Modbus cadastrados com parametros plausiveis de uma instalacao real.
 
 Uso:
-    python seed_zonas.py            # cria as 5 zonas (se ainda nao existirem)
-    python seed_zonas.py --forcar   # cria mesmo se ja houver zonas cadastradas
+    python scripts/seed_zonas.py            # cria as 5 zonas (se ainda nao existirem)
+    python scripts/seed_zonas.py --forcar   # cria mesmo se ja houver zonas cadastradas
 
 Notas sobre as escolhas de cadastro (para quem for revisar/ajustar depois):
 
@@ -39,6 +39,11 @@ Notas sobre as escolhas de cadastro (para quem for revisar/ajustar depois):
 from __future__ import annotations
 
 import sys
+from pathlib import Path
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 from conforto_termico import database as db
 

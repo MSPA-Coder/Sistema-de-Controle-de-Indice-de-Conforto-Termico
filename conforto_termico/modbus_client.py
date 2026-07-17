@@ -154,3 +154,41 @@ def escrever_valor(equipamento: dict[str, Any], ligar: bool) -> bool:
         return False
     finally:
         _fechar(cliente)
+
+
+def ler_estado_atuador(equipamento: dict[str, Any]) -> bool | None:
+    """Le de volta o coil/registrador usado no comando do atuador.
+
+    ``None`` significa que nao foi possivel confirmar. Uma confirmacao de
+    escrita Modbus, sozinha, prova apenas que o dispositivo aceitou o pedido;
+    esta leitura separada permite ao restante do sistema distinguir comando
+    desejado de estado confirmado pelo dispositivo.
+    """
+    cliente = _criar_cliente(equipamento)
+    if cliente is None:
+        return None
+    try:
+        if not cliente.connect():
+            return None
+        endereco = int(equipamento["endereco_registrador"])
+        unidade = int(equipamento.get("unidade_id") or 1)
+        if equipamento.get("tipo_registrador") == "coil":
+            resposta = cliente.read_coils(endereco, count=1, device_id=unidade)
+            if resposta.isError() or not getattr(resposta, "bits", None):
+                return None
+            return bool(resposta.bits[0])
+
+        resposta = cliente.read_holding_registers(
+            endereco, count=1, device_id=unidade
+        )
+        if resposta.isError() or not getattr(resposta, "registers", None):
+            return None
+        return bool(resposta.registers[0])
+    except Exception:
+        logger.exception(
+            "Falha ao confirmar estado do equipamento Modbus %s",
+            equipamento.get("nome"),
+        )
+        return None
+    finally:
+        _fechar(cliente)

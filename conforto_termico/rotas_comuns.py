@@ -39,11 +39,10 @@ def _parametro_inteiro(nome: str, padrao: int | None = None) -> tuple[int | None
 def index():
     # O papel do app corrente (None/"coletor"/"dashboard") decide quais
     # botoes de aba o template mostra e qual aba abre por padrao -- ver
-    # `templates/index.html`. Um app "dashboard" nao tem as abas
-    # Dashboard/Zonas/Configuracoes (elas dependem de rotas que esse
-    # processo nem registra), entao a aba inicial passa a ser Analises.
+    # `templates/index.html`. Dashboard e somente leitura e existe em
+    # todos os papeis; Operacao aparece apenas no processo coletor.
     papel_app = current_app.config.get("CONFORTO_PAPEL_APP")
-    aba_inicial = "analises" if papel_app == "dashboard" else "principal"
+    aba_inicial = "principal"
     return render_template(
         "index.html",
         indices_por_especie=ti.INDICES_POR_ESPECIE,
@@ -65,6 +64,44 @@ def favicon():
 @comum_bp.route("/api/zonas", methods=["GET"])
 def listar_zonas():
     return jsonify(db.listar_zonas())
+
+
+@comum_bp.route("/api/zonas/<int:zona_id>/historico", methods=["GET"])
+def historico_zona(zona_id):
+    if db.obter_zona(zona_id) is None:
+        return jsonify({"erro": f"Zona {zona_id} nao encontrada."}), 404
+    limite, erro = _parametro_inteiro("limite", 30)
+    if erro:
+        return jsonify(erro[0]), erro[1]
+    limite = max(1, min(200, limite or 30))
+    recentes = db.obter_leituras_recentes_zona(zona_id, limite=limite)
+    return jsonify(recentes or db.obter_historico_por_zona(zona_id, limite=limite))
+
+
+@comum_bp.route("/api/operacao/status", methods=["GET"])
+def status_operacao():
+    config = db.obter_configuracoes()
+    return jsonify(
+        {
+            "coletor": db.obter_status_coletor(),
+            "configuracao_global": {
+                "habilitarEquipamentos": bool(config.get("habilitarEquipamentos")),
+                "intervaloLeituraSegundos": config.get("intervaloLeituraSegundos"),
+            },
+            "zonas": db.obter_estado_operacional_zonas(),
+        }
+    )
+
+
+@comum_bp.route("/api/operacao/eventos", methods=["GET"])
+def eventos_operacao():
+    zona_id, erro = _parametro_inteiro("zona_id")
+    if erro:
+        return jsonify(erro[0]), erro[1]
+    limite, erro = _parametro_inteiro("limite", 30)
+    if erro:
+        return jsonify(erro[0]), erro[1]
+    return jsonify(db.listar_eventos_operacao(zona_id, max(1, min(200, limite or 30))))
 
 
 @comum_bp.route("/api/historico-leituras")

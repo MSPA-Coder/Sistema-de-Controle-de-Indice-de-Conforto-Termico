@@ -25,11 +25,13 @@ from ..zona_service import ZonaCalculoError
 from .estado import (
     _resfriador,
     calculo_ict_service,
+    gerenciador_controle,
     historico_grafico_service,
     sensor_simulado_service,
     zona_service,
     zona_simulador,
 )
+from .controle import ModoOperacaoError, ZonaOcupadaError
 
 coletor_bp = Blueprint("coletor", __name__)
 
@@ -404,34 +406,31 @@ def testar_conexao_equipamento(zona_id, equipamento_id):
 def calcular_zona(zona_id):
     dados = request.get_json(force=True, silent=True) or {}
     try:
-        if isinstance(dados.get("entradas"), dict):
-            resposta = zona_service.calcular_manual(
-                zona_id, dados.get("entradas") or {}, logger=current_app.logger
-            )
-        else:
-            resposta = zona_service.calcular(zona_id, logger=current_app.logger)
+        entradas = dados.get("entradas") if isinstance(dados.get("entradas"), dict) else None
+        resposta = gerenciador_controle.calcular_manual(
+            zona_id, entradas, logger=current_app.logger
+        )
         resposta = _aplicar_notificacoes_zona(resposta, db.obter_configuracoes())
         return jsonify(resposta)
-    except (ZonaCalculoError, ti.EntradaInvalidaError) as erro:
+    except (
+        ZonaCalculoError,
+        ti.EntradaInvalidaError,
+        ModoOperacaoError,
+        ZonaOcupadaError,
+    ) as erro:
         return jsonify({"erro": str(erro)}), 400
 
 
 @coletor_bp.route("/api/zonas/calcular-ativas", methods=["POST"])
 def calcular_zonas_ativas():
     config = db.obter_configuracoes()
-    resultados = []
-    for zona in db.listar_zonas(apenas_ativas=True):
-        try:
-            resposta = zona_service.calcular(zona["id"], logger=current_app.logger)
-            resultados.append(_aplicar_som_zona(resposta, config))
-        except (ZonaCalculoError, ti.EntradaInvalidaError) as erro:
-            resultados.append(
-                {
-                    "zona_id": zona["id"],
-                    "zona_nome": zona["nome"],
-                    "erro": str(erro),
-                }
-            )
+    resultados = gerenciador_controle.executar_ciclo_automatico(
+        logger=current_app.logger
+    )
+    resultados = [
+        _aplicar_som_zona(resposta, config) if not resposta.get("erro") else resposta
+        for resposta in resultados
+    ]
     payload = {"resultados": resultados}
     email_info = _montar_email_zonas_ativas(resultados, config)
     if email_info:
@@ -439,8 +438,32 @@ def calcular_zonas_ativas():
     return jsonify(payload)
 
 
-@coletor_bp.route("/api/zonas/<int:zona_id>/historico", methods=["GET"])
-def historico_zona(zona_id):
-    if db.obter_zona(zona_id) is None:
-        return jsonify({"erro": f"Zona {zona_id} não encontrada."}), 404
-    return jsonify(zona_service.obter_historico_grafico(zona_id))
+@coletor_bp.route("/api/zonas/<int:zona_id>/controle", methods=["PUT"])
+def alterar_controle_zona(zona_id):
+    dados = request.get_json(force=True, silent=True) or {}
+    try:
+        return jsonify(
+            gerenciador_controle.alterar_controle(
+                zona_id, dados, logger=current_app.logger
+            )
+        )
+    except db.ZonaNaoEncontradaError as erro:
+        return jsonify({"erro": str(erro)}), 404
+    except (db.ZonaInvalidaError, ZonaCalculoError, ZonaOcupadaError) as erro:
+        return jsonify({"erro": str(erro)}), 400
+
+
+@coletor_bp.route("/api/zonas/<int:zona_id>/comando", methods=["POST"])
+def comandar_atuador_zona(zona_id):
+    dados = request.get_json(force=True, silent=True) or {}
+    try:
+        return jsonify(
+            gerenciador_controle.comandar_manual(
+                zona_id,
+                dados.get("tipo", ""),
+                dados.get("ligar"),
+                logger=current_app.logger,
+            )
+        )
+    except (ZonaCalculoError, ZonaOcupadaError) as erro:
+        return jsonify({"erro": str(erro)}), 400

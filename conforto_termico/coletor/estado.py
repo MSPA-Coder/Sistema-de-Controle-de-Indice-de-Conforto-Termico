@@ -15,10 +15,12 @@ processo -- ver a nota sobre `estado_equipamentos` em `database.py`)."""
 from __future__ import annotations
 
 from .. import database as db
+from .. import modbus_client
 from ..modbus_simulador import SimuladorModbusZonas
 from ..models import Resfriamento
 from ..services import CalculoIctService, HistoricoGraficoService, SensorSimuladoService
 from ..zona_service import ZonaService
+from .controle import GerenciadorControleZonas
 
 # Estado do equipamento remoto (ventilador/nebulizador) da aba "Dashboard"
 # (fluxo sem zona, herdado da dissertacao original). A dissertacao descreve
@@ -42,6 +44,9 @@ zona_service = ZonaService(
     obter_configuracoes=db.obter_configuracoes,
     obter_historico=db.obter_historico_por_zona,
     salvar_estado_equipamentos=db.salvar_estado_equipamentos,
+    obter_controle_zona=db.obter_controle_zona,
+    ler_estado_atuador_real=modbus_client.ler_estado_atuador,
+    salvar_leitura_recente=db.salvar_leitura_recente_zona,
 )
 # `SimuladorModbusZonas` precisa poder perguntar ao proprio zona_service
 # qual e o estado de resfriamento atual de uma zona (para decidir se a
@@ -55,3 +60,4 @@ zona_simulador = SimuladorModbusZonas(
     ],
 )
 zona_service.definir_simulador(zona_simulador)
+gerenciador_controle = GerenciadorControleZonas(zona_service)

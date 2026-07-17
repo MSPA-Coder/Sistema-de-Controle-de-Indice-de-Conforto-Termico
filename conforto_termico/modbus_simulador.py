@@ -51,6 +51,7 @@ class SimuladorModbusZonas:
         # em ZonaService.
         self._geradores: dict[int, SensorSimuladoService] = {}
         self._cache_leitura: dict[int, tuple[float, dict[str, float]]] = {}
+        self._estado_atuadores: dict[int, bool] = {}
         self._lock = threading.Lock()
 
     def _gerador_da_zona(self, zona_id: int) -> SensorSimuladoService:
@@ -112,8 +113,19 @@ class SimuladorModbusZonas:
             valor = min(maximo, max(minimo, valor))
         return round(valor, 2)
 
-    def escrever_valor(self, equipamento: dict, ligar: bool) -> bool:  # noqa: ARG002
+    def escrever_valor(self, equipamento: dict, ligar: bool) -> bool:
+        equipamento_id = equipamento.get("id")
+        if equipamento_id is not None:
+            with self._lock:
+                self._estado_atuadores[int(equipamento_id)] = bool(ligar)
         return True
+
+    def ler_estado_atuador(self, equipamento: dict) -> bool | None:
+        equipamento_id = equipamento.get("id")
+        if equipamento_id is None:
+            return None
+        with self._lock:
+            return self._estado_atuadores.get(int(equipamento_id))
 
     def testar_conexao(self, equipamento: dict) -> bool:  # noqa: ARG002
         return True
