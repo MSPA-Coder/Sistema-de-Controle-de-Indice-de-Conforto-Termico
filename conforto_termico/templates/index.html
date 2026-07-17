@@ -14,14 +14,20 @@
 <div class="app-shell">
 
   <nav class="abas-app" role="tablist" aria-label="Navegação do app">
-    <button class="aba-botao ativo" type="button" role="tab" data-aba="principal" aria-controls="aba-principal" aria-selected="true">Dashboard</button>
-    <button class="aba-botao" type="button" role="tab" data-aba="analises" aria-controls="aba-analises" aria-selected="false">Análises</button>
+    {% if papel_app in (none, "coletor") %}
+    <button class="aba-botao{{ ' ativo' if aba_inicial == 'principal' else '' }}" type="button" role="tab" data-aba="principal" aria-controls="aba-principal" aria-selected="{{ 'true' if aba_inicial == 'principal' else 'false' }}">Dashboard</button>
+    {% endif %}
+    {% if papel_app in (none, "dashboard") %}
+    <button class="aba-botao{{ ' ativo' if aba_inicial == 'analises' else '' }}" type="button" role="tab" data-aba="analises" aria-controls="aba-analises" aria-selected="{{ 'true' if aba_inicial == 'analises' else 'false' }}">Análises</button>
     <button class="aba-botao" type="button" role="tab" data-aba="historico" aria-controls="aba-historico" aria-selected="false">Histórico</button>
+    {% endif %}
+    {% if papel_app in (none, "coletor") %}
     <button class="aba-botao" type="button" role="tab" data-aba="zonas" aria-controls="aba-zonas" aria-selected="false">Zonas</button>
     <button class="aba-botao" type="button" role="tab" data-aba="configuracoes" aria-controls="aba-configuracoes" aria-selected="false">Configuracoes</button>
+    {% endif %}
   </nav>
 
-  <main id="aba-principal" class="grade aba-conteudo" data-aba-conteudo="principal">
+  <main id="aba-principal" class="grade aba-conteudo{{ '' if aba_inicial == 'principal' else ' oculto' }}" data-aba-conteudo="principal">
 
     <!-- Valores de entrada ------------------------------------------------->
     <section class="painel entradas-grafico-painel">
@@ -117,7 +123,7 @@
 
   </main>
 
-  <section id="aba-analises" class="grade aba-conteudo oculto" data-aba-conteudo="analises" role="tabpanel">
+  <section id="aba-analises" class="grade aba-conteudo{{ '' if aba_inicial == 'analises' else ' oculto' }}" data-aba-conteudo="analises" role="tabpanel">
     <section class="painel tabela-painel executivo-painel">
       <div class="tabela-cabecalho">
         <p class="grafico-titulo">Painel executivo por zona</p>
@@ -424,7 +430,9 @@
     nomeEspecie: {{ nome_especie | tojson }},
     nomeIndice: {{ nome_indice | tojson }},
     camposPorIndice: {{ campos_por_indice | tojson }},
-    campoMetadados: {{ campo_metadados | tojson }}
+    campoMetadados: {{ campo_metadados | tojson }},
+    papelApp: {{ papel_app | tojson }},
+    abaInicial: {{ aba_inicial | tojson }}
   };
 </script>
 <script src="{{ url_for('static', filename='js/vendor/chart.umd.js') }}"></script>

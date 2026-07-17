@@ -33,7 +33,15 @@ Use software engineering practices that maximize performance, reliability and
 stability:
 
 - Keep domain formulas and thresholds centralized in `conforto_termico/thermal_indices.py`.
-- Keep HTTP concerns in `conforto_termico/web.py`.
+- Keep HTTP route composition in `conforto_termico/app_factory.py`
+  (`criar_app(papel_app)`), and the routes themselves split by role:
+  `conforto_termico/coletor/rotas.py` (Modbus/control/config),
+  `conforto_termico/dashboard/rotas.py` (read-only analytics), and
+  `conforto_termico/rotas_comuns.py` (read-only routes shared by both
+  roles). See "Coletor/Dashboard Architecture" below for the full
+  rationale. `conforto_termico/web.py` is now just the "single process"
+  (Fase 0) composition + backward-compatible re-exports; do not put new
+  route logic directly in it.
 - Keep orchestration and stateful application behavior in `conforto_termico/services.py`
   (single-station manual/simulated flow) and `conforto_termico/zona_service.py`
   (per-zone Modbus flow) -- these are deliberately separate services; do not
@@ -179,20 +187,25 @@ $text.Contains("Configurações")
 ## Security & Configuration
 
 - Server runtime settings (`debug`, `host`, `port`, `threaded`,
-  `max_content_length`) are centralized in `web.AppConfig`, populated via
-  `AppConfig.from_env()`. Do not read `os.environ` ad hoc elsewhere in
-  `web.py` for these; add a field to `AppConfig` instead.
+  `max_content_length`) are centralized in `app_factory.AppConfig`,
+  populated via `AppConfig.from_env()`. Do not read `os.environ` ad hoc
+  elsewhere for these; add a field to `AppConfig` instead. `web.py`,
+  `run_coletor.py` and `run_dashboard.py` each call `AppConfig.from_env()`
+  independently (one per process) and pass the result into
+  `app_factory.criar_app(papel_app, config)`.
 - Environment variables (all optional, all default to safe local values):
   `CONFORTO_DEBUG` (default `0`/off), `CONFORTO_HOST` (default
   `127.0.0.1`), `CONFORTO_PORT` (default `5000`), `CONFORTO_THREADED`
   (default `1`/on), `CONFORTO_MAX_CONTENT_LENGTH` (default `1000000`
-  bytes).
+  bytes). When running coletor and dashboard as two processes on the same
+  machine, give each a distinct `CONFORTO_PORT` (see README "Como
+  rodar").
 - `debug=True` enables the Werkzeug interactive debugger, which can execute
   arbitrary code from the browser. Never change the default of
   `CONFORTO_DEBUG` to on; a developer who wants it opts in locally via the
   environment variable.
 - `/api/*` responses never include raw exception text (see
-  `MENSAGEM_ERRO_INTERNO` in `web.py`). Full details always go to
+  `MENSAGEM_ERRO_INTERNO` in `app_factory.py`). Full details always go to
   `app.logger.exception` server-side. Keep this split when adding new
   error handling.
 - Any config value that ends up inside an SMTP header (currently
@@ -201,6 +214,109 @@ $text.Contains("Configurações")
   again where it is actually used to build the message (`models.Email`).
   Treat this as two independent checks, not one shared one -- see
   `test_models.py` / `test_database.py` for the expected behavior.
+
+## Coletor/Dashboard Architecture
+
+The app is organized around two roles (`papel_app`), so it can eventually
+run as two separate processes -- possibly on two separate machines --
+instead of one. This mirrors how real Modbus-based climate controllers are
+usually deployed: a local controller that owns the hardware and the
+control loop, and a separate reporting/analytics layer that only reads
+already-processed data. See the migration plan discussed with the person
+for the full reasoning (Purdue/ISA-95 style separation between real-time
+control and supervisory/historian layers).
+
+- **coletor** (`conforto_termico/coletor/rotas.py` +
+  `conforto_termico/coletor/estado.py`): talks Modbus, reads sensors,
+  calculates the index, drives fan/mister state, and writes everything to
+  the database (readings, equipment state). This is where the control
+  loop (`zona_service.py`) lives -- it must keep working even if no
+  dashboard is running anywhere.
+- **dashboard** (`conforto_termico/dashboard/rotas.py`): read-only --
+  zone statistics and the "Painel executivo por zona" card on the
+  Analises tab. Depends ONLY on `database.py`; must never import
+  `modbus_client` or `zona_service` (enforced by
+  `tests/test_app_factory.py::TestCriarAppPorPapel::
+  test_app_dashboard_nao_importa_modulos_de_modbus`, which checks
+  `sys.modules` in a clean subprocess -- not just that the route is
+  absent).
+- **comum** (`conforto_termico/rotas_comuns.py`): read-only routes useful
+  to both roles (home page, zone listing, persisted-reading history,
+  diagnostics). Lives in its own Blueprint specifically because it is
+  registered in all three configurations below; duplicating it inside
+  both `coletor_bp` and `dashboard_bp` would make Flask raise on the
+  combined-app case (`papel_app=None`), since the same URL rule would be
+  registered twice on the same app.
+
+`app_factory.criar_app(papel_app)` builds the Flask app from these
+Blueprints. `papel_app` is one of:
+
+- `None` -- both roles in the same process (Fase 0 / today's default; see
+  `web.py`, still what `app.py` runs).
+- `"coletor"` -- only Modbus/control/config routes (see `run_coletor.py`).
+- `"dashboard"` -- only read-only analytics routes (see
+  `run_dashboard.py`).
+
+**Both `papel_app="coletor"` and `"dashboard"` already work today** and
+are exercised by `tests/test_app_factory.py`, including a real two-process
+smoke test (two separate OS processes, two ports, one shared
+`instance/historico.db`, verified manually during development -- see the
+git history / conversation for the exact commands). What's still Fase 0
+(not yet the default, not yet documented as the primary way to run this)
+is simply that `app.py`/`web.py` keep running both roles combined by
+default; switching the default to two processes, and any move to two
+separate MACHINES (which would need a client-server database instead of
+a shared SQLite file, or a push/API layer), is a later decision, not
+something this codebase blocks on.
+
+**Equipment on/off state is persisted, not just kept in memory.**
+`database.salvar_estado_equipamentos` (table `estado_equipamentos`, one
+row per zone, upserted) is called by `ZonaService.calcular`/
+`calcular_manual` after every control cycle. This is what lets
+`database.obter_painel_zonas` report how many fans/misters are on without
+depending on any in-memory state from the process running the control
+loop -- essential once coletor and dashboard are genuinely different
+processes (different processes never share Python memory, even on the
+same machine). `_recomendacao_operacional` (the executive panel's
+operational recommendation text) lives in `database.py` for the same
+reason: the whole panel is reproducible from the database alone.
+
+**The "Dashboard" tab (`aba-principal` / `data-aba="principal"`) belongs
+to the COLETOR role, not the dashboard role**, despite the name. It is the
+live manual-control panel (zone selector, "Ler zona agora" button,
+automatic-mode toggle, live zone cards) -- it triggers real Modbus reads
+and shows live control state, so it needs `coletor_bp` routes
+(`/api/zonas/<id>/calcular`, `/api/zonas/calcular-ativas`,
+`/api/configuracoes` POST, etc.) to function. If a person asks for
+"dashboard" to mean this tab specifically, clarify this naming collision
+before regrouping tabs -- moving this tab's nav button into the dashboard
+role without also exposing those routes there would just make its buttons
+404.
+
+**Template tab visibility follows `papel_app`.** `rotas_comuns.index`
+passes `papel_app` and `aba_inicial` ("principal" for coletor/None,
+"analises" for dashboard) to `templates/index.html`, which conditionally
+renders each nav button. Content `<section>`/`<main>` elements are
+**always** rendered regardless of role (only the nav buttons are
+conditional) -- `static/js/app.js`'s `DOMContentLoaded` handler does many
+unguarded `document.getElementById(...)` calls for coletor-only elements
+(`#btn-calcular`, etc.); hiding those elements from the DOM entirely would
+throw and break initialization for the whole page. Keep it this way
+unless those call sites are also made defensive. Because `ativarAba` (the
+function that would normally trigger `carregarAnalises()`) only runs on a
+nav click, and a dashboard-role page loads directly into the Analises tab
+with no "Dashboard" button to click away from, `app.js` explicitly calls
+`carregarAnalises()` on load when `CONFIG_APP.abaInicial === "analises"`.
+
+**Backward compatibility.** `conforto_termico/web.py` re-exports (not
+copies) the objects tests and `app.py` already import from it: `app`,
+`AppConfig`, `MENSAGEM_ERRO_INTERNO`, `_resfriador`,
+`historico_grafico_service`, `sensor_simulado_service`, `zona_service`,
+`calculo_ict_service`, `executar_servidor_local`. If you add a new
+process-wide singleton, add it to `coletor/estado.py` and re-export it
+from `web.py` too, or `tests/test_app.py`'s `patch.object(flask_app.X,
+...)` calls will silently patch a different object than the one the
+routes actually use.
 
 ## Zonas Modbus
 
@@ -306,3 +422,9 @@ python -m unittest discover -v
 
 For frontend or automatic-mode changes, also verify the running app locally at
 `http://127.0.0.1:5000` when practical.
+
+For changes touching `app_factory.py`, `rotas_comuns.py`, `coletor/`, or
+`dashboard/`, also verify `run_coletor.py` and `run_dashboard.py` still
+start cleanly and that `tests/test_app_factory.py` still passes -- it is
+the test file that pins down which routes belong to which role and that
+the dashboard role never imports Modbus-related modules.

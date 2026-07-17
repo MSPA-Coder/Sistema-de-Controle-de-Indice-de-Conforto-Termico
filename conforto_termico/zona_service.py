@@ -74,7 +74,7 @@ class ZonaService:
         salvar_leitura: Callable,
         obter_configuracoes: Callable,
         obter_historico: Callable | None = None,
-        obter_painel_zonas: Callable[[], list[dict]] | None = None,
+        salvar_estado_equipamentos: Callable[[int, bool, bool, str], None] | None = None,
         ler_modbus_real: Callable = modbus_client.ler_valor,
         escrever_modbus_real: Callable = modbus_client.escrever_valor,
         simulador=None,
@@ -84,11 +84,14 @@ class ZonaService:
         self._salvar_leitura = salvar_leitura
         self._obter_configuracoes = obter_configuracoes
         self._obter_historico = obter_historico
-        # Estatisticas persistidas por zona (`database.obter_painel_zonas`)
-        # usadas para montar o "Painel executivo por zona" -- ver
-        # `montar_painel_executivo`. Opcional (como `obter_historico`) para
-        # nao quebrar testes/instancias que nao precisam desse painel.
-        self._obter_painel_zonas = obter_painel_zonas
+        # Persiste o estado ligado/desligado dos atuadores a cada ciclo de
+        # calculo (`database.salvar_estado_equipamentos`) -- e o que
+        # permite ao "Painel executivo por zona" (agora inteiramente em
+        # `database.obter_painel_zonas`) saber quantos equipamentos estao
+        # ligados sem depender do estado em memoria deste servico. Opcional
+        # (como `obter_historico`) para nao quebrar testes/instancias que
+        # nao precisam disso.
+        self._salvar_estado_equipamentos = salvar_estado_equipamentos
         self._ler_modbus_real = ler_modbus_real
         self._escrever_modbus_real = escrever_modbus_real
         # `simulador` (um `modbus_simulador.SimuladorModbusZonas`, opcional)
@@ -116,68 +119,6 @@ class ZonaService:
             if zona_id not in self._resfriadores:
                 self._resfriadores[zona_id] = Resfriamento()
             return self._resfriadores[zona_id]
-
-    def montar_painel_executivo(self) -> list[dict]:
-        """Monta o "Painel executivo por zona" da aba Analises: parte das
-        estatisticas persistidas (`database.obter_painel_zonas`, injetada
-        via `obter_painel_zonas` no construtor) e enriquece cada zona com o
-        estado ATIVO de ventiladores/nebulizadores mantido em memoria por
-        este servico (`resfriador_da_zona`) e uma recomendacao operacional
-        de texto -- os dois unicos pedacos desse painel que dependem de
-        estado de execucao, e nao so do historico gravado no banco.
-
-        Sem `obter_painel_zonas` configurado, devolve lista vazia (mesmo
-        padrao de degradacao graciosa usado para `_obter_historico`)."""
-        if not self._obter_painel_zonas:
-            return []
-
-        resultado = []
-        for painel in self._obter_painel_zonas():
-            totais = painel.pop("equipamentos_totais", {"ventiladores": 0, "nebulizadores": 0})
-            estado = self.resfriador_da_zona(painel["zona_id"]).estado()
-            painel["equipamentos_ligados"] = {
-                "ventiladores_ligados": totais["ventiladores"] if estado["ativo"] else 0,
-                "ventiladores_total": totais["ventiladores"],
-                "nebulizadores_ligados": totais["nebulizadores"] if estado["nebulizador"] else 0,
-                "nebulizadores_total": totais["nebulizadores"],
-                "intensidade": estado["intensidade"],
-            }
-            painel["recomendacao"] = self._recomendacao_operacional(painel)
-            resultado.append(painel)
-        return resultado
-
-    @staticmethod
-    def _recomendacao_operacional(painel: dict) -> str:
-        """Recomendacao de texto combinando o status atual (mesma mensagem
-        canonica de `thermal_indices.mensagem_do_status`, ja usada em todo
-        o resto da interface) com sinais adicionais do proprio painel --
-        tendencia recente e sensores indisponiveis -- quando eles mudam a
-        leitura operacional da situacao."""
-        status = painel.get("status_atual")
-        if status is None:
-            return "Ainda não há leitura registrada para esta zona."
-
-        partes = [ti.mensagem_do_status(status)]
-
-        tendencia_15min = painel.get("tendencias", {}).get("15min")
-        if tendencia_15min == "subindo" and status in ("Perigo", "Emergência"):
-            partes.append(
-                "O índice ainda está subindo nos últimos 15 minutos: reforce o resfriamento."
-            )
-        elif tendencia_15min == "subindo" and status == "Alerta":
-            partes.append("Tendência de subida nos últimos 15 minutos; monitore de perto.")
-        elif tendencia_15min == "descendo" and status in ("Perigo", "Emergência"):
-            partes.append("O índice já vem caindo nos últimos 15 minutos.")
-
-        sensores_indisponiveis = painel.get("sensores_indisponiveis") or []
-        if sensores_indisponiveis:
-            plural = "es" if len(sensores_indisponiveis) > 1 else ""
-            partes.append(
-                f"{len(sensores_indisponiveis)} sensor{plural} sem leitura recente -- "
-                "confira a conexão Modbus antes de confiar no índice mostrado."
-            )
-
-        return " ".join(partes)
 
     def definir_simulador(self, simulador) -> None:
         """Wiring pos-construcao: o simulador (`modbus_simulador.
@@ -383,7 +324,22 @@ class ZonaService:
             self._numero_ou_none(entradas.get("ur")), limite_umidade
         )
 
+        estado_atuadores = resfriador.estado()
         atuadores_com_falha = self._aplicar_atuadores(equipamentos, resfriador, logger)
+
+        if self._salvar_estado_equipamentos:
+            try:
+                self._salvar_estado_equipamentos(
+                    zona_id,
+                    estado_atuadores["ativo"],
+                    estado_atuadores["nebulizador"],
+                    estado_atuadores["intensidade"],
+                )
+            except Exception:
+                if logger:
+                    logger.exception(
+                        "Falha ao persistir estado dos equipamentos da zona %s", zona_id
+                    )
 
         if self._em_modo_simulado() and self._simulador:
             # Mantem o estado interno do simulador (resfriamento gradual)

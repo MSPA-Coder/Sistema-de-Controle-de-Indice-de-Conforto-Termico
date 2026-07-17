@@ -36,16 +36,25 @@ A interface e em portugues do Brasil. Os identificadores internos do projeto
 
 ```text
 .
-├── app.py                              # lancador: python app.py
+├── app.py                              # lancador (1 processo so): python app.py
+├── run_coletor.py                      # lancador do processo COLETOR (fase 1)
+├── run_dashboard.py                    # lancador do processo DASHBOARD (fase 1)
 ├── conforto_termico/
-│   ├── web.py                          # Flask, rotas HTTP e composicao
+│   ├── web.py                          # composicao "1 processo so" (fase 0); reexporta app/servicos
+│   ├── app_factory.py                  # criar_app(papel_app): monta o Flask a partir dos blueprints
+│   ├── rotas_comuns.py                 # rotas somente-leitura usadas pelos dois papeis (/, /api/zonas GET, ...)
+│   ├── coletor/
+│   │   ├── estado.py                   # instancia ZonaService e os demais servicos com estado
+│   │   └── rotas.py                    # rotas que falam Modbus, calculam e gravam
+│   ├── dashboard/
+│   │   └── rotas.py                    # rotas de leitura (analises, painel executivo)
 │   ├── thermal_indices.py              # formulas, limites e validacoes
 │   ├── models.py                       # Temperatura, Resfriamento e Email
 │   ├── services.py                     # fluxo manual/simulado da estacao principal
-│   ├── zona_service.py                 # fluxo por zona Modbus
+│   ├── zona_service.py                 # fluxo por zona Modbus (malha de controle)
 │   ├── modbus_client.py                # adaptador pymodbus opcional
 │   ├── modbus_simulador.py             # simulador de sensores/atuadores por zona
-│   ├── database.py                     # SQLite, configuracoes, zonas e historico
+│   ├── database.py                     # SQLite: configuracoes, zonas, historico e estado dos equipamentos
 │   ├── templates/index.html
 │   └── static/
 │       ├── css/style.css
@@ -59,20 +68,38 @@ A interface e em portugues do Brasil. Os identificadores internos do projeto
 
 ## Arquitetura
 
-O codigo separa quatro responsabilidades principais:
+O sistema esta organizado em torno de dois PAPEIS (`papel_app`), pensados
+para eventualmente rodar em processos -- e maquinas -- separados:
 
-- `thermal_indices.py`: dominio puro. Contem formulas, especies, indices,
-  campos exigidos, limites, mensagens e validacao numerica.
-- `services.py`: fluxo manual/simulado de estacao unica, usado pelas APIs
-  originais `/api/calcular`, `/api/sensor` e historicos por especie/indice.
-- `zona_service.py`: fluxo independente por zona. Le sensores Modbus,
-  calcula medias por campo, deriva `ur`/`tpo` quando possivel, calcula o
-  indice e aciona atuadores daquela zona.
-- `database.py`: persistencia SQLite, incluindo configuracoes sanitizadas,
-  historico, zonas e equipamentos.
+- **coletor** (`coletor/rotas.py` + `coletor/estado.py`): fala Modbus, le
+  sensores, calcula o indice, aciona ventilador/nebulizador e grava tudo
+  no banco (leituras, estado dos equipamentos). E aqui que fica a malha de
+  controle (`zona_service.py`) -- ela precisa continuar funcionando mesmo
+  que nenhum dashboard esteja de pe.
+- **dashboard** (`dashboard/rotas.py`): so leitura -- estatisticas e o
+  "Painel executivo por zona" da aba Analises. Depende SOMENTE de
+  `database.py`; nunca importa `modbus_client` nem `zona_service`.
+- **comum** (`rotas_comuns.py`): pagina inicial, lista de zonas,
+  navegacao pelo historico persistido e diagnostico -- rotas somente
+  leitura uteis nos dois papeis.
 
-`web.py` contem apenas a camada HTTP e a composicao das dependencias. O unico
-modulo que importa `pymodbus` diretamente e `modbus_client.py`.
+`app_factory.criar_app(papel_app)` monta o Flask a partir desses
+Blueprints. Hoje (`papel_app=None`, ver `web.py`/`app.py`) os dois papeis
+rodam juntos, no mesmo processo -- e o unico modo suportado por
+enquanto. `run_coletor.py`/`run_dashboard.py` ja existem e funcionam
+(`papel_app="coletor"`/`"dashboard"`, cada um so com as rotas do seu
+papel), preparando o terreno para rodar como dois processos de verdade
+quando fizer sentido; ver a secao "Como rodar" abaixo. Os dois processos
+compartilham o MESMO arquivo `instance/historico.db` -- o `_conexao()` de
+`database.py` ja liga WAL e usa timeout de lock pensando nesse cenario.
+
+O estado ligado/desligado de cada equipamento e persistido a cada ciclo de
+calculo (`database.salvar_estado_equipamentos`, tabela
+`estado_equipamentos`) -- e assim que o dashboard sabe quantos
+equipamentos estao ligados sem depender de nenhum estado em memoria do
+processo que roda a malha de controle.
+
+O unico modulo que importa `pymodbus` diretamente e `modbus_client.py`.
 
 ## Indices implementados
 
@@ -95,25 +122,41 @@ Crie ou selecione um ambiente Python 3.10+ e instale as dependencias:
 pip install -r requirements.txt
 ```
 
-Execute:
+### Um processo so (padrao)
 
 ```powershell
 python app.py
 ```
 
-Acesse:
-
-```text
-http://127.0.0.1:5000
-```
+Acesse `http://127.0.0.1:5000` -- todas as abas (Dashboard, Analises,
+Historico, Zonas, Configuracoes) ficam disponiveis nesse unico processo.
 
 No PyCharm, abra a pasta do projeto, selecione o interpretador Python do
 ambiente virtual e rode `app.py`.
 
+### Dois processos (coletor + dashboard)
+
+Cada um numa porta diferente, mesma maquina:
+
+```powershell
+set CONFORTO_PORT=5000
+python run_coletor.py
+```
+
+```powershell
+set CONFORTO_PORT=5001
+python run_dashboard.py
+```
+
+O coletor (`5000`) mostra Dashboard/Zonas/Configuracoes; o dashboard
+(`5001`) mostra Analises/Historico. Os dois leem e gravam no mesmo
+`instance/historico.db` -- nenhuma variavel extra e necessaria para isso.
+
 ## Configuracao do servidor
 
 As variaveis abaixo sao opcionais. Sem configuracao, o servidor escuta apenas
-em `127.0.0.1:5000` com debug desligado.
+em `127.0.0.1:5000` com debug desligado. Valem tanto para `app.py` quanto
+para `run_coletor.py`/`run_dashboard.py`.
 
 | Variavel | Padrao | Descricao |
 |---|---:|---|

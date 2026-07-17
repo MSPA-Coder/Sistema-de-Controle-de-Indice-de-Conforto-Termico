@@ -363,11 +363,15 @@ class TestModoSimuladoZonaService(unittest.TestCase):
         self.assertFalse(resultado["modo_simulado"])
 
 
-class TestPainelExecutivo(unittest.TestCase):
-    """Testa `ZonaService.montar_painel_executivo`: a combinacao das
-    estatisticas persistidas (aqui, uma funcao falsa no lugar de
-    `database.obter_painel_zonas`) com o estado ATIVO de ventiladores/
-    nebulizadores mantido em memoria por este servico."""
+class TestPersistenciaEstadoEquipamentos(unittest.TestCase):
+    """Testa que `ZonaService.calcular`/`calcular_manual` persistem o
+    estado ligado/desligado dos atuadores a cada ciclo via
+    `salvar_estado_equipamentos` (injetado no construtor). Esse hook
+    substitui o antigo `ZonaService.montar_painel_executivo`: agora o
+    "Painel executivo por zona" inteiro vive em `database.
+    obter_painel_zonas`, so leitura de banco (ver TestPainelExecutivoZonas
+    em test_database.py) -- o unico motivo de `ZonaService` ainda entrar
+    nessa historia e persistir o estado que so ELE conhece em tempo real."""
 
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
@@ -375,80 +379,137 @@ class TestPainelExecutivo(unittest.TestCase):
         db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
         db.iniciar_banco()
 
+        self.leituras_simuladas: dict[str, float | None] = {}
+        self.chamadas_estado: list[tuple] = []
+
+        def ler_mock(equipamento):
+            return self.leituras_simuladas.get(equipamento["nome"])
+
+        def escrever_mock(equipamento, ligar):
+            return True
+
+        def salvar_estado_mock(zona_id, ventilador_ligado, nebulizador_ligado, intensidade):
+            self.chamadas_estado.append(
+                (zona_id, ventilador_ligado, nebulizador_ligado, intensidade)
+            )
+
+        self.servico = ZonaService(
+            obter_zona=db.obter_zona,
+            salvar_leitura=db.salvar_leitura,
+            obter_configuracoes=db.obter_configuracoes,
+            ler_modbus_real=ler_mock,
+            escrever_modbus_real=escrever_mock,
+            salvar_estado_equipamentos=salvar_estado_mock,
+        )
+
     def tearDown(self):
         db.DB_PATH = self.db_path_original
         self.tempdir.cleanup()
 
-    @staticmethod
-    def _painel_base(zona_id, **sobrescritas):
-        base = {
-            "zona_id": zona_id,
-            "nome": "Zona 1",
-            "especie": "frangos",
-            "indice": "ITU",
-            "equipamentos_totais": {"ventiladores": 2, "nebulizadores": 1},
-            "status_atual": "Perigo",
-            "valor_atual": 82.0,
-            "ultima_leitura_em": "2026-01-01T12:00:00",
-            "tendencias": {"15min": "subindo", "30min": "subindo", "60min": "estavel"},
-            "percentual_conforto_24h": 40.0,
-            "tempo_continuo_status_minutos": 12.0,
-            "nivel_maximo_dia": "Perigo",
-            "minutos_perigo_dia": 12.0,
-            "minutos_emergencia_dia": 0.0,
-            "pico_previsto": {"horario": None, "ja_ocorreu": False, "dias_amostrados": 0},
-            "sensores_indisponiveis": [],
-        }
-        base.update(sobrescritas)
-        return base
-
-    def test_sem_obter_painel_zonas_devolve_lista_vazia(self):
-        servico = ZonaService(
-            obter_zona=db.obter_zona,
-            salvar_leitura=db.salvar_leitura,
-            obter_configuracoes=db.obter_configuracoes,
-        )
-        self.assertEqual([], servico.montar_painel_executivo())
-
-    def test_equipamentos_ligados_reflete_estado_ativo_do_resfriador(self):
-        zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
-        servico = ZonaService(
-            obter_zona=db.obter_zona,
-            salvar_leitura=db.salvar_leitura,
-            obter_configuracoes=db.obter_configuracoes,
-            obter_painel_zonas=lambda: [self._painel_base(zona["id"])],
-        )
-        # Simula um ciclo de calculo que classificou a zona como "Perigo":
-        # aciona ventilador + nebulizador juntos (ver models.Resfriamento).
-        servico.resfriador_da_zona(zona["id"]).registrar_leitura("Perigo")
-
-        [painel] = servico.montar_painel_executivo()
-
-        self.assertEqual(
+    def _criar_zona_com_sensores(self):
+        zona = db.criar_zona({"nome": "Zona Teste", "especie": "frangos", "indice": "ITU"})
+        db.criar_equipamento(
+            zona["id"],
             {
-                "ventiladores_ligados": 2,
-                "ventiladores_total": 2,
-                "nebulizadores_ligados": 1,
-                "nebulizadores_total": 1,
-                "intensidade": "media",
+                "tipo": "sensor",
+                "nome": "TBS-A",
+                "modo_conexao": "tcp",
+                "host": "10.0.0.1",
+                "tipo_registrador": "input",
+                "endereco_registrador": 1,
+                "campo_medido": "tbs",
             },
-            painel["equipamentos_ligados"],
         )
-        self.assertNotIn("equipamentos_totais", painel)
+        db.criar_equipamento(
+            zona["id"],
+            {
+                "tipo": "sensor",
+                "nome": "TBU-A",
+                "modo_conexao": "tcp",
+                "host": "10.0.0.1",
+                "tipo_registrador": "input",
+                "endereco_registrador": 2,
+                "campo_medido": "tbu",
+            },
+        )
+        return zona
 
-    def test_equipamentos_desligados_quando_resfriador_nunca_foi_acionado(self):
-        zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
+    def test_calcular_persiste_estado_consistente_com_o_resultado(self):
+        zona = self._criar_zona_com_sensores()
+        # Valores quentes o bastante para acionar ventilador e nebulizador
+        # (mesmos valores de `test_atuadores_sao_acionados_conforme_status`
+        # em TestZonaService, ja comprovados para essa transicao).
+        self.leituras_simuladas = {"TBS-A": 38.0, "TBU-A": 30.0}
+
+        resultado = self.servico.calcular(zona["id"])
+
+        self.assertEqual(1, len(self.chamadas_estado))
+        zona_id, ventilador_ligado, nebulizador_ligado, intensidade = self.chamadas_estado[0]
+        self.assertEqual(zona["id"], zona_id)
+        self.assertEqual(resultado["equipamento"]["ativo"], ventilador_ligado)
+        self.assertEqual(resultado["equipamento"]["nebulizador"], nebulizador_ligado)
+        self.assertEqual(resultado["equipamento"]["intensidade"], intensidade)
+        self.assertTrue(ventilador_ligado)
+        self.assertTrue(nebulizador_ligado)
+
+    def test_calcular_manual_tambem_persiste_estado(self):
+        zona = self._criar_zona_com_sensores()
+
+        self.servico.calcular_manual(
+            zona["id"], {"tbs": 38.0, "tbu": 30.0}
+        )
+
+        self.assertEqual(1, len(self.chamadas_estado))
+
+    def test_dois_ciclos_atualizam_a_mesma_zona_sem_acumular_chamada_extra(self):
+        zona = self._criar_zona_com_sensores()
+        self.leituras_simuladas = {"TBS-A": 38.0, "TBU-A": 30.0}
+        self.servico.calcular(zona["id"])
+        self.leituras_simuladas = {"TBS-A": 20.0, "TBU-A": 16.0}
+
+        resultado_2 = self.servico.calcular(zona["id"])
+
+        self.assertEqual(2, len(self.chamadas_estado))
+        # A segunda chamada reflete o resultado do SEGUNDO ciclo, nao um
+        # resquicio do primeiro.
+        self.assertEqual(resultado_2["equipamento"]["ativo"], self.chamadas_estado[1][1])
+
+    def test_sem_salvar_estado_equipamentos_nao_quebra_o_calculo(self):
+        zona = self._criar_zona_com_sensores()
         servico = ZonaService(
             obter_zona=db.obter_zona,
             salvar_leitura=db.salvar_leitura,
             obter_configuracoes=db.obter_configuracoes,
-            obter_painel_zonas=lambda: [self._painel_base(zona["id"], status_atual="Conforto")],
+            ler_modbus_real=lambda equipamento: {"TBS-A": 25.0, "TBU-A": 20.0}.get(
+                equipamento["nome"]
+            ),
+            escrever_modbus_real=lambda equipamento, ligar: True,
         )
 
-        [painel] = servico.montar_painel_executivo()
+        resultado = servico.calcular(zona["id"])
 
-        self.assertEqual(0, painel["equipamentos_ligados"]["ventiladores_ligados"])
-        self.assertEqual(0, painel["equipamentos_ligados"]["nebulizadores_ligados"])
+        self.assertIn("status", resultado)
+
+    def test_falha_ao_persistir_estado_nao_impede_o_calculo(self):
+        zona = self._criar_zona_com_sensores()
+
+        def salvar_estado_com_erro(*args):
+            raise RuntimeError("banco indisponível")
+
+        servico = ZonaService(
+            obter_zona=db.obter_zona,
+            salvar_leitura=db.salvar_leitura,
+            obter_configuracoes=db.obter_configuracoes,
+            ler_modbus_real=lambda equipamento: {"TBS-A": 25.0, "TBU-A": 20.0}.get(
+                equipamento["nome"]
+            ),
+            escrever_modbus_real=lambda equipamento, ligar: True,
+            salvar_estado_equipamentos=salvar_estado_com_erro,
+        )
+
+        resultado = servico.calcular(zona["id"])
+
+        self.assertIn("status", resultado)
 
     def test_limpar_resfriador_remove_estado_ativo_da_zona(self):
         zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
@@ -467,59 +528,6 @@ class TestPainelExecutivo(unittest.TestCase):
         # reaproveitado (zona excluida e uma nova criada com o mesmo id)
         # nao herde o estado ligado da zona antiga.
         self.assertFalse(servico.resfriador_da_zona(zona["id"]).estado()["ativo"])
-
-    def test_recomendacao_sem_leitura(self):
-        zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
-        servico = ZonaService(
-            obter_zona=db.obter_zona,
-            salvar_leitura=db.salvar_leitura,
-            obter_configuracoes=db.obter_configuracoes,
-            obter_painel_zonas=lambda: [
-                self._painel_base(
-                    zona["id"],
-                    status_atual=None,
-                    valor_atual=None,
-                    tendencias={"15min": None, "30min": None, "60min": None},
-                )
-            ],
-        )
-
-        [painel] = servico.montar_painel_executivo()
-
-        self.assertIn("Ainda não há leitura", painel["recomendacao"])
-
-    def test_recomendacao_menciona_tendencia_de_subida_em_perigo(self):
-        zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
-        servico = ZonaService(
-            obter_zona=db.obter_zona,
-            salvar_leitura=db.salvar_leitura,
-            obter_configuracoes=db.obter_configuracoes,
-            obter_painel_zonas=lambda: [self._painel_base(zona["id"], status_atual="Perigo")],
-        )
-
-        [painel] = servico.montar_painel_executivo()
-
-        self.assertIn("subindo", painel["recomendacao"])
-
-    def test_recomendacao_menciona_sensores_indisponiveis(self):
-        zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
-        servico = ZonaService(
-            obter_zona=db.obter_zona,
-            salvar_leitura=db.salvar_leitura,
-            obter_configuracoes=db.obter_configuracoes,
-            obter_painel_zonas=lambda: [
-                self._painel_base(
-                    zona["id"],
-                    status_atual="Conforto",
-                    tendencias={"15min": "estavel", "30min": "estavel", "60min": "estavel"},
-                    sensores_indisponiveis=["Sensor TBU"],
-                )
-            ],
-        )
-
-        [painel] = servico.montar_painel_executivo()
-
-        self.assertIn("1 sensor sem leitura recente", painel["recomendacao"])
 
 
 if __name__ == "__main__":

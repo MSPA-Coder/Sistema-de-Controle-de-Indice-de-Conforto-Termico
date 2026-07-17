@@ -212,6 +212,29 @@ def iniciar_banco() -> None:
             "CREATE INDEX IF NOT EXISTS idx_zonas_ativa ON zonas (ativa)"
         )
 
+        # Estado ATUAL (ligado/desligado, intensidade) dos atuadores de cada
+        # zona, persistido a cada ciclo de calculo por
+        # `salvar_estado_equipamentos` (ver `zona_service.ZonaService.
+        # calcular`). Uma linha por zona (a PK e o proprio `zona_id`; cada
+        # gravacao faz UPSERT, nunca acumula historico aqui -- para isso
+        # existe a tabela `leituras`). Existe para que o "Painel executivo
+        # por zona" (`obter_painel_zonas`) saiba quantos equipamentos estao
+        # ligados sem depender do estado em memoria do processo que roda a
+        # malha de controle -- essencial a partir do momento em que o
+        # dashboard (leitura) e o coletor (controle) passam a rodar em
+        # processos separados (ver agents.md, secao de arquitetura).
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS estado_equipamentos (
+                zona_id INTEGER PRIMARY KEY REFERENCES zonas(id) ON DELETE CASCADE,
+                ventilador_ligado INTEGER NOT NULL DEFAULT 0,
+                nebulizador_ligado INTEGER NOT NULL DEFAULT 0,
+                intensidade TEXT,
+                atualizado_em TEXT NOT NULL
+            )
+            """
+        )
+
         # MIGRACAO: `zona_id` foi adicionado depois que a tabela `leituras`
         # ja existia em instalacoes anteriores (recurso de Zonas Modbus).
         # SQLite nao tem "ADD COLUMN IF NOT EXISTS", entao checamos manual.
@@ -433,6 +456,46 @@ def criar_backup_banco() -> dict:
         "caminho": caminho_backup,
         "tamanho_bytes": os.path.getsize(caminho_backup),
     }
+
+
+def salvar_estado_equipamentos(
+    zona_id: int,
+    ventilador_ligado: bool,
+    nebulizador_ligado: bool,
+    intensidade: str | None,
+) -> None:
+    """Persiste o estado ATUAL (ligado/desligado, intensidade) dos atuadores
+    de uma zona -- chamada pelo `ZonaService` a cada ciclo de calculo (ver
+    `zona_service.ZonaService.calcular`). E o que permite ao "Painel
+    executivo por zona" (`obter_painel_zonas`) reportar quantos
+    equipamentos estao ligados sem depender do estado em memoria do
+    processo que roda a malha de controle.
+
+    `intensidade` e `None` quando o `Resfriamento` da zona nunca chegou a
+    ser acionado (mesma convencao de `models.Resfriamento.estado()`).
+
+    UPSERT: sempre uma linha por zona (nunca acumula historico aqui)."""
+    agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+    with _conexao() as conn:
+        conn.execute(
+            """
+            INSERT INTO estado_equipamentos
+                (zona_id, ventilador_ligado, nebulizador_ligado, intensidade, atualizado_em)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(zona_id) DO UPDATE SET
+                ventilador_ligado = excluded.ventilador_ligado,
+                nebulizador_ligado = excluded.nebulizador_ligado,
+                intensidade = excluded.intensidade,
+                atualizado_em = excluded.atualizado_em
+            """,
+            (
+                zona_id,
+                int(bool(ventilador_ligado)),
+                int(bool(nebulizador_ligado)),
+                intensidade,
+                agora,
+            ),
+        )
 
 
 def contar_leituras() -> int:
@@ -782,17 +845,18 @@ EPSILON_TENDENCIA = 0.5
 def obter_painel_zonas() -> list[dict]:
     """Para cada zona cadastrada, monta o resumo operacional usado pelo
     card "Painel executivo por zona" da aba Analises, a partir SOMENTE de
-    dados persistidos (historico de leituras + cadastro de equipamentos).
+    dados persistidos (historico de leituras + cadastro de equipamentos +
+    `estado_equipamentos`). Assim como `obter_estatisticas_zonas`,
+    considera apenas leituras do indice ATUALMENTE configurado na zona.
 
-    Assim como `obter_estatisticas_zonas`, considera apenas leituras do
-    indice ATUALMENTE configurado na zona.
-
-    Nao inclui o estado ATIVO de ventiladores/nebulizadores (isso vive em
-    memoria, por zona, em `ZonaService` -- ver `zona_service.
-    ZonaService.montar_painel_executivo`, que chama esta funcao e
-    enriquece o resultado com `equipamentos_ligados` e `recomendacao`).
-    Devolve, porem, `equipamentos_totais` (contagem de ventiladores e
-    nebulizadores cadastrados na zona), que e um dado persistido normal."""
+    Inclui `equipamentos_ligados` (contagem ligada/total de ventiladores e
+    nebulizadores, a partir de `estado_equipamentos`, atualizada a cada
+    ciclo de calculo) e `recomendacao` (texto). Diferente de uma versao
+    anterior deste painel, NADA aqui depende do estado em memoria de
+    `ZonaService` -- o resultado e reproduzivel por qualquer processo que
+    tenha acesso ao mesmo banco, incluindo um processo de "dashboard"
+    somente-leitura que nunca fala Modbus (ver `zona_service.py` e
+    `agents.md`)."""
     agora = datetime.datetime.now().replace(microsecond=0)
     inicio_dia = agora.replace(hour=0, minute=0, second=0)
 
@@ -807,6 +871,10 @@ def obter_painel_zonas() -> list[dict]:
         linhas_atuadores = conn.execute(
             "SELECT zona_id, tipo, COUNT(*) AS total FROM equipamentos "
             "WHERE tipo IN ('ventilador', 'nebulizador') GROUP BY zona_id, tipo"
+        ).fetchall()
+        linhas_estado = conn.execute(
+            "SELECT zona_id, ventilador_ligado, nebulizador_ligado, intensidade "
+            "FROM estado_equipamentos"
         ).fetchall()
         leituras_por_zona: dict[int, list[sqlite3.Row]] = {}
         for zona in zonas:
@@ -829,12 +897,15 @@ def obter_painel_zonas() -> list[dict]:
         totais_por_zona.setdefault(linha["zona_id"], {"ventilador": 0, "nebulizador": 0})
         totais_por_zona[linha["zona_id"]][linha["tipo"]] = linha["total"]
 
+    estado_por_zona: dict[int, sqlite3.Row] = {linha["zona_id"]: linha for linha in linhas_estado}
+
     return [
         _resumir_painel_zona(
             zona,
             leituras_por_zona.get(zona["id"], []),
             sensores_por_zona.get(zona["id"], []),
             totais_por_zona.get(zona["id"], {"ventilador": 0, "nebulizador": 0}),
+            estado_por_zona.get(zona["id"]),
             agora,
             inicio_dia,
         )
@@ -847,17 +918,26 @@ def _resumir_painel_zona(
     leituras: list[sqlite3.Row],
     sensores: list[sqlite3.Row],
     totais_equipamento: dict[str, int],
+    estado_atuadores: sqlite3.Row | None,
     agora: datetime.datetime,
     inicio_dia: datetime.datetime,
 ) -> dict:
+    ventiladores_total = totais_equipamento.get("ventilador", 0)
+    nebulizadores_total = totais_equipamento.get("nebulizador", 0)
+    ventilador_ligado = bool(estado_atuadores["ventilador_ligado"]) if estado_atuadores else False
+    nebulizador_ligado = bool(estado_atuadores["nebulizador_ligado"]) if estado_atuadores else False
+
     base = {
         "zona_id": zona["id"],
         "nome": zona["nome"],
         "especie": zona["especie"],
         "indice": zona["indice"],
-        "equipamentos_totais": {
-            "ventiladores": totais_equipamento.get("ventilador", 0),
-            "nebulizadores": totais_equipamento.get("nebulizador", 0),
+        "equipamentos_ligados": {
+            "ventiladores_ligados": ventiladores_total if ventilador_ligado else 0,
+            "ventiladores_total": ventiladores_total,
+            "nebulizadores_ligados": nebulizadores_total if nebulizador_ligado else 0,
+            "nebulizadores_total": nebulizadores_total,
+            "intensidade": estado_atuadores["intensidade"] if estado_atuadores else None,
         },
     }
 
@@ -880,6 +960,7 @@ def _resumir_painel_zona(
                 "sensores_indisponiveis": None,
             }
         )
+        base["recomendacao"] = _recomendacao_operacional(base)
         return base
 
     ultima = leituras[-1]
@@ -1018,7 +1099,44 @@ def _resumir_painel_zona(
         and sensor["campo_medido"] not in entradas_ultima
     ]
 
+    base["recomendacao"] = _recomendacao_operacional(base)
     return base
+
+
+def _recomendacao_operacional(painel: dict) -> str:
+    """Recomendacao textual combinando o status atual (mesma mensagem
+    canonica de `thermal_indices.mensagem_do_status`, ja usada no resto da
+    interface) com sinais adicionais do proprio painel -- tendencia
+    recente e sensores indisponiveis -- quando eles mudam a leitura
+    operacional da situacao. Vivia em `zona_service.py` (precisava do
+    estado em memoria do ZonaService); movida para ca quando
+    `equipamentos_ligados` passou a vir de `estado_equipamentos` -- agora
+    o painel inteiro (estatisticas + recomendacao) e so leitura de banco."""
+    status = painel.get("status_atual")
+    if status is None:
+        return "Ainda não há leitura registrada para esta zona."
+
+    partes = [ti.mensagem_do_status(status)]
+
+    tendencia_15min = painel.get("tendencias", {}).get("15min")
+    if tendencia_15min == "subindo" and status in ("Perigo", "Emergência"):
+        partes.append(
+            "O índice ainda está subindo nos últimos 15 minutos: reforce o resfriamento."
+        )
+    elif tendencia_15min == "subindo" and status == "Alerta":
+        partes.append("Tendência de subida nos últimos 15 minutos; monitore de perto.")
+    elif tendencia_15min == "descendo" and status in ("Perigo", "Emergência"):
+        partes.append("O índice já vem caindo nos últimos 15 minutos.")
+
+    sensores_indisponiveis = painel.get("sensores_indisponiveis") or []
+    if sensores_indisponiveis:
+        plural = "es" if len(sensores_indisponiveis) > 1 else ""
+        partes.append(
+            f"{len(sensores_indisponiveis)} sensor{plural} sem leitura recente -- "
+            "confira a conexão Modbus antes de confiar no índice mostrado."
+        )
+
+    return " ".join(partes)
 
 
 def criar_equipamento(zona_id: int, dados: dict) -> dict:

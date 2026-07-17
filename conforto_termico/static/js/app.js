@@ -2969,6 +2969,13 @@ function esconderErro() {
 document.addEventListener("DOMContentLoaded", async () => {
   moverControlesParaConfiguracoes();
   inicializarAbas();
+
+  // Em `papel_app="dashboard"`, a aba inicial e "analises" (nao existe
+  // botao "Dashboard" nesse app para o clique de sempre disparar
+  // `carregarAnalises()` via `ativarAba` -- ver `rotas_comuns.index`).
+  if (window.CONFIG_APP && window.CONFIG_APP.abaInicial === "analises") {
+    carregarAnalises();
+  }
   inicializarHistorico();
   await carregarConfiguracoesPersistidas();
   atualizarEquipamento(null, null);

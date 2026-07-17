@@ -510,7 +510,19 @@ class TestPainelExecutivoZonas(unittest.TestCase):
             {"horario": None, "ja_ocorreu": False, "dias_amostrados": 0}, painel["pico_previsto"]
         )
         self.assertIsNone(painel["sensores_indisponiveis"])
-        self.assertEqual({"ventiladores": 0, "nebulizadores": 0}, painel["equipamentos_totais"])
+        self.assertEqual(
+            {
+                "ventiladores_ligados": 0,
+                "ventiladores_total": 0,
+                "nebulizadores_ligados": 0,
+                "nebulizadores_total": 0,
+                "intensidade": None,
+            },
+            painel["equipamentos_ligados"],
+        )
+        self.assertEqual(
+            "Ainda não há leitura registrada para esta zona.", painel["recomendacao"]
+        )
 
     def test_status_e_valor_atuais_vem_da_leitura_mais_recente(self):
         zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
@@ -698,7 +710,49 @@ class TestPainelExecutivoZonas(unittest.TestCase):
 
         self.assertEqual([], painel["sensores_indisponiveis"])
 
-    def test_equipamentos_totais_conta_ventiladores_e_nebulizadores(self):
+    def test_recomendacao_sem_leitura(self):
+        db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
+
+        [painel] = db.obter_painel_zonas()
+
+        self.assertEqual(
+            "Ainda não há leitura registrada para esta zona.", painel["recomendacao"]
+        )
+
+    def test_recomendacao_menciona_tendencia_de_subida_em_perigo(self):
+        zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
+        agora = datetime.datetime.now()
+        self._inserir_leitura(zona["id"], 78.0, "Perigo", agora - datetime.timedelta(minutes=20))
+        self._inserir_leitura(zona["id"], 82.0, "Perigo", agora)
+
+        [painel] = db.obter_painel_zonas()
+
+        self.assertEqual("subindo", painel["tendencias"]["15min"])
+        self.assertIn("subindo", painel["recomendacao"])
+
+    def test_recomendacao_menciona_sensores_indisponiveis(self):
+        zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
+        db.criar_equipamento(
+            zona["id"],
+            {
+                "tipo": "sensor",
+                "nome": "Sensor TBU",
+                "modo_conexao": "tcp",
+                "host": "10.0.0.6",
+                "tipo_registrador": "input",
+                "endereco_registrador": 2,
+                "campo_medido": "tbu",
+            },
+        )
+        self._inserir_leitura(
+            zona["id"], 70.0, "Conforto", datetime.datetime.now(), entradas={"tbs": 25}
+        )
+
+        [painel] = db.obter_painel_zonas()
+
+        self.assertIn("1 sensor sem leitura recente", painel["recomendacao"])
+
+    def test_equipamentos_ligados_totais_conta_ventiladores_e_nebulizadores(self):
         zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
         for indice_equip in range(2):
             db.criar_equipamento(
@@ -726,7 +780,75 @@ class TestPainelExecutivoZonas(unittest.TestCase):
 
         [painel] = db.obter_painel_zonas()
 
-        self.assertEqual({"ventiladores": 2, "nebulizadores": 1}, painel["equipamentos_totais"])
+        # Sem nenhuma gravacao em `estado_equipamentos` ainda, os totais
+        # aparecem corretamente mas nada conta como ligado.
+        self.assertEqual(
+            {
+                "ventiladores_ligados": 0,
+                "ventiladores_total": 2,
+                "nebulizadores_ligados": 0,
+                "nebulizadores_total": 1,
+                "intensidade": None,
+            },
+            painel["equipamentos_ligados"],
+        )
+
+    def test_equipamentos_ligados_reflete_estado_persistido(self):
+        zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
+        for indice_equip in range(2):
+            db.criar_equipamento(
+                zona["id"],
+                {
+                    "tipo": "ventilador",
+                    "nome": f"Ventilador {indice_equip}",
+                    "modo_conexao": "tcp",
+                    "host": "10.0.0.5",
+                    "tipo_registrador": "coil",
+                    "endereco_registrador": indice_equip,
+                },
+            )
+        db.criar_equipamento(
+            zona["id"],
+            {
+                "tipo": "nebulizador",
+                "nome": "Nebulizador 0",
+                "modo_conexao": "tcp",
+                "host": "10.0.0.5",
+                "tipo_registrador": "coil",
+                "endereco_registrador": 10,
+            },
+        )
+
+        db.salvar_estado_equipamentos(zona["id"], True, False, "media")
+
+        [painel] = db.obter_painel_zonas()
+
+        self.assertEqual(
+            {
+                "ventiladores_ligados": 2,
+                "ventiladores_total": 2,
+                "nebulizadores_ligados": 0,
+                "nebulizadores_total": 1,
+                "intensidade": "media",
+            },
+            painel["equipamentos_ligados"],
+        )
+
+    def test_salvar_estado_equipamentos_faz_upsert_sem_duplicar_linha(self):
+        zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
+
+        db.salvar_estado_equipamentos(zona["id"], True, True, "alta")
+        db.salvar_estado_equipamentos(zona["id"], False, False, None)
+
+        with db._conexao() as conn:
+            linhas = conn.execute(
+                "SELECT * FROM estado_equipamentos WHERE zona_id = ?", (zona["id"],)
+            ).fetchall()
+
+        self.assertEqual(1, len(linhas))
+        self.assertEqual(0, linhas[0]["ventilador_ligado"])
+        self.assertEqual(0, linhas[0]["nebulizador_ligado"])
+        self.assertIsNone(linhas[0]["intensidade"])
 
 
 class TestEquipamentosCRUD(unittest.TestCase):
