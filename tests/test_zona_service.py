@@ -16,6 +16,10 @@ from conforto_termico import database as db
 from conforto_termico.zona_service import ZonaCalculoError, ZonaService
 
 
+def _ignorar_estado_equipamentos(*args):
+    pass
+
+
 class TestZonaService(unittest.TestCase):
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
@@ -37,6 +41,8 @@ class TestZonaService(unittest.TestCase):
             obter_zona=db.obter_zona,
             salvar_leitura=db.salvar_leitura,
             obter_configuracoes=db.obter_configuracoes,
+            obter_historico=db.obter_historico_por_zona,
+            salvar_estado_equipamentos=_ignorar_estado_equipamentos,
             ler_modbus_real=ler_mock,
             escrever_modbus_real=escrever_mock,
         )
@@ -254,6 +260,8 @@ class TestModoSimuladoZonaService(unittest.TestCase):
             obter_zona=db.obter_zona,
             salvar_leitura=db.salvar_leitura,
             obter_configuracoes=db.obter_configuracoes,
+            obter_historico=db.obter_historico_por_zona,
+            salvar_estado_equipamentos=_ignorar_estado_equipamentos,
             ler_modbus_real=ler_real,
         )
         # mesmo com modoSimuladoZonas=True (padrao) persistido, sem
@@ -300,6 +308,8 @@ class TestModoSimuladoZonaService(unittest.TestCase):
             obter_zona=db.obter_zona,
             salvar_leitura=db.salvar_leitura,
             obter_configuracoes=db.obter_configuracoes,
+            obter_historico=db.obter_historico_por_zona,
+            salvar_estado_equipamentos=_ignorar_estado_equipamentos,
             ler_modbus_real=ler_real,
         )
         servico.definir_simulador(simulador)
@@ -343,6 +353,8 @@ class TestModoSimuladoZonaService(unittest.TestCase):
             obter_zona=db.obter_zona,
             salvar_leitura=db.salvar_leitura,
             obter_configuracoes=db.obter_configuracoes,
+            obter_historico=db.obter_historico_por_zona,
+            salvar_estado_equipamentos=_ignorar_estado_equipamentos,
             ler_modbus_real=ler_real,
         )
         servico.definir_simulador(SimuladorFalso())
@@ -397,6 +409,7 @@ class TestPersistenciaEstadoEquipamentos(unittest.TestCase):
             obter_zona=db.obter_zona,
             salvar_leitura=db.salvar_leitura,
             obter_configuracoes=db.obter_configuracoes,
+            obter_historico=db.obter_historico_por_zona,
             ler_modbus_real=ler_mock,
             escrever_modbus_real=escrever_mock,
             salvar_estado_equipamentos=salvar_estado_mock,
@@ -474,22 +487,6 @@ class TestPersistenciaEstadoEquipamentos(unittest.TestCase):
         # resquicio do primeiro.
         self.assertEqual(resultado_2["equipamento"]["ativo"], self.chamadas_estado[1][1])
 
-    def test_sem_salvar_estado_equipamentos_nao_quebra_o_calculo(self):
-        zona = self._criar_zona_com_sensores()
-        servico = ZonaService(
-            obter_zona=db.obter_zona,
-            salvar_leitura=db.salvar_leitura,
-            obter_configuracoes=db.obter_configuracoes,
-            ler_modbus_real=lambda equipamento: {"TBS-A": 25.0, "TBU-A": 20.0}.get(
-                equipamento["nome"]
-            ),
-            escrever_modbus_real=lambda equipamento, ligar: True,
-        )
-
-        resultado = servico.calcular(zona["id"])
-
-        self.assertIn("status", resultado)
-
     def test_falha_ao_persistir_estado_nao_impede_o_calculo(self):
         zona = self._criar_zona_com_sensores()
 
@@ -500,6 +497,7 @@ class TestPersistenciaEstadoEquipamentos(unittest.TestCase):
             obter_zona=db.obter_zona,
             salvar_leitura=db.salvar_leitura,
             obter_configuracoes=db.obter_configuracoes,
+            obter_historico=db.obter_historico_por_zona,
             ler_modbus_real=lambda equipamento: {"TBS-A": 25.0, "TBU-A": 20.0}.get(
                 equipamento["nome"]
             ),
@@ -517,6 +515,8 @@ class TestPersistenciaEstadoEquipamentos(unittest.TestCase):
             obter_zona=db.obter_zona,
             salvar_leitura=db.salvar_leitura,
             obter_configuracoes=db.obter_configuracoes,
+            obter_historico=db.obter_historico_por_zona,
+            salvar_estado_equipamentos=_ignorar_estado_equipamentos,
         )
         servico.resfriador_da_zona(zona["id"]).registrar_leitura("Perigo")
         self.assertTrue(servico.resfriador_da_zona(zona["id"]).estado()["ativo"])

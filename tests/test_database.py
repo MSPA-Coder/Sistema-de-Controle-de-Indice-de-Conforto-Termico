@@ -982,13 +982,6 @@ class TestEquipamentosCRUD(unittest.TestCase):
         self.assertTrue(db.excluir_equipamento(equipamento["id"]))
         self.assertIsNone(db.obter_equipamento(equipamento["id"]))
 
-    def test_listar_equipamentos_da_zona(self):
-        db.criar_equipamento(self.zona["id"], self._equipamento_base(nome="S1"))
-        db.criar_equipamento(self.zona["id"], self._equipamento_base(nome="S2"))
-        equipamentos = db.listar_equipamentos_da_zona(self.zona["id"])
-        self.assertEqual(2, len(equipamentos))
-
-
 class TestConcorrenciaLeituraEscrita(unittest.TestCase):
     """`_conexao(escrita=False)` (usada por toda leitura) nao deve esperar
     por uma escrita em andamento neste processo: em modo WAL, um leitor

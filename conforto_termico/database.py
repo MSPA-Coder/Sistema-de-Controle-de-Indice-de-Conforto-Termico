@@ -1191,14 +1191,6 @@ def criar_equipamento(zona_id: int, dados: dict) -> dict:
     return dict(linha)
 
 
-def listar_equipamentos_da_zona(zona_id: int) -> list[dict]:
-    with _conexao(escrita=False) as conn:
-        linhas = conn.execute(
-            "SELECT * FROM equipamentos WHERE zona_id = ? ORDER BY tipo, id", (zona_id,)
-        ).fetchall()
-    return [dict(linha) for linha in linhas]
-
-
 def obter_equipamento(equipamento_id: int) -> dict | None:
     with _conexao(escrita=False) as conn:
         linha = conn.execute(

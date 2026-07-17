@@ -73,8 +73,8 @@ class ZonaService:
         obter_zona: Callable[[int], dict | None],
         salvar_leitura: Callable,
         obter_configuracoes: Callable,
-        obter_historico: Callable | None = None,
-        salvar_estado_equipamentos: Callable[[int, bool, bool, str], None] | None = None,
+        obter_historico: Callable,
+        salvar_estado_equipamentos: Callable[[int, bool, bool, str], None],
         ler_modbus_real: Callable = modbus_client.ler_valor,
         escrever_modbus_real: Callable = modbus_client.escrever_valor,
         simulador=None,
@@ -88,9 +88,7 @@ class ZonaService:
         # calculo (`database.salvar_estado_equipamentos`) -- e o que
         # permite ao "Painel executivo por zona" (agora inteiramente em
         # `database.obter_painel_zonas`) saber quantos equipamentos estao
-        # ligados sem depender do estado em memoria deste servico. Opcional
-        # (como `obter_historico`) para nao quebrar testes/instancias que
-        # nao precisam disso.
+        # ligados sem depender do estado em memoria deste servico.
         self._salvar_estado_equipamentos = salvar_estado_equipamentos
         self._ler_modbus_real = ler_modbus_real
         self._escrever_modbus_real = escrever_modbus_real
@@ -137,8 +135,6 @@ class ZonaService:
                     for leitura in self._historicos_grafico[zona_id]
                 ]
 
-        if not self._obter_historico:
-            return []
         return [
             self._copiar_leitura(leitura)
             for leitura in self._obter_historico(
@@ -180,11 +176,9 @@ class ZonaService:
         try:
             with self._lock:
                 if zona["id"] not in self._historicos_grafico:
-                    historico_base = []
-                    if self._obter_historico:
-                        historico_base = self._obter_historico(
-                            zona["id"], limite=self._limite_historico_grafico - 1
-                        )
+                    historico_base = self._obter_historico(
+                        zona["id"], limite=self._limite_historico_grafico - 1
+                    )
                     self._historicos_grafico[zona["id"]] = historico_base
                 self._historicos_grafico[zona["id"]].append(leitura)
                 self._historicos_grafico[zona["id"]] = self._historicos_grafico[
@@ -327,19 +321,18 @@ class ZonaService:
         estado_atuadores = resfriador.estado()
         atuadores_com_falha = self._aplicar_atuadores(equipamentos, resfriador, logger)
 
-        if self._salvar_estado_equipamentos:
-            try:
-                self._salvar_estado_equipamentos(
-                    zona_id,
-                    estado_atuadores["ativo"],
-                    estado_atuadores["nebulizador"],
-                    estado_atuadores["intensidade"],
+        try:
+            self._salvar_estado_equipamentos(
+                zona_id,
+                estado_atuadores["ativo"],
+                estado_atuadores["nebulizador"],
+                estado_atuadores["intensidade"],
+            )
+        except Exception:
+            if logger:
+                logger.exception(
+                    "Falha ao persistir estado dos equipamentos da zona %s", zona_id
                 )
-            except Exception:
-                if logger:
-                    logger.exception(
-                        "Falha ao persistir estado dos equipamentos da zona %s", zona_id
-                    )
 
         if self._em_modo_simulado() and self._simulador:
             # Mantem o estado interno do simulador (resfriamento gradual)

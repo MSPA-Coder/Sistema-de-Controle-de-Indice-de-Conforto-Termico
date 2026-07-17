@@ -228,8 +228,8 @@ class CalculoIctService:
         sensor_simulado: SensorSimuladoService,
         salvar_leitura: Callable,
         obter_historico: Callable,
+        obter_configuracoes: Callable,
         email_cls: type[Email] = Email,
-        obter_configuracoes: Callable | None = None,
     ):
         self._resfriador = resfriador
         self._historico_grafico = historico_grafico
@@ -239,9 +239,6 @@ class CalculoIctService:
         self._email_cls = email_cls
         # Usado apenas para buscar host/porta/usuario/senha SMTP direto da
         # configuracao persistida no servidor (ver `_smtp_config_atual`).
-        # Opcional e por ultimo para nao quebrar quem ja instancia esta
-        # classe sem esse parametro -- nesse caso, o envio de e-mail volta a
-        # depender só das variaveis de ambiente SMTP_*, como antes.
         self._obter_configuracoes = obter_configuracoes
 
     def calcular(
@@ -481,8 +478,6 @@ class CalculoIctService:
         web._configuracoes_publicas); usar o `config` do request para a
         senha sempre resultaria numa string vazia, mesmo com uma senha
         valida ja salva no banco."""
-        if not self._obter_configuracoes:
-            return {}
         try:
             persistida = self._obter_configuracoes()
         except Exception:
