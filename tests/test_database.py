@@ -121,6 +121,52 @@ class TestIntervaloMinimoLeituras(unittest.TestCase):
         self.assertEqual(zona["id"], pagina["leituras"][0]["zona_id"])
         self.assertEqual("Aviario 1", pagina["leituras"][0]["zona_nome"])
 
+    def test_historico_leituras_por_valor_devolve_os_dois_mais_proximos(self):
+        zona = db.criar_zona({"nome": "Aviario 1", "especie": "frangos", "indice": "ITU"})
+        for valor in (70.0, 72.0, 75.0, 80.0):
+            db.salvar_leitura(
+                "frangos",
+                "ITU",
+                valor,
+                "Alerta",
+                {"tbs": 26, "tbu": 21},
+                intervalo_minutos=0,
+                zona_id=zona["id"],
+            )
+
+        pagina = db.obter_historico_leituras(
+            limite=30,
+            zona_id=zona["id"],
+            valor_referencia=73.4,
+        )
+
+        self.assertEqual(2, pagina["total"])
+        self.assertEqual([72.0, 75.0], [leitura["valor"] for leitura in pagina["leituras"]])
+        self.assertEqual(73.4, pagina["valor_referencia"])
+        self.assertEqual([72.0, 75.0], pagina["valores_encontrados"])
+
+    def test_historico_leituras_por_valor_exato_nao_inclui_outro_proximo(self):
+        zona = db.criar_zona({"nome": "Aviario 1", "especie": "frangos", "indice": "ITU"})
+        for valor in (70.0, 72.0, 75.0):
+            db.salvar_leitura(
+                "frangos",
+                "ITU",
+                valor,
+                "Alerta",
+                {"tbs": 26, "tbu": 21},
+                intervalo_minutos=0,
+                zona_id=zona["id"],
+            )
+
+        pagina = db.obter_historico_leituras(
+            limite=30,
+            zona_id=zona["id"],
+            valor_referencia=72.0,
+        )
+
+        self.assertEqual([72.0], [leitura["valor"] for leitura in pagina["leituras"]])
+        self.assertEqual([72.0], pagina["valores_encontrados"])
+
     def test_configuracoes_retornam_padroes(self):
         configuracoes = db.obter_configuracoes()
 

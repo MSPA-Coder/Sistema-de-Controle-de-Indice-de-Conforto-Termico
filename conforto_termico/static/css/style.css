@@ -957,6 +957,8 @@ td.status-emergencia { color: var(--status-emergencia); }
 /* ---------------------------------------------------------------------------
    Painel executivo por zona (aba Analises)
    ------------------------------------------------------------------------- */
+.executivo-zona-filtro { min-width: min(100%, 280px); }
+.executivo-zona-filtro select { font-size: 0.85rem; padding: 0.38rem 0.55rem; }
 .executivo-lista { display: flex; flex-direction: column; gap: 1rem; }
 .executivo-cartao {
   border: 1px solid var(--cor-borda);

@@ -16,6 +16,8 @@ duas vezes -- o Flask recusa isso.
 
 from __future__ import annotations
 
+import math
+
 from flask import Blueprint, current_app, jsonify, render_template, request
 
 from . import database as db
@@ -33,6 +35,19 @@ def _parametro_inteiro(nome: str, padrao: int | None = None) -> tuple[int | None
         return int(valor), None
     except ValueError:
         return None, ({"erro": f"Parâmetro '{nome}' precisa ser inteiro."}, 400)
+
+
+def _parametro_float(nome: str) -> tuple[float | None, tuple | None]:
+    valor = request.args.get(nome)
+    if valor in (None, ""):
+        return None, None
+    try:
+        numero = float(valor)
+    except ValueError:
+        return None, ({"erro": f"Parâmetro '{nome}' precisa ser numérico."}, 400)
+    if not math.isfinite(numero):
+        return None, ({"erro": f"Parâmetro '{nome}' precisa ser numérico e finito."}, 400)
+    return numero, None
 
 
 @comum_bp.route("/")
@@ -127,6 +142,10 @@ def historico_leituras():
     if status is not None and ti.normalizar_chave_texto(status).lower() not in ti.STATUS_PESO:
         return jsonify({"erro": f"Status inválido: '{status}'."}), 400
 
+    valor_referencia, erro = _parametro_float("valor_referencia")
+    if erro:
+        return jsonify(erro[0]), erro[1]
+
     return jsonify(
         db.obter_historico_leituras(
             limite=limite or 30,
@@ -134,6 +153,7 @@ def historico_leituras():
             zona_id=zona_id,
             indice=indice,
             status=status,
+            valor_referencia=valor_referencia,
         )
     )
 

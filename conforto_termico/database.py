@@ -493,13 +493,16 @@ def obter_historico_leituras(
     zona_id: int | None = None,
     indice: str | None = None,
     status: str | None = None,
+    valor_referencia: float | None = None,
 ) -> dict:
     """Consulta paginada do historico persistido.
 
     Diferente de `obter_historico_por_zona`, que alimenta os graficos curtos
     em memoria da Dashboard, esta funcao navega pela tabela `leituras` em
     ordem cronologica e devolve metadados suficientes para a interface montar
-    um controle de avanco/retrocesso sobre o banco inteiro.
+    um controle de avanco/retrocesso sobre o banco inteiro. Quando recebe
+    `valor_referencia`, devolve o valor exato se ele existir ou os dois valores
+    distintos mais proximos dentro dos demais filtros.
     """
     limite = max(1, min(200, int(limite)))
     filtros = []
@@ -515,8 +518,29 @@ def obter_historico_leituras(
         filtros.append("l.status = ?")
         parametros.append(status)
 
-    where = ("WHERE " + " AND ".join(filtros)) if filtros else ""
     with _conexao(escrita=False) as conn:
+        valores_encontrados: list[float] = []
+        if valor_referencia is not None:
+            where_base = ("WHERE " + " AND ".join(filtros)) if filtros else ""
+            candidatos = conn.execute(
+                f"""
+                SELECT DISTINCT l.valor
+                FROM leituras l
+                {where_base}
+                ORDER BY ABS(l.valor - ?) ASC, l.valor ASC
+                LIMIT 2
+                """,
+                [*parametros, valor_referencia],
+            ).fetchall()
+            valores_encontrados = [float(linha["valor"]) for linha in candidatos]
+            if valores_encontrados and abs(valores_encontrados[0] - valor_referencia) <= 1e-9:
+                valores_encontrados = valores_encontrados[:1]
+            if valores_encontrados:
+                placeholders = ", ".join("?" for _ in valores_encontrados)
+                filtros.append(f"l.valor IN ({placeholders})")
+                parametros.extend(valores_encontrados)
+
+        where = ("WHERE " + " AND ".join(filtros)) if filtros else ""
         (total,) = conn.execute(
             f"SELECT COUNT(*) FROM leituras l {where}",
             parametros,
@@ -547,6 +571,8 @@ def obter_historico_leituras(
         "total": total,
         "limite": limite,
         "deslocamento": deslocamento_calculado,
+        "valor_referencia": valor_referencia,
+        "valores_encontrados": valores_encontrados,
     }
 
 

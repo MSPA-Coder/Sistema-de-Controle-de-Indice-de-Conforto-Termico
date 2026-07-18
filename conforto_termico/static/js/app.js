@@ -19,6 +19,7 @@ const COR_STATUS = {
 };
 
 const STATUS_HISTORICO = ["Conforto", "Alerta", "Perigo", "Emerg\u00eancia"];
+const ROTULO_TIPO_VALOR_HISTORICO = { minimo: "Mínimo", medio: "Médio", maximo: "Máximo" };
 const CORES_CAMPOS_ENTRADA = ["#4F8A93", "#D9A441", "#8FBF9F", "#C1443C", "#9E7BB5", "#6FA8DC"];
 const HISTORICO_LINHAS_POR_PAGINA = 20;
 const HISTORICO_JANELA_LEITURAS = 30;
@@ -111,9 +112,13 @@ let historicoDeslocamento = 0;
 let filtroHistoricoIndice = "";
 let filtroHistoricoStatus = "";
 let filtroHistoricoZona = "";
+let filtroHistoricoValorReferencia = null;
+let filtroHistoricoValorTipo = "";
+let filtroHistoricoValoresEncontrados = [];
 let historicoLeituraSelecionadaId = null;
 let salvamentoConfigTimeoutId = null;
 let historicoScrollTimeoutId = null;
+let paineisExecutivosCache = [];
 let smtpSenhaJaConfigurada = false;
 let audioCtx = null;
 let ultimoStatusPorZona = new Map();
@@ -1011,7 +1016,7 @@ function opcoesGrafico(comEixoSecundario) {
       },
       y: {
         beginAtZero: false,
-        ticks: { color: "#A79C8C", font: { size: 10 } },
+        ticks: { color: "#A79C8C", font: { size: 10 }, precision: 0 },
         grid: { color: "rgba(255,255,255,0.05)" },
       },
     },
@@ -1020,7 +1025,7 @@ function opcoesGrafico(comEixoSecundario) {
     opcoes.scales.y1 = {
       position: "right",
       beginAtZero: false,
-      ticks: { color: "#A79C8C", font: { size: 10 } },
+      ticks: { color: "#A79C8C", font: { size: 10 }, precision: 0 },
       grid: { display: false },
     };
   }
@@ -1419,6 +1424,7 @@ function atualizarGraficosHistorico(leituras) {
       const ids = grafico.data.datasets[elemento.datasetIndex]?.leituraIds || [];
       selecionarLeituraHistorico(ids[elemento.index]);
     });
+    opcoes.plugins.legend.display = false;
     aplicarEscalaDinamica(opcoes, "y", dataset.data);
 
     const grafico = criarOuAtualizarGrafico(graficosHistoricoPorIndice.get(indice), canvasId, {
@@ -1479,7 +1485,6 @@ function garantirZonaHistoricoSelecionada() {
 }
 
 function renderizarFiltrosHistorico() {
-  filtroHistoricoIndice = "";
   if (filtroHistoricoStatus && !STATUS_HISTORICO.includes(filtroHistoricoStatus)) {
     filtroHistoricoStatus = "";
   }
@@ -1509,6 +1514,36 @@ function renderizarFiltrosHistorico() {
     selectZona.disabled = !zonasCache.length;
     selectZona.value = filtroHistoricoZona;
   }
+
+  const selectValor = document.getElementById("filtro-historico-valor");
+  if (selectValor) {
+    selectValor.textContent = "";
+    const optionTodos = document.createElement("option");
+    optionTodos.value = "";
+    optionTodos.textContent = "Todos";
+    selectValor.appendChild(optionTodos);
+
+    if (Number.isFinite(filtroHistoricoValorReferencia)) {
+      const optionReferencia = document.createElement("option");
+      optionReferencia.value = String(filtroHistoricoValorReferencia);
+      const tipo = filtroHistoricoValorTipo
+        ? (ROTULO_TIPO_VALOR_HISTORICO[filtroHistoricoValorTipo] || "Valor") + ": "
+        : "Próximo de ";
+      const encontrados = filtroHistoricoValoresEncontrados.length
+        ? " → " + filtroHistoricoValoresEncontrados.map(formatarValorFiltroHistorico).join(" / ")
+        : "";
+      optionReferencia.textContent =
+        tipo + formatarValorFiltroHistorico(filtroHistoricoValorReferencia) + encontrados;
+      selectValor.appendChild(optionReferencia);
+      selectValor.value = optionReferencia.value;
+    } else {
+      selectValor.value = "";
+    }
+  }
+}
+
+function formatarValorFiltroHistorico(valor) {
+  return Number(valor).toFixed(2).replace(".", ",");
 }
 
 function aplicarFiltrosHistorico(resetarPagina) {
@@ -1526,6 +1561,11 @@ function atualizarFiltroHistorico() {
   filtroHistoricoIndice = "";
   filtroHistoricoStatus = document.getElementById("filtro-historico-status")?.value || "";
   filtroHistoricoZona = document.getElementById("filtro-historico-zona")?.value || "";
+  const valorSelecionado = document.getElementById("filtro-historico-valor")?.value || "";
+  filtroHistoricoValorReferencia = valorSelecionado === "" ? null : Number(valorSelecionado);
+  if (!Number.isFinite(filtroHistoricoValorReferencia)) filtroHistoricoValorReferencia = null;
+  if (filtroHistoricoValorReferencia === null) filtroHistoricoValorTipo = "";
+  filtroHistoricoValoresEncontrados = [];
   carregarHistoricoPersistido({ resetarJanela: true });
 }
 
@@ -1629,7 +1669,11 @@ async function carregarHistoricoPersistido(opcoes = {}) {
   const params = new URLSearchParams();
   params.set("limite", String(HISTORICO_JANELA_LEITURAS));
   if (filtroHistoricoZona) params.set("zona_id", filtroHistoricoZona);
+  if (filtroHistoricoIndice) params.set("indice", filtroHistoricoIndice);
   if (filtroHistoricoStatus) params.set("status", filtroHistoricoStatus);
+  if (Number.isFinite(filtroHistoricoValorReferencia)) {
+    params.set("valor_referencia", String(filtroHistoricoValorReferencia));
+  }
 
   if (Number.isFinite(opcoes.deslocamento)) {
     params.set("deslocamento", String(Math.max(0, opcoes.deslocamento)));
@@ -1643,6 +1687,9 @@ async function carregarHistoricoPersistido(opcoes = {}) {
     const dados = await resposta.json();
     historicoTotalLeituras = Number(dados.total) || 0;
     historicoDeslocamento = Number(dados.deslocamento) || 0;
+    filtroHistoricoValoresEncontrados = Array.isArray(dados.valores_encontrados)
+      ? dados.valores_encontrados.map(Number).filter(Number.isFinite)
+      : [];
     historicoLeiturasJanela = Array.isArray(dados.leituras) ? dados.leituras : [];
     if (
       historicoLeituraSelecionadaId &&
@@ -1716,6 +1763,17 @@ function prepararAbaHistorico() {
     label.append(span, select);
     filtros.prepend(label);
   }
+  if (filtros && !document.getElementById("filtro-historico-valor")) {
+    const label = document.createElement("label");
+    label.className = "historico-filtro";
+    label.setAttribute("for", "filtro-historico-valor");
+    const span = document.createElement("span");
+    span.textContent = "Valor do índice";
+    const select = document.createElement("select");
+    select.id = "filtro-historico-valor";
+    label.append(span, select);
+    filtros.appendChild(label);
+  }
 
   const paginacao = document.getElementById("historico-paginacao");
   const controleCabecalho = document.getElementById("historico-controle-cabecalho");
@@ -1751,6 +1809,7 @@ function inicializarHistorico() {
   document.getElementById("historico-scroll")?.addEventListener("input", rolarHistorico);
   document.getElementById("filtro-historico-status")?.addEventListener("change", atualizarFiltroHistorico);
   document.getElementById("filtro-historico-zona")?.addEventListener("change", atualizarFiltroHistorico);
+  document.getElementById("filtro-historico-valor")?.addEventListener("change", atualizarFiltroHistorico);
 }
 
 // ---------------------------------------------------------------------------
@@ -1832,10 +1891,24 @@ function inicializarAbas() {
   });
 }
 
-// Abre a aba Historico com uma zona especifica ja selecionada no filtro --
-// usada ao clicar numa linha dos relatorios da aba Analises.
-function abrirHistoricoComZona(zonaId) {
+// Abre a aba Historico com zona e, quando informado, status ja selecionados
+// nos filtros -- usada pelos relatorios da aba Analises.
+function abrirHistoricoComZona(
+  zonaId,
+  status = "",
+  valorReferencia = null,
+  valorTipo = "",
+  indice = ""
+) {
   filtroHistoricoZona = String(zonaId);
+  filtroHistoricoIndice = indice;
+  filtroHistoricoStatus = STATUS_HISTORICO.includes(status) ? status : "";
+  const valorNumerico = Number(valorReferencia);
+  filtroHistoricoValorReferencia = valorReferencia !== null && Number.isFinite(valorNumerico)
+    ? valorNumerico
+    : null;
+  filtroHistoricoValorTipo = filtroHistoricoValorReferencia === null ? "" : valorTipo;
+  filtroHistoricoValoresEncontrados = [];
   ativarAba("historico");
 }
 
@@ -2086,6 +2159,7 @@ function renderizarSelectZonaPrincipal() {
   const selects = [
     document.getElementById("zona-principal"),
     document.getElementById("zona-dashboard"),
+    document.getElementById("zona-executivo"),
   ].filter(Boolean);
   if (!selects.length) return;
 
@@ -2109,6 +2183,7 @@ function renderizarSelectZonaPrincipal() {
     atualizarResumoZonaPrincipal(null);
     renderCamposEntrada();
     renderizarLinhasZonasPrincipal();
+    renderizarPainelExecutivo();
     return;
   }
 
@@ -2134,6 +2209,7 @@ function renderizarSelectZonaPrincipal() {
   renderCamposEntrada();
   renderizarLinhasZonasPrincipal();
   resetarPainelResultado();
+  renderizarPainelExecutivo();
 }
 
 async function selecionarZonaPrincipal(zonaId) {
@@ -2144,11 +2220,16 @@ async function selecionarZonaPrincipal(zonaId) {
     estado.especie = zona.especie;
     estado.indice = zona.indice;
   }
+  ["zona-principal", "zona-dashboard", "zona-executivo"].forEach((selectId) => {
+    const select = document.getElementById(selectId);
+    if (select) select.value = zona ? String(zona.id) : "";
+  });
   historicoPaginaAtual = 1;
   atualizarResumoZonaPrincipal(zona);
   renderCamposEntrada();
   renderizarLinhasZonasPrincipal();
   resetarPainelResultado();
+  renderizarPainelExecutivo();
   await carregarHistorico();
   await carregarEstadoOperacional();
 }
@@ -2433,14 +2514,20 @@ function construirCartaoExecutivoZona(zona) {
   return cartao;
 }
 
-function renderizarPainelExecutivo(paineis) {
+function renderizarPainelExecutivo(paineis = paineisExecutivosCache) {
   const lista = document.getElementById("executivo-lista");
   const vazio = document.getElementById("executivo-vazio");
   if (!lista || !vazio) return;
 
+  paineisExecutivosCache = Array.isArray(paineis) ? paineis : [];
+  const zonaSelecionadaId = Number(estado.zonaId);
+  const painelSelecionado = Number.isFinite(zonaSelecionadaId)
+    ? paineisExecutivosCache.find((zona) => Number(zona.zona_id) === zonaSelecionadaId)
+    : paineisExecutivosCache[0];
+
   lista.textContent = "";
-  vazio.classList.toggle("oculto", paineis.length > 0);
-  paineis.forEach((zona) => lista.appendChild(construirCartaoExecutivoZona(zona)));
+  vazio.classList.toggle("oculto", !!painelSelecionado);
+  if (painelSelecionado) lista.appendChild(construirCartaoExecutivoZona(painelSelecionado));
 }
 
 // Uma linha de relatorio inteira funciona como link para o historico da
@@ -2450,7 +2537,17 @@ function linhaAnaliseClicavel(zona) {
   linha.tabIndex = 0;
   linha.setAttribute("role", "button");
   linha.setAttribute("aria-label", "Ver histórico da zona " + zona.nome);
-  const abrir = () => abrirHistoricoComZona(zona.zona_id);
+  const abrir = (evento) => {
+    const colunaStatus = evento?.target?.closest?.("td[data-status]");
+    const colunaValor = evento?.target?.closest?.("td[data-valor-referencia]");
+    abrirHistoricoComZona(
+      zona.zona_id,
+      colunaStatus?.dataset.status || "",
+      colunaValor?.dataset.valorReferencia ?? null,
+      colunaValor?.dataset.valorTipo || "",
+      colunaValor ? zona.indice : ""
+    );
+  };
   linha.addEventListener("click", abrir);
   linha.addEventListener("keydown", (evento) => {
     if (evento.key === "Enter" || evento.key === " ") {
@@ -2478,6 +2575,8 @@ function renderizarAnalisePercentuais(estatisticas) {
 
     STATUS_HISTORICO.forEach((status) => {
       const td = document.createElement("td");
+      td.dataset.status = status;
+      td.title = "Ver histórico de " + zona.nome + " com status " + status;
       if (zona.percentuais) {
         td.textContent = zona.percentuais[status].toFixed(1).replace(".", ",") + "%";
         td.className = "status-" + classeStatus(status);
@@ -2501,6 +2600,20 @@ function renderizarAnaliseIndices(estatisticas) {
 
   const formatarIndice = (valor) => (valor === null ? "—" : valor.toFixed(2).replace(".", ","));
 
+  const configurarFiltroValor = (celula, zona, tipo, valor) => {
+    if (valor === null) return;
+    celula.dataset.valorReferencia = String(valor);
+    celula.dataset.valorTipo = tipo;
+    const rotuloTipo = ROTULO_TIPO_VALOR_HISTORICO[tipo] || "Valor";
+    celula.title =
+      "Ver histórico de " +
+      zona.nome +
+      " próximo do índice " +
+      rotuloTipo.toLowerCase() +
+      " " +
+      formatarIndice(valor);
+  };
+
   estatisticas.forEach((zona) => {
     const linha = linhaAnaliseClicavel(zona);
 
@@ -2508,14 +2621,17 @@ function renderizarAnaliseIndices(estatisticas) {
     tdNome.textContent = zona.nome;
     const tdIndice = document.createElement("td");
     tdIndice.textContent = zona.indice;
-    const tdMedia = document.createElement("td");
-    tdMedia.textContent = formatarIndice(zona.media);
     const tdMinimo = document.createElement("td");
     tdMinimo.textContent = formatarIndice(zona.minimo);
+    configurarFiltroValor(tdMinimo, zona, "minimo", zona.minimo);
+    const tdMedia = document.createElement("td");
+    tdMedia.textContent = formatarIndice(zona.media);
+    configurarFiltroValor(tdMedia, zona, "medio", zona.media);
     const tdMaximo = document.createElement("td");
     tdMaximo.textContent = formatarIndice(zona.maximo);
+    configurarFiltroValor(tdMaximo, zona, "maximo", zona.maximo);
 
-    linha.append(tdNome, tdIndice, tdMedia, tdMinimo, tdMaximo);
+    linha.append(tdNome, tdIndice, tdMinimo, tdMedia, tdMaximo);
     corpo.appendChild(linha);
   });
 }
@@ -3340,6 +3456,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     selecionarZonaPrincipal(evento.target.value);
   });
   document.getElementById("zona-dashboard")?.addEventListener("change", (evento) => {
+    selecionarZonaPrincipal(evento.target.value);
+  });
+  document.getElementById("zona-executivo")?.addEventListener("change", (evento) => {
     selecionarZonaPrincipal(evento.target.value);
   });
   document.getElementById("zona-cadastro")?.addEventListener("change", (evento) => {

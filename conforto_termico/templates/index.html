@@ -183,6 +183,10 @@
     <section class="painel tabela-painel executivo-painel">
       <div class="tabela-cabecalho">
         <p class="grafico-titulo">Painel executivo por zona</p>
+        <div class="campo-config executivo-zona-filtro">
+          <label for="zona-executivo">Zona monitorada</label>
+          <select id="zona-executivo"></select>
+        </div>
       </div>
       <div id="executivo-lista" class="executivo-lista"></div>
       <p id="executivo-vazio" class="tabela-vazia oculto">Nenhuma zona cadastrada ainda.</p>
@@ -205,12 +209,12 @@
 
     <section class="painel tabela-painel">
       <div class="tabela-cabecalho">
-        <p class="grafico-titulo">Índice médio, mínimo e máximo por zona</p>
+        <p class="grafico-titulo">Índice mínimo, médio e máximo por zona</p>
       </div>
       <div class="tabela-scroll">
         <table id="tabela-analise-indices" class="tabela-clicavel">
           <thead>
-            <tr><th>Zona</th><th>Índice</th><th>Índice médio</th><th>Índice mínimo</th><th>Índice máximo</th></tr>
+            <tr><th>Zona</th><th>Índice</th><th>Índice mínimo</th><th>Índice médio</th><th>Índice máximo</th></tr>
           </thead>
           <tbody></tbody>
         </table>

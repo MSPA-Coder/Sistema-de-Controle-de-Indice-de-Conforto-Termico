@@ -1065,6 +1065,32 @@ class TestZonasApi(unittest.TestCase):
         resposta = self.client.get("/api/historico-leituras?zona_id=9999")
         self.assertEqual(404, resposta.status_code)
 
+    def test_historico_leituras_rejeita_valor_referencia_invalido(self):
+        resposta = self.client.get("/api/historico-leituras?valor_referencia=nao-numerico")
+        self.assertEqual(400, resposta.status_code)
+        self.assertIn("numérico", resposta.json["erro"])
+
+    def test_historico_leituras_filtra_pelos_valores_mais_proximos(self):
+        zona = self._criar_zona().json
+        for valor in (70.0, 72.0, 75.0, 80.0):
+            db.salvar_leitura(
+                "frangos",
+                "ITU",
+                valor,
+                "Alerta",
+                {"tbs": 26.0, "tbu": 21.0},
+                intervalo_minutos=0,
+                zona_id=zona["id"],
+            )
+
+        resposta = self.client.get(
+            f"/api/historico-leituras?zona_id={zona['id']}&valor_referencia=73.4"
+        )
+
+        self.assertEqual(200, resposta.status_code)
+        self.assertEqual([72.0, 75.0], [leitura["valor"] for leitura in resposta.json["leituras"]])
+        self.assertEqual([72.0, 75.0], resposta.json["valores_encontrados"])
+
     def test_grafico_de_zona_atualiza_a_cada_calculo_mesmo_sem_gravar_no_banco(self):
         zona_id = self._criar_zona().json["id"]
         for campo in ("tbs", "tbu"):
