@@ -192,10 +192,20 @@ def criar_app(papel_app: str | None = None, config: AppConfig | None = None) -> 
 
     app.register_blueprint(comum_bp)
 
+    # A aba de dados de entrada pode ser consultada nos dois papeis. As
+    # rotas de mutacao sao registradas somente no coletor logo abaixo.
+    from . import dados_entrada_db
+    from .dados_entrada_rotas import dados_entrada_leitura_bp
+
+    dados_entrada_db.iniciar_banco()
+    app.register_blueprint(dados_entrada_leitura_bp)
+
     if papel_app in (None, "coletor"):
         from .coletor.rotas import coletor_bp
+        from .dados_entrada_rotas import dados_entrada_bp
 
         app.register_blueprint(coletor_bp)
+        app.register_blueprint(dados_entrada_bp)
 
     if papel_app in (None, "dashboard"):
         from .dashboard.rotas import dashboard_bp

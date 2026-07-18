@@ -31,6 +31,12 @@ A interface e em portugues do Brasil. Os identificadores internos do projeto
   independentes por zona.
 - Inclui modo simulado para zonas, permitindo demonstrar o fluxo completo sem
   hardware Modbus real.
+- Inclui uma aba independente **Dados de entrada** que baixa clima historico
+  ERA5 pelo Open-Meteo, calcula grandezas psicrometricas, simula atividade e
+  carga termica animal e grava tudo em `instance/dados_entrada.db`. A aba
+  aparece no coletor e no dashboard (somente leitura neste ultimo), gera
+  apenas para zonas ativas e permite copiar uma geracao, sem duplicidade,
+  para `instance/historico.db`.
 
 ## Estrutura
 
@@ -56,6 +62,9 @@ A interface e em portugues do Brasil. Os identificadores internos do projeto
 │   ├── modbus_client.py                # adaptador pymodbus opcional
 │   ├── modbus_simulador.py             # simulador de sensores/atuadores por zona
 │   ├── database.py                     # SQLite: configuracoes, zonas, historico e estado dos equipamentos
+│   ├── dados_entrada_db.py              # SQLite isolado das series historicas/simuladas
+│   ├── gerador_dados.py                 # ERA5, interpolacao e simulacao animal
+│   ├── dados_entrada_rotas.py           # API da aba Dados de entrada
 │   ├── templates/index.html
 │   └── static/
 │       ├── css/style.css
@@ -64,7 +73,8 @@ A interface e em portugues do Brasil. Os identificadores internos do projeto
 ├── scripts/seed_zonas.py               # cria zonas de exemplo
 ├── requirements.txt
 └── instance/
-    └── historico.db                    # banco local criado/usado em runtime
+    ├── historico.db                    # banco local criado/usado em runtime
+    └── dados_entrada.db                # banco isolado criado pela nova aba
 ```
 
 ## Arquitetura

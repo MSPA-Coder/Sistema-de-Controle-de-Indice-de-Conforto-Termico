@@ -13,6 +13,7 @@ invalidos voltam ao padrao seguro da chave.
 
 from __future__ import annotations
 
+import bisect
 import datetime
 import json
 import os
@@ -1478,21 +1479,35 @@ def _resumir_painel_zona(
         base["recomendacao"] = _recomendacao_operacional(base)
         return base
 
+    # As `leituras` chegam em ordem cronologica ascendente (ver
+    # `obter_painel_zonas`). Cada `criado_em` era reconvertido de string
+    # para `datetime` varias vezes abaixo (uma vez por janela de
+    # tendencia, uma vez para o corte de 24h, uma vez para o corte de
+    # hoje, etc.) -- para uma zona com o maximo de
+    # `LIMITE_LEITURAS_PAINEL_EXECUTIVO` leituras, isso chegava a
+    # reanalisar a mesma string de data mais de meia duzia de vezes.
+    # Convertendo uma unica vez aqui e reaproveitando a lista (com busca
+    # binaria via `bisect`, valida porque a lista ja esta ordenada), o
+    # resultado e identico, so que em O(n) no lugar de O(n) repetido
+    # varias vezes.
+    datas = [datetime.datetime.fromisoformat(linha["criado_em"]) for linha in leituras]
+
     ultima = leituras[-1]
-    ultima_dt = datetime.datetime.fromisoformat(ultima["criado_em"])
+    ultima_dt = datas[-1]
     base["status_atual"] = ultima["status"]
     base["valor_atual"] = round(ultima["valor"], 2)
     base["ultima_leitura_em"] = ultima["criado_em"]
 
+    def _indice_ate(alvo: datetime.datetime) -> int:
+        """Indice do ultimo elemento de `datas` com data <= alvo, ou -1 se
+        nenhum -- equivalente a percorrer `leituras` procurando o ultimo
+        candidato que nao ultrapassa `alvo`, so que em O(log n)."""
+        return bisect.bisect_right(datas, alvo) - 1
+
     def _valor_referencia(minutos: int) -> float | None:
         alvo = ultima_dt - datetime.timedelta(minutes=minutos)
-        candidato = None
-        for linha in leituras:
-            if datetime.datetime.fromisoformat(linha["criado_em"]) <= alvo:
-                candidato = linha
-            else:
-                break
-        return candidato["valor"] if candidato is not None else None
+        indice = _indice_ate(alvo)
+        return leituras[indice]["valor"] if indice >= 0 else None
 
     def _tendencia(minutos: int) -> str | None:
         referencia = _valor_referencia(minutos)
@@ -1512,9 +1527,8 @@ def _resumir_painel_zona(
     }
 
     corte_24h = agora - datetime.timedelta(hours=24)
-    leituras_24h = [
-        l for l in leituras if datetime.datetime.fromisoformat(l["criado_em"]) >= corte_24h
-    ]
+    inicio_24h = bisect.bisect_left(datas, corte_24h)
+    leituras_24h = leituras[inicio_24h:]
     if leituras_24h:
         conforto = sum(1 for l in leituras_24h if l["status"] == "Conforto")
         base["percentual_conforto_24h"] = round(100 * conforto / len(leituras_24h), 1)
@@ -1525,17 +1539,16 @@ def _resumir_painel_zona(
     # mais recente enquanto o status nao muda, e usa o inicio dessa
     # sequencia como o momento em que o status atual "comecou".
     inicio_sequencia = ultima_dt
-    for linha in reversed(leituras):
+    for linha, dt in zip(reversed(leituras), reversed(datas)):
         if linha["status"] != ultima["status"]:
             break
-        inicio_sequencia = datetime.datetime.fromisoformat(linha["criado_em"])
+        inicio_sequencia = dt
     base["tempo_continuo_status_minutos"] = round(
         (agora - inicio_sequencia).total_seconds() / 60, 1
     )
 
-    leituras_hoje = [
-        l for l in leituras if datetime.datetime.fromisoformat(l["criado_em"]) >= inicio_dia
-    ]
+    inicio_hoje = bisect.bisect_left(datas, inicio_dia)
+    leituras_hoje = leituras[inicio_hoje:]
     if leituras_hoje:
         base["nivel_maximo_dia"] = max(
             leituras_hoje,
@@ -1548,11 +1561,12 @@ def _resumir_painel_zona(
     # leitura e a proxima (o status da leitura mais antiga do par "vale"
     # durante esse intervalo); o ultimo intervalo se estende ate agora,
     # para que o tempo no status atual continue contando em tempo real.
+    datas_hoje = datas[inicio_hoje:]
     minutos_por_status = {"Perigo": 0.0, "Emergência": 0.0}
     for posicao, linha in enumerate(leituras_hoje):
-        inicio_intervalo = datetime.datetime.fromisoformat(linha["criado_em"])
+        inicio_intervalo = datas_hoje[posicao]
         if posicao + 1 < len(leituras_hoje):
-            fim_intervalo = datetime.datetime.fromisoformat(leituras_hoje[posicao + 1]["criado_em"])
+            fim_intervalo = datas_hoje[posicao + 1]
         else:
             fim_intervalo = agora
         if linha["status"] in minutos_por_status:
@@ -1569,8 +1583,7 @@ def _resumir_painel_zona(
     # minimamente confiavel; hoje fica de fora do calculo (e o dia que
     # estamos tentando prever).
     picos_por_dia: dict[datetime.date, tuple[datetime.datetime, float]] = {}
-    for linha in leituras:
-        dt = datetime.datetime.fromisoformat(linha["criado_em"])
+    for linha, dt in zip(leituras, datas):
         dia = dt.date()
         if dia == agora.date():
             continue

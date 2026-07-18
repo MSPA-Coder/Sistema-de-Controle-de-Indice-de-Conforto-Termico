@@ -26,6 +26,7 @@
     <button class="aba-botao" type="button" role="tab" data-aba="zonas" aria-controls="aba-zonas" aria-selected="false">Zonas</button>
     <button class="aba-botao" type="button" role="tab" data-aba="configuracoes" aria-controls="aba-configuracoes" aria-selected="false">Configuracoes</button>
     {% endif %}
+    <button class="aba-botao" type="button" role="tab" data-aba="dados-entrada" aria-controls="aba-dados-entrada" aria-selected="false">Dados de entrada</button>
   </nav>
 
   <main id="aba-principal" class="grade aba-conteudo{{ '' if aba_inicial == 'principal' else ' oculto' }}" data-aba-conteudo="principal">
@@ -244,6 +245,112 @@
     </section>
 
     <div id="historico-tabela-slot" class="historico-tabela-slot"></div>
+  </section>
+
+  <section id="aba-dados-entrada" class="grade grade-dados-entrada aba-conteudo oculto" data-aba-conteudo="dados-entrada" role="tabpanel">
+    <section class="painel dados-entrada-apresentacao">
+      <h2 class="painel-titulo">Gerador de dados de entrada</h2>
+      <p class="dados-entrada-ajuda">
+        Gera uma série somente para as zonas ativas em um banco independente.
+        TBS, umidade, vento e demais variáveis externas vêm da reanálise histórica
+        ERA5 via Open-Meteo. Pontos menores que uma hora são interpolados e marcados
+        como derivados; ponto de orvalho, bulbo úmido e índices são calculados.
+      </p>
+      <p class="dados-entrada-fonte">
+        Banco de destino: <code>instance/dados_entrada.db</code> ·
+        <a href="https://open-meteo.com/en/docs/historical-weather-api" target="_blank" rel="noreferrer">documentação da fonte meteorológica</a>
+        · rankings municipais: PPM 2024/IBGE-SIDRA
+      </p>
+      {% if papel_app == "dashboard" %}
+      <p class="dados-entrada-ajuda">Neste dashboard a aba é somente leitura. Use o coletor para gerar, configurar, copiar ou apagar dados.</p>
+      {% endif %}
+    </section>
+
+    {% if papel_app in (none, "coletor") %}
+    <section class="painel dados-entrada-parametros">
+      <h3 class="grafico-titulo">Período e resolução</h3>
+      <form id="form-dados-entrada-gerar">
+        <div class="campos-config dados-entrada-form-grade">
+          <div class="campo-config">
+            <label for="dados-entrada-dias">Número de dias</label>
+            <input type="number" id="dados-entrada-dias" min="1" max="366" step="1" value="30" required>
+          </div>
+          <div class="campo-config">
+            <label for="dados-entrada-intervalo">Intervalo entre dados (minutos)</label>
+            <input type="number" id="dados-entrada-intervalo" min="1" max="1440" step="1" value="5" required>
+          </div>
+          <div class="campo-config">
+            <label for="dados-entrada-data-final">Último dia (opcional)</label>
+            <input type="date" id="dados-entrada-data-final">
+          </div>
+          <div class="campo-config">
+            <label for="dados-entrada-semente">Semente da simulação animal</label>
+            <input type="number" id="dados-entrada-semente" step="1" value="20260718" required>
+          </div>
+        </div>
+        <p class="dados-entrada-ajuda">Sem data final, serão usados os dados consolidados até oito dias atrás. Períodos com horas ausentes no ERA5 são recusados, sem repetir valores. Exemplo: 30 dias a cada 5 minutos geram 8.640 registros por zona.</p>
+        <div class="acao-linha">
+          <button id="btn-gerar-dados-entrada" class="botao botao--primario" type="submit">Gerar dados para as zonas ativas</button>
+        </div>
+      </form>
+      <p id="dados-entrada-status" class="smtp-status oculto" role="status"></p>
+    </section>
+
+    <section class="painel dados-entrada-zonas-painel">
+      <div class="tabela-cabecalho">
+        <div>
+          <h3 class="grafico-titulo">Localização e lote animal por zona</h3>
+          <p class="dados-entrada-ajuda">Somente zonas ativas aparecem aqui. Informe a área útil e escolha o nível de lotação; a densidade e a quantidade de animais serão calculadas pela espécie e pelo peso. Cenários acima da média representam maior pressão de lotação, não recomendação de manejo.</p>
+        </div>
+        <button id="btn-salvar-config-dados-entrada" class="botao botao--fantasma botao--compacto" type="button">Salvar parâmetros das zonas</button>
+      </div>
+      <div id="dados-entrada-zonas" class="dados-entrada-zonas"></div>
+      <p id="dados-entrada-zonas-vazio" class="tabela-vazia oculto">Nenhuma zona ativa cadastrada.</p>
+    </section>
+
+    <section class="painel dados-entrada-arquivo-painel">
+      <h3 class="grafico-titulo">Transferência para o banco histórico</h3>
+      <p class="dados-entrada-ajuda">
+        Use a ação “Copiar para histórico” em uma geração concluída. Os dados
+        saem de <code>dados_entrada.db</code> e são inseridos em
+        <code>historico.db</code>; repetições não duplicam medições.
+      </p>
+      <div class="dados-entrada-arquivo-controles">
+        <div class="campo-config">
+          <label for="dados-entrada-confirmacao-historico">Confirmação para exclusão</label>
+          <input type="text" id="dados-entrada-confirmacao-historico" placeholder="Digite APAGAR">
+        </div>
+      </div>
+      <div class="acao-linha">
+        <button id="btn-apagar-historico-direto" class="botao botao--perigo botao--compacto" type="button">Apagar medições de historico.db</button>
+      </div>
+      <p id="dados-entrada-arquivo-status" class="smtp-status oculto" role="status"></p>
+    </section>
+    {% endif %}
+
+    <section class="painel dados-entrada-execucoes-painel">
+      <div class="tabela-cabecalho">
+        <div>
+          <h3 class="grafico-titulo">Gerações realizadas</h3>
+          <p id="dados-entrada-resumo-banco" class="dados-entrada-ajuda"></p>
+        </div>
+        <div class="acao-linha">
+          <a class="botao botao--fantasma botao--compacto" href="/api/dados-entrada/exportar.csv">Exportar todas em CSV</a>
+          {% if papel_app in (none, "coletor") %}
+          <button id="btn-apagar-dados-gerados" class="botao botao--perigo botao--compacto" type="button">Apagar dados gerados</button>
+          {% endif %}
+        </div>
+      </div>
+      <div class="tabela-scroll">
+        <table id="tabela-dados-entrada-execucoes">
+          <thead>
+            <tr><th>ID</th><th>Período</th><th>Intervalo</th><th>Zonas</th><th>Medições</th><th>No histórico</th><th>Status</th><th>Ações</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p id="dados-entrada-execucoes-vazio" class="tabela-vazia oculto">Nenhuma geração realizada.</p>
+    </section>
   </section>
 
   <section id="aba-configuracoes" class="grade grade-configuracoes aba-conteudo oculto" data-aba-conteudo="configuracoes" role="tabpanel">

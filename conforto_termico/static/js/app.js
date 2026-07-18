@@ -370,10 +370,6 @@ function lerNumeroConfiguracao(id, padrao, minimo) {
   return normalizado;
 }
 
-function obterIntervaloLeituraMs() {
-  return lerNumeroConfiguracao("cfg-intervalo-leitura", 1, 1) * 1000;
-}
-
 function coletarConfig() {
   return {
     coletarDados: document.getElementById("cfg-coletar").checked,
@@ -1883,6 +1879,10 @@ function ativarAba(aba) {
   if (aba === "zonas") {
     carregarZonas();
   }
+
+  if (aba === "dados-entrada") {
+    carregarDadosEntrada();
+  }
 }
 
 function inicializarAbas() {
@@ -1968,10 +1968,6 @@ function moverControlesParaConfiguracoes() {
   moverCampo("cfg-limite-umidade-nebulizador", configuracoesCalculos);
 
   if (configuracoesHistorico && limparHistorico) configuracoesHistorico.appendChild(limparHistorico);
-
-  document.querySelectorAll(".entrada-painel .acao-linha").forEach((linha) => {
-    if (!linha.querySelector("button, input, label")) linha.remove();
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -2049,6 +2045,11 @@ function construirLinhaZonaPrincipal(zona) {
   valor.dataset.role = "readout-valor";
   valor.textContent = "--,--";
   readout.appendChild(valor);
+  const etiquetaIndice = document.createElement("span");
+  etiquetaIndice.className = "readout-etiqueta";
+  etiquetaIndice.dataset.role = "readout-indice";
+  etiquetaIndice.textContent = zona.indice;
+  readout.appendChild(etiquetaIndice);
   leitura.appendChild(readout);
 
   const faixa = document.createElement("div");
@@ -3418,6 +3419,435 @@ async function testarConexaoEquipamentoAtual() {
 }
 
 // ---------------------------------------------------------------------------
+// Gerador independente de dados de entrada
+// ---------------------------------------------------------------------------
+let referenciasDadosEntrada = {
+  cidades_por_especie: {},
+  peso_medio_estimado_kg: {},
+  lotacao: { categorias: [], modelos: {} },
+};
+
+function definirStatusDadosEntrada(id, mensagem, erro = false) {
+  const elemento = document.getElementById(id);
+  if (!elemento) return;
+  elemento.textContent = mensagem || "";
+  elemento.classList.toggle("oculto", !mensagem);
+  elemento.classList.toggle("mensagem-erro", !!erro);
+}
+
+async function respostaJsonDadosEntrada(url, opcoes = {}) {
+  const resposta = await fetch(url, opcoes);
+  let dados = {};
+  try {
+    dados = await resposta.json();
+  } catch (_erro) {
+    dados = {};
+  }
+  if (!resposta.ok) throw new Error(dados.erro || "A operação não pôde ser concluída.");
+  return dados;
+}
+
+function campoConfigDadosEntrada(config, nome, rotulo, opcoes = {}) {
+  const grupo = document.createElement("div");
+  grupo.className = "campo-config" + (opcoes.classe ? " " + opcoes.classe : "");
+  const label = document.createElement("label");
+  const id = `dados-zona-${config.zona_id}-${nome}`;
+  label.htmlFor = id;
+  label.textContent = rotulo;
+  grupo.appendChild(label);
+  const input = document.createElement("input");
+  input.id = id;
+  input.name = nome;
+  input.dataset.zonaId = config.zona_id;
+  input.className = "dados-entrada-zona-campo";
+  input.type = opcoes.tipo || "number";
+  if (opcoes.step) input.step = opcoes.step;
+  if (opcoes.min !== undefined) input.min = opcoes.min;
+  if (opcoes.max !== undefined) input.max = opcoes.max;
+  if (opcoes.somenteLeitura) input.readOnly = true;
+  input.placeholder = opcoes.placeholder || "";
+  const valor = config[nome];
+  input.value = valor === null || valor === undefined ? "" : valor;
+  grupo.appendChild(input);
+  return grupo;
+}
+
+function campoDensidadeDadosEntrada(config) {
+  const grupo = document.createElement("div");
+  grupo.className = "campo-config";
+  const label = document.createElement("label");
+  const id = `dados-zona-${config.zona_id}-densidade_categoria`;
+  label.htmlFor = id;
+  label.textContent = "Nível de lotação";
+  grupo.appendChild(label);
+  const select = document.createElement("select");
+  select.id = id;
+  select.name = "densidade_categoria";
+  select.dataset.zonaId = config.zona_id;
+  (referenciasDadosEntrada.lotacao?.categorias || []).forEach((categoria) => {
+    const option = document.createElement("option");
+    option.value = categoria.valor;
+    option.textContent = categoria.rotulo;
+    option.selected = categoria.valor === (config.densidade_categoria || "media");
+    select.appendChild(option);
+  });
+  grupo.appendChild(select);
+  return grupo;
+}
+
+function calcularDensidadeReferenciaDadosEntrada(especie, peso) {
+  const modelo = referenciasDadosEntrada.lotacao?.modelos?.[especie];
+  if (!modelo || !(peso > 0)) return null;
+  if (modelo.tipo === "massa_viva") {
+    return Number(modelo.referencia_kg_m2) / peso;
+  }
+  if (modelo.tipo === "area_por_animal") {
+    return 1 / Number(modelo.referencia_m2_animal);
+  }
+  const faixa = (modelo.faixas || []).find(
+    (item) => item.peso_max_kg === null || peso <= Number(item.peso_max_kg)
+  );
+  return faixa ? 1 / Number(faixa.referencia_m2_animal) : null;
+}
+
+function atualizarLotacaoDadosEntrada(cartao) {
+  const numero = (nome) => Number(cartao.querySelector(`[name="${nome}"]`)?.value);
+  const peso = numero("peso_medio_kg");
+  const area = numero("area_util_m2");
+  const categoriaValor = cartao.querySelector('[name="densidade_categoria"]')?.value;
+  const categoria = (referenciasDadosEntrada.lotacao?.categorias || []).find(
+    (item) => item.valor === categoriaValor
+  );
+  const densidadeReferencia = calcularDensidadeReferenciaDadosEntrada(
+    cartao.dataset.especie, peso
+  );
+  const campoDensidade = cartao.querySelector('[name="densidade_animais_m2"]');
+  const campoQuantidade = cartao.querySelector('[name="quantidade_animais"]');
+  if (!(area > 0) || !(densidadeReferencia > 0) || !categoria) {
+    if (campoDensidade) campoDensidade.value = "";
+    if (campoQuantidade) campoQuantidade.value = "";
+    return;
+  }
+  const densidadeAlvo = densidadeReferencia * Number(categoria.fator);
+  const quantidade = Math.floor(area * densidadeAlvo + 1e-9);
+  const densidadeReal = quantidade > 0 ? quantidade / area : 0;
+  if (campoDensidade) campoDensidade.value = Number(densidadeReal.toFixed(6));
+  if (campoQuantidade) campoQuantidade.value = quantidade;
+  const modelo = referenciasDadosEntrada.lotacao?.modelos?.[cartao.dataset.especie];
+  if (campoDensidade && modelo?.fonte) campoDensidade.title = modelo.fonte;
+}
+
+function campoCidadeDadosEntrada(config) {
+  const grupo = document.createElement("div");
+  grupo.className = "campo-config campo-config--cidade";
+  const label = document.createElement("label");
+  const id = `dados-zona-${config.zona_id}-cidade_codigo_ibge`;
+  label.htmlFor = id;
+  label.textContent = "Cidade de referência (PPM 2024/IBGE)";
+  grupo.appendChild(label);
+  const select = document.createElement("select");
+  select.id = id;
+  select.name = "cidade_codigo_ibge";
+  select.dataset.zonaId = config.zona_id;
+  const inicial = document.createElement("option");
+  inicial.value = "";
+  inicial.textContent = "Selecione uma cidade";
+  select.appendChild(inicial);
+  const cidades = referenciasDadosEntrada.cidades_por_especie[config.especie] || [];
+  cidades.forEach((cidade, indice) => {
+    const option = document.createElement("option");
+    option.value = cidade.codigo_ibge;
+    option.textContent = `${indice + 1}º · ${cidade.nome}/${cidade.uf} · ${Number(cidade.efetivo_2024).toLocaleString("pt-BR")} animais`;
+    option.selected = cidade.codigo_ibge === config.cidade_codigo_ibge;
+    select.appendChild(option);
+  });
+  select.addEventListener("change", () => {
+    const cidade = cidades.find((item) => item.codigo_ibge === select.value);
+    if (!cidade) return;
+    const cartao = select.closest(".dados-entrada-zona");
+    const preencher = (nome, valor) => {
+      const campo = cartao?.querySelector(`[name="${nome}"]`);
+      if (campo) campo.value = valor;
+    };
+    preencher("latitude", cidade.latitude);
+    preencher("longitude", cidade.longitude);
+    preencher("altitude_m", cidade.altitude_m);
+    preencher("fuso_horario", cidade.fuso_horario);
+  });
+  grupo.appendChild(select);
+  return grupo;
+}
+
+function renderizarConfiguracoesDadosEntrada(configuracoes) {
+  const container = document.getElementById("dados-entrada-zonas");
+  const vazio = document.getElementById("dados-entrada-zonas-vazio");
+  if (!container || !vazio) return;
+  container.textContent = "";
+  vazio.classList.toggle("oculto", configuracoes.length > 0);
+  configuracoes.forEach((config) => {
+    const cartao = document.createElement("article");
+    cartao.className = "dados-entrada-zona " +
+      (config.configurada ? "dados-entrada-zona--configurada" : "dados-entrada-zona--pendente");
+    cartao.dataset.zonaId = config.zona_id;
+    cartao.dataset.especie = config.especie;
+
+    const cabecalho = document.createElement("div");
+    cabecalho.className = "dados-entrada-zona-cabecalho";
+    const titulo = document.createElement("h4");
+    titulo.textContent = `${config.zona_nome} · ${CONFIG_APP.nomeEspecie[config.especie] || config.especie}`;
+    cabecalho.appendChild(titulo);
+    const status = document.createElement("span");
+    status.className = "dados-entrada-zona-status";
+    status.textContent = config.configurada ? "configurada" : "dados pendentes";
+    cabecalho.appendChild(status);
+    cartao.appendChild(cabecalho);
+
+    const grade = document.createElement("div");
+    grade.className = "campos-config";
+    grade.appendChild(campoCidadeDadosEntrada(config));
+    grade.appendChild(campoConfigDadosEntrada(config, "latitude", "Latitude", { step: "0.000001", min: -90, max: 90, placeholder: "-23.550520" }));
+    grade.appendChild(campoConfigDadosEntrada(config, "longitude", "Longitude", { step: "0.000001", min: -180, max: 180, placeholder: "-46.633308" }));
+    grade.appendChild(campoConfigDadosEntrada(config, "altitude_m", "Altitude (m)", { step: "0.1", min: -500, max: 9000, placeholder: "Informe a altitude" }));
+    grade.appendChild(campoConfigDadosEntrada(config, "fuso_horario", "Fuso horário IANA", { tipo: "text", classe: "campo-config--fuso", placeholder: "America/Sao_Paulo" }));
+    grade.appendChild(campoConfigDadosEntrada(config, "peso_medio_kg", "Peso médio (kg)", { step: "0.01", min: 0.01, max: 2000 }));
+    grade.appendChild(campoConfigDadosEntrada(config, "area_util_m2", "Área útil da zona (m²)", { step: "0.1", min: 0.1, max: 10000000, placeholder: "Informe a área disponível" }));
+    grade.appendChild(campoDensidadeDadosEntrada(config));
+    grade.appendChild(campoConfigDadosEntrada(config, "densidade_animais_m2", "Densidade calculada (animais/m²)", { step: "0.000001", somenteLeitura: true }));
+    grade.appendChild(campoConfigDadosEntrada(config, "quantidade_animais", "Quantidade estimada de animais", { step: "1", somenteLeitura: true }));
+    grade.appendChild(campoConfigDadosEntrada(config, "producao_leite_kg_dia", "Leite por animal (kg/dia)", { step: "0.1", min: 0, max: 150 }));
+    grade.appendChild(campoConfigDadosEntrada(config, "ordenhas_dia", "Ordenhas por dia", { step: "1", min: 0, max: 4 }));
+    const peso = grade.querySelector('[name="peso_medio_kg"]');
+    const pesoEstimado = referenciasDadosEntrada.peso_medio_estimado_kg[config.especie];
+    if (peso && !peso.value && pesoEstimado) peso.value = pesoEstimado;
+    const pesoLabel = peso?.closest(".campo-config")?.querySelector("label");
+    if (pesoLabel) pesoLabel.textContent = "Peso médio estimado (kg)";
+    if (config.especie !== "bovinos") {
+      grade.querySelector('[name="producao_leite_kg_dia"]')?.closest(".campo-config")?.remove();
+      grade.querySelector('[name="ordenhas_dia"]')?.closest(".campo-config")?.remove();
+    }
+    ["peso_medio_kg", "area_util_m2", "densidade_categoria"].forEach((nome) => {
+      grade.querySelector(`[name="${nome}"]`)?.addEventListener(
+        "input", () => atualizarLotacaoDadosEntrada(cartao)
+      );
+      grade.querySelector(`[name="${nome}"]`)?.addEventListener(
+        "change", () => atualizarLotacaoDadosEntrada(cartao)
+      );
+    });
+    cartao.appendChild(grade);
+    container.appendChild(cartao);
+    atualizarLotacaoDadosEntrada(cartao);
+  });
+}
+
+function coletarConfiguracoesDadosEntrada() {
+  return [...document.querySelectorAll(".dados-entrada-zona")].map((cartao) => {
+    const valor = (nome) => cartao.querySelector(`[name="${nome}"]`)?.value.trim() || "";
+    return {
+      zona_id: Number(cartao.dataset.zonaId),
+      cidade_codigo_ibge: valor("cidade_codigo_ibge"),
+      latitude: valor("latitude"),
+      longitude: valor("longitude"),
+      altitude_m: valor("altitude_m"),
+      fuso_horario: valor("fuso_horario"),
+      peso_medio_kg: valor("peso_medio_kg"),
+      area_util_m2: valor("area_util_m2"),
+      densidade_categoria: valor("densidade_categoria"),
+      producao_leite_kg_dia: valor("producao_leite_kg_dia") || "0",
+      ordenhas_dia: valor("ordenhas_dia") || "0",
+    };
+  });
+}
+
+async function carregarConfiguracoesDadosEntrada() {
+  try {
+    const [configuracoes, referencias] = await Promise.all([
+      respostaJsonDadosEntrada("/api/dados-entrada/configuracoes"),
+      respostaJsonDadosEntrada("/api/dados-entrada/referencias"),
+    ]);
+    referenciasDadosEntrada = referencias;
+    renderizarConfiguracoesDadosEntrada(configuracoes);
+  } catch (erro) {
+    definirStatusDadosEntrada("dados-entrada-status", erro.message, true);
+  }
+}
+
+async function salvarConfiguracoesDadosEntrada(mostrarStatus = true) {
+  const configuracoes = await respostaJsonDadosEntrada("/api/dados-entrada/configuracoes", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ zonas: coletarConfiguracoesDadosEntrada() }),
+  });
+  renderizarConfiguracoesDadosEntrada(configuracoes);
+  if (mostrarStatus) definirStatusDadosEntrada("dados-entrada-status", "Parâmetros das zonas salvos.");
+  return configuracoes;
+}
+
+function renderizarExecucoesDadosEntrada(payload) {
+  const tbody = document.querySelector("#tabela-dados-entrada-execucoes tbody");
+  const vazio = document.getElementById("dados-entrada-execucoes-vazio");
+  const resumo = document.getElementById("dados-entrada-resumo-banco");
+  if (!tbody || !vazio || !resumo) return;
+  const execucoes = payload.execucoes || [];
+  tbody.textContent = "";
+  vazio.classList.toggle("oculto", execucoes.length > 0);
+  const totalGerado = execucoes.reduce((soma, item) => soma + Number(item.total_medicoes || 0), 0);
+  const totalCopiado = execucoes.reduce((soma, item) => soma + Number(item.medicoes_copiadas || 0), 0);
+  resumo.textContent = `${totalGerado.toLocaleString("pt-BR")} medições geradas em ${payload.arquivo_banco || "dados_entrada.db"}; ${totalCopiado.toLocaleString("pt-BR")} já copiadas para historico.db.`;
+  execucoes.forEach((execucao) => {
+    const tr = document.createElement("tr");
+    const valores = [
+      execucao.id,
+      `${execucao.data_inicio} a ${execucao.data_fim}`,
+      `${execucao.intervalo_minutos} min`,
+      execucao.total_zonas,
+      execucao.total_medicoes,
+      execucao.medicoes_copiadas || 0,
+      execucao.status,
+    ];
+    valores.forEach((valor) => {
+      const td = document.createElement("td");
+      td.textContent = valor;
+      tr.appendChild(td);
+    });
+    const acoes = document.createElement("td");
+    if (execucao.status === "concluida") {
+      const link = document.createElement("a");
+      link.className = "botao botao--fantasma botao--compacto";
+      link.href = `/api/dados-entrada/exportar.csv?execucao_id=${execucao.id}`;
+      link.textContent = "CSV";
+      acoes.appendChild(link);
+      if (CONFIG_APP.papelApp !== "dashboard" && Number(execucao.medicoes_copiadas || 0) < Number(execucao.total_medicoes || 0)) {
+        const copiar = document.createElement("button");
+        copiar.type = "button";
+        copiar.className = "botao botao--primario botao--compacto";
+        copiar.textContent = "Copiar para histórico";
+        copiar.addEventListener("click", () => copiarExecucaoParaHistorico(execucao.id, copiar));
+        acoes.appendChild(copiar);
+      }
+    } else if (execucao.erro) {
+      acoes.title = execucao.erro;
+      acoes.textContent = "Ver erro";
+    }
+    tr.appendChild(acoes);
+    tbody.appendChild(tr);
+  });
+}
+
+async function copiarExecucaoParaHistorico(execucaoId, botao) {
+  if (!confirm(`Copiar as medições da geração ${execucaoId} para historico.db?`)) return;
+  botao.disabled = true;
+  try {
+    const resultado = await respostaJsonDadosEntrada("/api/dados-entrada/copiar-para-historico", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ execucao_id: execucaoId }),
+    });
+    definirStatusDadosEntrada(
+      "dados-entrada-arquivo-status",
+      `${resultado.novas_copiadas} novas medições copiadas para historico.db.`
+    );
+    await carregarExecucoesDadosEntrada();
+    await carregarHistoricoPersistido({ manterJanelaFinal: false });
+  } catch (erro) {
+    definirStatusDadosEntrada("dados-entrada-arquivo-status", erro.message, true);
+    botao.disabled = false;
+  }
+}
+
+async function carregarExecucoesDadosEntrada() {
+  try {
+    const payload = await respostaJsonDadosEntrada("/api/dados-entrada/execucoes");
+    renderizarExecucoesDadosEntrada(payload);
+  } catch (erro) {
+    definirStatusDadosEntrada("dados-entrada-status", erro.message, true);
+  }
+}
+
+async function carregarDadosEntrada() {
+  const dataFinal = document.getElementById("dados-entrada-data-final");
+  if (dataFinal) {
+    const limite = new Date();
+    limite.setHours(12, 0, 0, 0);
+    limite.setDate(limite.getDate() - 8);
+    const iso = [
+      limite.getFullYear(),
+      String(limite.getMonth() + 1).padStart(2, "0"),
+      String(limite.getDate()).padStart(2, "0"),
+    ].join("-");
+    dataFinal.max = iso;
+    if (!dataFinal.value || dataFinal.value > iso) dataFinal.value = iso;
+  }
+  if (CONFIG_APP.papelApp === "dashboard") {
+    await carregarExecucoesDadosEntrada();
+    return;
+  }
+  await Promise.all([carregarConfiguracoesDadosEntrada(), carregarExecucoesDadosEntrada()]);
+}
+
+async function gerarDadosEntrada(evento) {
+  evento.preventDefault();
+  const botao = document.getElementById("btn-gerar-dados-entrada");
+  botao.disabled = true;
+  definirStatusDadosEntrada("dados-entrada-status", "Validando as zonas e baixando o clima histórico. Aguarde...");
+  try {
+    await salvarConfiguracoesDadosEntrada(false);
+    const payload = {
+      dias: Number(document.getElementById("dados-entrada-dias").value),
+      intervalo_minutos: Number(document.getElementById("dados-entrada-intervalo").value),
+      data_final: document.getElementById("dados-entrada-data-final").value || null,
+      semente: Number(document.getElementById("dados-entrada-semente").value),
+    };
+    const resultado = await respostaJsonDadosEntrada("/api/dados-entrada/gerar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    definirStatusDadosEntrada(
+      "dados-entrada-status",
+      `Geração ${resultado.execucao_id} concluída: ${resultado.total_medicoes} medições em ${resultado.total_zonas} zonas.`
+    );
+    await carregarExecucoesDadosEntrada();
+  } catch (erro) {
+    definirStatusDadosEntrada("dados-entrada-status", erro.message, true);
+  } finally {
+    botao.disabled = false;
+  }
+}
+
+async function apagarHistoricoDiretoDadosEntrada() {
+  const confirmacao = document.getElementById("dados-entrada-confirmacao-historico").value;
+  if (!confirm("Apagar definitivamente todas as medições de historico.db?")) return;
+  try {
+    const resultado = await respostaJsonDadosEntrada("/api/dados-entrada/apagar-historico", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirmacao }),
+    });
+    definirStatusDadosEntrada("dados-entrada-arquivo-status", `${resultado.medicoes_apagadas} medições apagadas de historico.db.`);
+    await carregarHistoricoPersistido({ manterJanelaFinal: false });
+  } catch (erro) {
+    definirStatusDadosEntrada("dados-entrada-arquivo-status", erro.message, true);
+  }
+}
+
+async function apagarDadosGerados() {
+  if (!confirm("Apagar todas as séries geradas de dados_entrada.db? As medições já copiadas para historico.db serão preservadas.")) return;
+  const confirmacao = prompt("Digite APAGAR para confirmar:", "");
+  if (confirmacao === null) return;
+  try {
+    const resultado = await respostaJsonDadosEntrada("/api/dados-entrada/medicoes", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirmacao }),
+    });
+    definirStatusDadosEntrada("dados-entrada-status", `${resultado.medicoes_apagadas} medições geradas foram apagadas.`);
+    await carregarExecucoesDadosEntrada();
+  } catch (erro) {
+    definirStatusDadosEntrada("dados-entrada-status", erro.message, true);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Erros
 // ---------------------------------------------------------------------------
 function mostrarErro(msg) {
@@ -3527,4 +3957,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     .addEventListener("click", testarConexaoEquipamentoAtual);
 
   document.getElementById("cfg-zonas-simulado").addEventListener("change", agendarSalvarConfiguracoes);
+
+  document.getElementById("form-dados-entrada-gerar")?.addEventListener("submit", gerarDadosEntrada);
+  document.getElementById("btn-salvar-config-dados-entrada")?.addEventListener("click", async () => {
+    try {
+      await salvarConfiguracoesDadosEntrada(true);
+    } catch (erro) {
+      definirStatusDadosEntrada("dados-entrada-status", erro.message, true);
+    }
+  });
+  document.getElementById("btn-apagar-historico-direto")?.addEventListener("click", apagarHistoricoDiretoDadosEntrada);
+  document.getElementById("btn-apagar-dados-gerados")?.addEventListener("click", apagarDadosGerados);
 });

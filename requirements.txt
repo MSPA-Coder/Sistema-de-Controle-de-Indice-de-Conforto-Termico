@@ -1,5 +1,15 @@
 Flask>=3.0,<4.0
 playwright>=1.61,<2.0
+# Base IANA de fusos horarios. Necessaria no Windows para ZoneInfo tratar
+# corretamente UTC, horario local e transicoes de horario de verao.
+tzdata>=2025.2
+# Cadeia de autoridades certificadoras usada nas consultas HTTPS do clima.
+# Evita depender do armazenamento de certificados do Python no Windows sem
+# jamais desativar a verificacao TLS.
+certifi>=2025.1
+# Usa o armazenamento nativo de certificados do Windows/macOS/Linux. Isso
+# mantem a validacao TLS inclusive em redes institucionais com CA propria.
+truststore>=0.10
 
 # Usado para verificacoes locais de interface no navegador. Depois de instalar
 # as dependencias Python, prepare os navegadores com:

@@ -133,21 +133,6 @@ class ZonaService:
         dependencia circular na composicao (ver web.py)."""
         self._simulador = simulador
 
-    def obter_historico_grafico(self, zona_id: int) -> list[dict]:
-        with self._lock:
-            if zona_id in self._historicos_grafico:
-                return [
-                    self._copiar_leitura(leitura)
-                    for leitura in self._historicos_grafico[zona_id]
-                ]
-
-        return [
-            self._copiar_leitura(leitura)
-            for leitura in self._obter_historico(
-                zona_id, limite=self._limite_historico_grafico
-            )
-        ]
-
     def limpar_historico_grafico(self, zona_id: int | None = None) -> None:
         with self._lock:
             if zona_id is None:
