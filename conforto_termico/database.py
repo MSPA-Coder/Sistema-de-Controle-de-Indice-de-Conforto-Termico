@@ -495,6 +495,8 @@ def obter_historico_leituras(
     indice: str | None = None,
     status: str | None = None,
     valor_referencia: float | None = None,
+    data_inicio: str | None = None,
+    data_fim: str | None = None,
 ) -> dict:
     """Consulta paginada do historico persistido.
 
@@ -518,6 +520,15 @@ def obter_historico_leituras(
     if status:
         filtros.append("l.status = ?")
         parametros.append(status)
+    if data_inicio:
+        filtros.append("l.criado_em >= ?")
+        parametros.append(f"{data_inicio} 00:00:00")
+    if data_fim:
+        fim_exclusivo = (
+            datetime.date.fromisoformat(data_fim) + datetime.timedelta(days=1)
+        ).isoformat()
+        filtros.append("l.criado_em < ?")
+        parametros.append(f"{fim_exclusivo} 00:00:00")
 
     with _conexao(escrita=False) as conn:
         valores_encontrados: list[float] = []
@@ -547,11 +558,60 @@ def obter_historico_leituras(
             parametros,
         ).fetchone()
 
+        linhas_extremos_indices = conn.execute(
+            f"""
+            SELECT l.indice, MIN(l.valor) AS minimo, MAX(l.valor) AS maximo
+            FROM leituras l
+            {where}
+            GROUP BY l.indice
+            """,
+            parametros,
+        ).fetchall()
+        where_entradas = (
+            where + " AND j.type IN ('integer', 'real')"
+            if where
+            else "WHERE j.type IN ('integer', 'real')"
+        )
+        linhas_extremos_entradas = conn.execute(
+            f"""
+            SELECT
+                j.key AS campo,
+                MIN(CAST(j.value AS REAL)) AS minimo,
+                MAX(CAST(j.value AS REAL)) AS maximo
+            FROM leituras l
+            JOIN json_each(l.entradas) AS j
+            {where_entradas}
+            GROUP BY j.key
+            """,
+            parametros,
+        ).fetchall()
+        minimos_indices = {
+            linha["indice"]: float(linha["minimo"])
+            for linha in linhas_extremos_indices
+            if linha["minimo"] is not None
+        }
+        maximos_indices = {
+            linha["indice"]: float(linha["maximo"])
+            for linha in linhas_extremos_indices
+            if linha["maximo"] is not None
+        }
+        minimos_entradas = {
+            linha["campo"]: float(linha["minimo"])
+            for linha in linhas_extremos_entradas
+            if linha["minimo"] is not None
+        }
+        maximos_entradas = {
+            linha["campo"]: float(linha["maximo"])
+            for linha in linhas_extremos_entradas
+            if linha["maximo"] is not None
+        }
+
         if deslocamento is None:
             deslocamento_calculado = max(0, total - limite)
         else:
-            deslocamento_calculado = max(0, min(int(deslocamento), max(0, total - limite)))
-
+            deslocamento_calculado = max(
+                0, min(int(deslocamento), max(0, total - limite))
+            )
         linhas = conn.execute(
             f"""
             SELECT l.*, z.nome AS zona_nome
@@ -574,6 +634,14 @@ def obter_historico_leituras(
         "deslocamento": deslocamento_calculado,
         "valor_referencia": valor_referencia,
         "valores_encontrados": valores_encontrados,
+        "minimos": {
+            "indices": minimos_indices,
+            "entradas": minimos_entradas,
+        },
+        "maximos": {
+            "indices": maximos_indices,
+            "entradas": maximos_entradas,
+        },
     }
 
 

@@ -17,6 +17,7 @@ duas vezes -- o Flask recusa isso.
 from __future__ import annotations
 
 import math
+import datetime
 
 from flask import Blueprint, current_app, jsonify, render_template, request
 
@@ -48,6 +49,16 @@ def _parametro_float(nome: str) -> tuple[float | None, tuple | None]:
     if not math.isfinite(numero):
         return None, ({"erro": f"Parâmetro '{nome}' precisa ser numérico e finito."}, 400)
     return numero, None
+
+
+def _parametro_data(nome: str) -> tuple[str | None, tuple | None]:
+    valor = request.args.get(nome)
+    if valor in (None, ""):
+        return None, None
+    try:
+        return datetime.date.fromisoformat(valor).isoformat(), None
+    except ValueError:
+        return None, ({"erro": f"Parâmetro '{nome}' precisa estar em AAAA-MM-DD."}, 400)
 
 
 @comum_bp.route("/")
@@ -146,6 +157,15 @@ def historico_leituras():
     if erro:
         return jsonify(erro[0]), erro[1]
 
+    data_inicio, erro = _parametro_data("data_inicio")
+    if erro:
+        return jsonify(erro[0]), erro[1]
+    data_fim, erro = _parametro_data("data_fim")
+    if erro:
+        return jsonify(erro[0]), erro[1]
+    if data_inicio and data_fim and data_inicio > data_fim:
+        return jsonify({"erro": "A data inicial não pode ser posterior à data final."}), 400
+
     return jsonify(
         db.obter_historico_leituras(
             limite=limite or 30,
@@ -154,6 +174,8 @@ def historico_leituras():
             indice=indice,
             status=status,
             valor_referencia=valor_referencia,
+            data_inicio=data_inicio,
+            data_fim=data_fim,
         )
     )
 

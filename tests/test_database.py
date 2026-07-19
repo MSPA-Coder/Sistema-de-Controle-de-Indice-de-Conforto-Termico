@@ -121,6 +121,38 @@ class TestIntervaloMinimoLeituras(unittest.TestCase):
         self.assertEqual(zona["id"], pagina["leituras"][0]["zona_id"])
         self.assertEqual("Aviario 1", pagina["leituras"][0]["zona_nome"])
 
+    def test_historico_paginado_devolve_extremos_de_todo_o_filtro(self):
+        zona = db.criar_zona({"nome": "Aviario 1", "especie": "frangos", "indice": "ITU"})
+        for incremento in range(65):
+            db.salvar_leitura(
+                "frangos",
+                "ITU",
+                50.0 + incremento,
+                "Conforto",
+                {"tbs": 10.0 + incremento, "tbu": 20.0 + incremento},
+                intervalo_minutos=0,
+                zona_id=zona["id"],
+            )
+
+        pagina = db.obter_historico_leituras(
+            limite=30, deslocamento=15, zona_id=zona["id"]
+        )
+
+        self.assertEqual(65, pagina["total"])
+        self.assertEqual(30, len(pagina["leituras"]))
+        self.assertEqual(65.0, pagina["leituras"][0]["valor"])
+        self.assertEqual(94.0, pagina["leituras"][-1]["valor"])
+        self.assertEqual({"ITU": 50.0}, pagina["minimos"]["indices"])
+        self.assertEqual({"ITU": 114.0}, pagina["maximos"]["indices"])
+        self.assertEqual(
+            {"tbs": 10.0, "tbu": 20.0},
+            pagina["minimos"]["entradas"],
+        )
+        self.assertEqual(
+            {"tbs": 74.0, "tbu": 84.0},
+            pagina["maximos"]["entradas"],
+        )
+
     def test_historico_leituras_por_valor_devolve_os_dois_mais_proximos(self):
         zona = db.criar_zona({"nome": "Aviario 1", "especie": "frangos", "indice": "ITU"})
         for valor in (70.0, 72.0, 75.0, 80.0):
@@ -166,6 +198,38 @@ class TestIntervaloMinimoLeituras(unittest.TestCase):
 
         self.assertEqual([72.0], [leitura["valor"] for leitura in pagina["leituras"]])
         self.assertEqual([72.0], pagina["valores_encontrados"])
+
+    def test_historico_leituras_filtra_periodo_sem_remover_paginacao(self):
+        zona = db.criar_zona({"nome": "Aviario 1", "especie": "frangos", "indice": "ITU"})
+        for valor in (70.0, 71.0, 72.0, 73.0):
+            db.salvar_leitura(
+                "frangos", "ITU", valor, "Alerta", {"tbs": valor - 45},
+                intervalo_minutos=0, zona_id=zona["id"],
+            )
+        with db._conexao() as conn:
+            ids = [linha["id"] for linha in conn.execute(
+                "SELECT id FROM leituras ORDER BY id"
+            ).fetchall()]
+            datas = (
+                "2024-01-31 12:00:00", "2024-02-01T00:00:00",
+                "2024-02-29T23:59:59", "2024-03-01 00:00:00",
+            )
+            conn.executemany(
+                "UPDATE leituras SET criado_em=? WHERE id=?", zip(datas, ids)
+            )
+
+        pagina = db.obter_historico_leituras(
+            limite=30, zona_id=zona["id"],
+            data_inicio="2024-02-01", data_fim="2024-02-29",
+        )
+
+        self.assertEqual(2, pagina["total"])
+        self.assertEqual([71.0, 72.0], [item["valor"] for item in pagina["leituras"]])
+        self.assertEqual(30, pagina["limite"])
+        self.assertEqual({"ITU": 71.0}, pagina["minimos"]["indices"])
+        self.assertEqual({"tbs": 26.0}, pagina["minimos"]["entradas"])
+        self.assertEqual({"ITU": 72.0}, pagina["maximos"]["indices"])
+        self.assertEqual({"tbs": 27.0}, pagina["maximos"]["entradas"])
 
     def test_configuracoes_retornam_padroes(self):
         configuracoes = db.obter_configuracoes()

@@ -874,6 +874,13 @@ button { font-family: inherit; }
   font-size: 0.74rem;
 }
 .historico-filtro select:focus { border-color: var(--cor-acento); outline: none; }
+.historico-filtro-periodo { min-width: 180px; }
+.historico-filtro-periodo input { min-height: 38px; }
+.historico-periodo-status {
+  flex: 1 0 100%;
+  margin: 0.15rem 0 0;
+  font-size: 0.72rem;
+}
 .historico-corpo { margin-top: 0.7rem; }
 .tabela-scroll { overflow-x: auto; }
 table { width: 100%; min-width: 780px; border-collapse: collapse; font-family: var(--fonte-mono); font-size: 0.78rem; }

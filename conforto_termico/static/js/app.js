@@ -115,7 +115,12 @@ let filtroHistoricoZona = "";
 let filtroHistoricoValorReferencia = null;
 let filtroHistoricoValorTipo = "";
 let filtroHistoricoValoresEncontrados = [];
+let filtroHistoricoDataInicio = null;
+let filtroHistoricoDataFim = null;
+let historicoMinimosFiltro = { indices: {}, entradas: {} };
+let historicoMaximosFiltro = { indices: {}, entradas: {} };
 let historicoLeituraSelecionadaId = null;
+let historicoCarregamentoId = 0;
 let salvamentoConfigTimeoutId = null;
 let historicoScrollTimeoutId = null;
 let paineisExecutivosCache = [];
@@ -1047,6 +1052,32 @@ function limitesEscalaDinamica(valores) {
   };
 }
 
+function extremosEscalaHistorico(minimos, maximos) {
+  let minimo = Infinity;
+  let maximo = -Infinity;
+  minimos.forEach((valor) => {
+    const numerico = Number(valor);
+    if (!Number.isFinite(numerico)) return;
+    minimo = Math.min(minimo, numerico);
+  });
+  maximos.forEach((valor) => {
+    const numerico = Number(valor);
+    if (!Number.isFinite(numerico)) return;
+    maximo = Math.max(maximo, numerico);
+  });
+  if (!Number.isFinite(minimo) || !Number.isFinite(maximo)) return null;
+  const min = Math.floor(minimo - Math.abs(minimo) * 0.05);
+  let max = Math.ceil(maximo + Math.abs(maximo) * 0.05);
+  if (max <= min) max = min + 1;
+  return { min, max };
+}
+
+function aplicarExtremosEscalaHistorico(opcoes, eixo, minimos, maximos) {
+  const extremos = extremosEscalaHistorico(minimos, maximos);
+  if (!extremos || !opcoes.scales[eixo]) return;
+  Object.assign(opcoes.scales[eixo], extremos);
+}
+
 function aplicarEscalaDinamica(opcoes, eixo, valores) {
   const limites = limitesEscalaDinamica(valores);
   if (!limites || !opcoes.scales[eixo]) return;
@@ -1303,19 +1334,25 @@ function atualizarGraficoHistoricoEntradas(leituras) {
     selecionarLeituraHistorico(leituras[elemento.index]?.id);
   });
   opcoes.plugins.legend.display = false;
-  aplicarEscalaDinamica(
+  aplicarExtremosEscalaHistorico(
     opcoes,
     "y",
     datasets
       .filter((dataset) => (dataset.yAxisID || "y") === "y")
-      .flatMap((dataset) => dataset.data)
+      .map((dataset) => historicoMinimosFiltro.entradas[dataset.campo]),
+    datasets
+      .filter((dataset) => (dataset.yAxisID || "y") === "y")
+      .map((dataset) => historicoMaximosFiltro.entradas[dataset.campo])
   );
-  aplicarEscalaDinamica(
+  aplicarExtremosEscalaHistorico(
     opcoes,
     "y1",
     datasets
       .filter((dataset) => dataset.yAxisID === "y1")
-      .flatMap((dataset) => dataset.data)
+      .map((dataset) => historicoMinimosFiltro.entradas[dataset.campo]),
+    datasets
+      .filter((dataset) => dataset.yAxisID === "y1")
+      .map((dataset) => historicoMaximosFiltro.entradas[dataset.campo])
   );
 
   graficoHistoricoEntradas = criarOuAtualizarGrafico(
@@ -1421,7 +1458,12 @@ function atualizarGraficosHistorico(leituras) {
       selecionarLeituraHistorico(ids[elemento.index]);
     });
     opcoes.plugins.legend.display = false;
-    aplicarEscalaDinamica(opcoes, "y", dataset.data);
+    aplicarExtremosEscalaHistorico(
+      opcoes,
+      "y",
+      [historicoMinimosFiltro.indices[indice]],
+      [historicoMaximosFiltro.indices[indice]]
+    );
 
     const grafico = criarOuAtualizarGrafico(graficosHistoricoPorIndice.get(indice), canvasId, {
       type: "bar",
@@ -1542,6 +1584,32 @@ function formatarValorFiltroHistorico(valor) {
   return Number(valor).toFixed(2).replace(".", ",");
 }
 
+function criarFiltroPeriodoHistorico(prefixo, rotulo) {
+  const grupo = document.createElement("div");
+  grupo.className = "campo-config historico-filtro-periodo";
+  const id = `filtro-historico-${prefixo}`;
+  const titulo = document.createElement("label");
+  titulo.htmlFor = id;
+  titulo.textContent = rotulo;
+  const input = document.createElement("input");
+  input.type = "date";
+  input.id = id;
+  grupo.append(titulo, input);
+  return grupo;
+}
+
+function lerLimitePeriodoHistorico(prefixo) {
+  const data = document.getElementById(`filtro-historico-${prefixo}`)?.value || "";
+  return { data: data || null, erro: "" };
+}
+
+function definirStatusPeriodoHistorico(mensagem) {
+  const status = document.getElementById("historico-filtro-periodo-status");
+  if (!status) return;
+  status.textContent = mensagem || "";
+  status.classList.toggle("oculto", !mensagem);
+}
+
 function aplicarFiltrosHistorico(resetarPagina) {
   historicoLeiturasAtuais = historicoLeiturasBase.filter((leitura) => {
     const statusOk = !filtroHistoricoStatus || leitura.status === filtroHistoricoStatus;
@@ -1562,6 +1630,19 @@ function atualizarFiltroHistorico() {
   if (!Number.isFinite(filtroHistoricoValorReferencia)) filtroHistoricoValorReferencia = null;
   if (filtroHistoricoValorReferencia === null) filtroHistoricoValorTipo = "";
   filtroHistoricoValoresEncontrados = [];
+  const inicio = lerLimitePeriodoHistorico("de");
+  const fim = lerLimitePeriodoHistorico("ate");
+  if (inicio.erro || fim.erro) {
+    definirStatusPeriodoHistorico(inicio.erro || fim.erro);
+    return;
+  }
+  if (inicio.data && fim.data && inicio.data > fim.data) {
+    definirStatusPeriodoHistorico("A data inicial não pode ser posterior à data final.");
+    return;
+  }
+  filtroHistoricoDataInicio = inicio.data;
+  filtroHistoricoDataFim = fim.data;
+  definirStatusPeriodoHistorico("");
   carregarHistoricoPersistido({ resetarJanela: true });
 }
 
@@ -1648,12 +1729,15 @@ function atualizarControleHistoricoScroll() {
 }
 
 async function carregarHistoricoPersistido(opcoes = {}) {
+  const carregamentoId = ++historicoCarregamentoId;
   if (!garantirZonaHistoricoSelecionada()) {
     historicoTotalLeituras = 0;
     historicoDeslocamento = 0;
     historicoLeiturasJanela = [];
     historicoLeiturasBase = [];
     historicoLeiturasAtuais = [];
+    historicoMinimosFiltro = { indices: {}, entradas: {} };
+    historicoMaximosFiltro = { indices: {}, entradas: {} };
     renderizarFiltrosHistorico();
     renderizarPaginaHistorico();
     atualizarGraficosHistorico([]);
@@ -1670,6 +1754,8 @@ async function carregarHistoricoPersistido(opcoes = {}) {
   if (Number.isFinite(filtroHistoricoValorReferencia)) {
     params.set("valor_referencia", String(filtroHistoricoValorReferencia));
   }
+  if (filtroHistoricoDataInicio) params.set("data_inicio", filtroHistoricoDataInicio);
+  if (filtroHistoricoDataFim) params.set("data_fim", filtroHistoricoDataFim);
 
   if (Number.isFinite(opcoes.deslocamento)) {
     params.set("deslocamento", String(Math.max(0, opcoes.deslocamento)));
@@ -1681,11 +1767,20 @@ async function carregarHistoricoPersistido(opcoes = {}) {
     const resposta = await fetch("/api/historico-leituras?" + params.toString());
     if (!resposta.ok) return;
     const dados = await resposta.json();
+    if (carregamentoId !== historicoCarregamentoId) return;
     historicoTotalLeituras = Number(dados.total) || 0;
     historicoDeslocamento = Number(dados.deslocamento) || 0;
     filtroHistoricoValoresEncontrados = Array.isArray(dados.valores_encontrados)
       ? dados.valores_encontrados.map(Number).filter(Number.isFinite)
       : [];
+    historicoMinimosFiltro = {
+      indices: dados.minimos?.indices || {},
+      entradas: dados.minimos?.entradas || {},
+    };
+    historicoMaximosFiltro = {
+      indices: dados.maximos?.indices || {},
+      entradas: dados.maximos?.entradas || {},
+    };
     historicoLeiturasJanela = Array.isArray(dados.leituras) ? dados.leituras : [];
     if (
       historicoLeituraSelecionadaId &&
@@ -1699,7 +1794,9 @@ async function carregarHistoricoPersistido(opcoes = {}) {
     atualizarGraficosHistorico(historicoLeiturasJanela);
     atualizarControleHistoricoScroll();
   } catch (erro) {
-    console.error("Nao foi possivel carregar o historico persistido:", erro);
+    if (carregamentoId === historicoCarregamentoId) {
+      console.error("Nao foi possivel carregar o historico persistido:", erro);
+    }
   }
 }
 
@@ -1770,6 +1867,14 @@ function prepararAbaHistorico() {
     label.append(span, select);
     filtros.appendChild(label);
   }
+  if (filtros && !document.getElementById("filtro-historico-de")) {
+    filtros.appendChild(criarFiltroPeriodoHistorico("de", "De"));
+    filtros.appendChild(criarFiltroPeriodoHistorico("ate", "Até"));
+    const statusPeriodo = document.createElement("p");
+    statusPeriodo.id = "historico-filtro-periodo-status";
+    statusPeriodo.className = "historico-periodo-status mensagem-erro oculto";
+    filtros.appendChild(statusPeriodo);
+  }
 
   const paginacao = document.getElementById("historico-paginacao");
   const controleCabecalho = document.getElementById("historico-controle-cabecalho");
@@ -1806,6 +1911,8 @@ function inicializarHistorico() {
   document.getElementById("filtro-historico-status")?.addEventListener("change", atualizarFiltroHistorico);
   document.getElementById("filtro-historico-zona")?.addEventListener("change", atualizarFiltroHistorico);
   document.getElementById("filtro-historico-valor")?.addEventListener("change", atualizarFiltroHistorico);
+  document.getElementById("filtro-historico-de")?.addEventListener("change", atualizarFiltroHistorico);
+  document.getElementById("filtro-historico-ate")?.addEventListener("change", atualizarFiltroHistorico);
 }
 
 // ---------------------------------------------------------------------------

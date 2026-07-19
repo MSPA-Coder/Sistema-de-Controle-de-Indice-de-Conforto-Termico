@@ -1091,6 +1091,53 @@ class TestZonasApi(unittest.TestCase):
         self.assertEqual([72.0, 75.0], [leitura["valor"] for leitura in resposta.json["leituras"]])
         self.assertEqual([72.0, 75.0], resposta.json["valores_encontrados"])
 
+    def test_historico_leituras_api_aceita_periodo_com_paginacao(self):
+        zona = self._criar_zona().json
+        for valor in (70.0, 71.0, 72.0):
+            db.salvar_leitura(
+                "frangos", "ITU", valor, "Alerta",
+                {"tbs": valor - 45, "tbu": valor - 50},
+                intervalo_minutos=0, zona_id=zona["id"],
+            )
+        with db._conexao() as conn:
+            ids = [linha["id"] for linha in conn.execute(
+                "SELECT id FROM leituras ORDER BY id"
+            ).fetchall()]
+            conn.executemany(
+                "UPDATE leituras SET criado_em=? WHERE id=?",
+                zip(
+                    ("2024-01-31 23:59:59", "2024-02-01T00:00:00", "2024-02-29 23:59:59"),
+                    ids,
+                ),
+            )
+
+        resposta = self.client.get(
+            f"/api/historico-leituras?zona_id={zona['id']}"
+            "&data_inicio=2024-02-01&data_fim=2024-02-29"
+        )
+
+        self.assertEqual(200, resposta.status_code)
+        self.assertEqual(2, resposta.json["total"])
+        self.assertEqual(30, resposta.json["limite"])
+        self.assertEqual([71.0, 72.0], [item["valor"] for item in resposta.json["leituras"]])
+        self.assertEqual({"ITU": 71.0}, resposta.json["minimos"]["indices"])
+        self.assertEqual({"ITU": 72.0}, resposta.json["maximos"]["indices"])
+        self.assertEqual(
+            {"tbs": 26.0, "tbu": 21.0},
+            resposta.json["minimos"]["entradas"],
+        )
+        self.assertEqual(
+            {"tbs": 27.0, "tbu": 22.0},
+            resposta.json["maximos"]["entradas"],
+        )
+
+    def test_historico_leituras_api_rejeita_periodo_invertido(self):
+        resposta = self.client.get(
+            "/api/historico-leituras?data_inicio=2024-03-01&data_fim=2024-02-01"
+        )
+        self.assertEqual(400, resposta.status_code)
+        self.assertIn("posterior", resposta.json["erro"])
+
     def test_grafico_de_zona_atualiza_a_cada_calculo_mesmo_sem_gravar_no_banco(self):
         zona_id = self._criar_zona().json["id"]
         for campo in ("tbs", "tbu"):
