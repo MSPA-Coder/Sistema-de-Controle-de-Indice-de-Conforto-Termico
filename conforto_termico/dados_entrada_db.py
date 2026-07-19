@@ -67,6 +67,69 @@ class _SemLock:
         return False
 
 
+@contextmanager
+def sessao_geracao() -> Iterator["_SessaoGeracao"]:
+    """Uma conexao reaproveitada por todos os lotes de uma execucao.
+
+    Evita abrir e fechar uma conexao SQLite a cada lote de medicoes, como
+    acontecia antes (por padrao a cada 1000-2000 linhas -- em uma geracao
+    grande, ate `gerador_dados.MAXIMO_MEDICOES` linhas, isso podia significar
+    centenas ou milhares de conexoes abertas e fechadas para uma unica
+    execucao). A MESMA conexao fica aberta do primeiro ao ultimo lote, de
+    todas as zonas.
+
+    O lock de escrita (`_write_lock`), porem, continua sendo adquirido e
+    liberado a cada lote (em `_SessaoGeracao.inserir_medicoes`), nao uma
+    unica vez para a sessao inteira. Isso e deliberado: se o lock ficasse
+    preso do inicio ao fim da geracao, uma zona com clima lento para baixar
+    (rede) prenderia junto esse lock -- compartilhado com o resto do app
+    (salvar configuracao de zona, apagar medicoes, copiar para o historico)
+    -- pelo tempo todo da geracao, mesmo enquanto nada esta de fato sendo
+    escrito. Cada lote continua sendo sua propria transacao (commit por
+    lote), exatamente como antes: uma falha na metade da geracao so
+    descarta o lote em andamento, e o `DELETE` em `falhar_execucao` remove
+    os lotes de outras zonas ja confirmados.
+    """
+    caminho = caminho_banco()
+    os.makedirs(os.path.dirname(caminho), exist_ok=True)
+    with _write_lock:
+        conn = sqlite3.connect(caminho, timeout=TIMEOUT_CONEXAO_SEGUNDOS)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
+        conn.execute("PRAGMA foreign_keys = ON")
+    try:
+        yield _SessaoGeracao(conn)
+    finally:
+        conn.close()
+
+
+class _SessaoGeracao:
+    """Insere lotes de medicoes reaproveitando uma unica conexao aberta.
+
+    Cada chamada a `inserir_medicoes` adquire `_write_lock` e confirma (ou
+    desfaz, em caso de erro) sua propria transacao -- exatamente como cada
+    lote fazia antes. A unica mudanca e que a conexao SQLite em si e
+    reaproveitada entre os lotes, em vez de reaberta a cada um.
+    """
+
+    __slots__ = ("_conn",)
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+
+    def inserir_medicoes(self, medicoes: list[dict]) -> None:
+        if not medicoes:
+            return
+        with _write_lock:
+            try:
+                _inserir_medicoes_na_conexao(self._conn, medicoes)
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+
+
 def iniciar_banco() -> None:
     with _conexao() as conn:
         conn.executescript(
@@ -461,23 +524,39 @@ _COLUNAS_MEDICAO = (
 )
 
 
-def inserir_medicoes(medicoes: list[dict]) -> None:
+def _serializar_json_coluna(valor):
+    """Serializa um valor de coluna JSON, a menos que ja seja uma string.
+
+    `entradas_indice` varia a cada medicao e chega como dict. Ja
+    `origem_variaveis` e identico para toda a execucao (ver
+    `gerador_dados._metadados_origem_json`) e chega ja serializado como
+    string, para nao repetir `json.dumps` no mesmo conteudo constante em
+    cada uma das linhas.
+    """
+    return valor if isinstance(valor, str) else json.dumps(valor, ensure_ascii=False)
+
+
+def _inserir_medicoes_na_conexao(conn: sqlite3.Connection, medicoes: list[dict]) -> None:
     if not medicoes:
         return
     placeholders = ",".join("?" for _ in _COLUNAS_MEDICAO)
+    conn.executemany(
+        f"INSERT INTO medicoes ({','.join(_COLUNAS_MEDICAO)}) VALUES ({placeholders})",
+        [
+            tuple(
+                _serializar_json_coluna(item[coluna])
+                if coluna in ("origem_variaveis", "entradas_indice")
+                else item[coluna]
+                for coluna in _COLUNAS_MEDICAO
+            )
+            for item in medicoes
+        ],
+    )
+
+
+def inserir_medicoes(medicoes: list[dict]) -> None:
     with _conexao() as conn:
-        conn.executemany(
-            f"INSERT INTO medicoes ({','.join(_COLUNAS_MEDICAO)}) VALUES ({placeholders})",
-            [
-                tuple(
-                    json.dumps(item[coluna], ensure_ascii=False)
-                    if coluna in ("origem_variaveis", "entradas_indice")
-                    else item[coluna]
-                    for coluna in _COLUNAS_MEDICAO
-                )
-                for item in medicoes
-            ],
-        )
+        _inserir_medicoes_na_conexao(conn, medicoes)
 
 
 def concluir_execucao(execucao_id: int, total_medicoes: int) -> None:

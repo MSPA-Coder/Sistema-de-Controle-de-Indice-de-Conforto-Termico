@@ -41,6 +41,12 @@ INTERVALO_MINIMO_MINUTOS = 1
 INTERVALO_MAXIMO_MINUTOS = 1440
 MAXIMO_MEDICOES = 2_000_000
 ATRASO_PADRAO_ERA5_DIAS = 8
+# Medicoes por lote antes de cada `executemany` + commit. Cada lote e sua
+# propria transacao (ver `dados_db.sessao_geracao`), entao este numero
+# tambem controla a frequencia com que o lock de escrita e liberado para
+# outras operacoes -- nao precisa mais equilibrar o custo de abrir/fechar
+# uma conexao a cada lote, ja que a conexao em si e reaproveitada.
+TAMANHO_LOTE_INSERCAO = 2000
 
 VARIAVEIS_OPEN_METEO = {
     "temperature_2m": "tbs",
@@ -64,6 +70,23 @@ class ParametrosGeracao:
     data_final: datetime.date
     data_inicio: datetime.date
     semente: int
+
+
+@dataclass(frozen=True)
+class ClimaHorario:
+    """Resposta do ERA5 (crua) junto com a serie ja parseada uma unica vez.
+
+    `bruto` e o dict original (usado apenas para salvar no cache, que
+    precisa do JSON serializavel tal como veio da fonte). `tempos`/`series`
+    e o resultado de `_serie_clima(bruto)` -- computado uma unica vez em
+    `obter_clima_horario` (seja no caminho do cache, seja no caminho de
+    rede) e reaproveitado por `gerar`, que antes chamava `_serie_clima`
+    de novo sobre o mesmo `bruto` so para obter o mesmo resultado.
+    """
+
+    bruto: dict
+    tempos: list[datetime.datetime]
+    series: dict[str, list]
 
 
 def _inteiro(dados: dict, chave: str, minimo: int, maximo: int) -> int:
@@ -116,7 +139,14 @@ def validar_parametros(dados: dict, total_zonas: int) -> ParametrosGeracao:
 
 
 def calcular_ponto_orvalho(tbs: float, ur: float) -> float:
-    """Magnus (Alduchov/Eskridge), temperatura em graus Celsius."""
+    """Magnus (Alduchov/Eskridge), temperatura em graus Celsius.
+
+    Deliberadamente independente de `thermal_indices.calcular_ponto_orvalho`:
+    aquela versao parte de tbs+tbu (psicrometria), pois e o par de variaveis
+    disponivel na leitura manual/Modbus. Aqui o ERA5 fornece tbs+ur
+    diretamente; encadear por um tbu que e ele mesmo uma aproximacao (Stull,
+    ver `calcular_bulbo_umido`) so acumularia erro sem necessidade.
+    """
     ur_limitada = max(0.1, min(100.0, float(ur)))
     a, b = 17.625, 243.04
     gama = math.log(ur_limitada / 100.0) + a * float(tbs) / (b + float(tbs))
@@ -182,18 +212,24 @@ def obter_clima_horario(
     longitude: float,
     inicio_utc: datetime.datetime,
     fim_utc_exclusivo: datetime.datetime,
-) -> dict:
+) -> ClimaHorario:
     # Um dia extra fornece a ancora das interpolacoes no fim do periodo.
     data_inicio = (inicio_utc - datetime.timedelta(days=1)).date().isoformat()
     data_fim = (fim_utc_exclusivo + datetime.timedelta(days=1)).date().isoformat()
     chave = _chave_cache(latitude, longitude, data_inicio, data_fim)
     cache = dados_db.obter_cache_clima(chave)
     if cache is not None:
-        completa, _ = _avaliar_cobertura_clima(
-            cache, inicio_utc, fim_utc_exclusivo
+        # Parse unico do cache: usado tanto para checar cobertura quanto,
+        # se completo, como serie pronta para a geracao (`ClimaHorario`).
+        try:
+            tempos_cache, series_cache = _serie_clima(cache)
+        except (KeyError, TypeError, ValueError):
+            tempos_cache, series_cache = [], {}
+        completa, _ = _analisar_cobertura(
+            tempos_cache, series_cache, inicio_utc, fim_utc_exclusivo
         )
         if completa:
-            return cache
+            return ClimaHorario(cache, tempos_cache, series_cache)
         # Uma resposta consultada antes da consolidação do ERA5 não pode
         # permanecer válida para sempre. Remova-a e consulte a fonte novamente.
         dados_db.excluir_cache_clima(chave)
@@ -220,8 +256,11 @@ def obter_clima_horario(
         raise GeracaoDadosError(
             "A fonte meteorológica não retornou: " + ", ".join(faltando)
         )
-    completa, ultima_hora = _avaliar_cobertura_clima(
-        bruto, inicio_utc, fim_utc_exclusivo
+    # Parse unico da resposta fresca: mesma serie reaproveitada abaixo tanto
+    # para checar cobertura quanto para devolver pronta em `ClimaHorario`.
+    tempos, series = _serie_clima(bruto)
+    completa, ultima_hora = _analisar_cobertura(
+        tempos, series, inicio_utc, fim_utc_exclusivo
     )
     if not completa:
         ultima = (
@@ -234,7 +273,7 @@ def obter_clima_horario(
             "Escolha uma data final mais antiga e tente novamente."
         )
     dados_db.salvar_cache_clima(chave, bruto, FONTE_CLIMA)
-    return bruto
+    return ClimaHorario(bruto, tempos, series)
 
 
 def _serie_clima(bruto: dict) -> tuple[list[datetime.datetime], dict[str, list]]:
@@ -258,21 +297,19 @@ def _numero_valido(valor) -> float | None:
     return numero if math.isfinite(numero) else None
 
 
-def _avaliar_cobertura_clima(
-    bruto: dict,
+def _analisar_cobertura(
+    tempos: list[datetime.datetime],
+    series: dict[str, list],
     inicio_utc: datetime.datetime,
     fim_utc_exclusivo: datetime.datetime,
 ) -> tuple[bool, datetime.datetime | None]:
-    """Confirma que cada hora necessária possui todas as variáveis reais.
+    """Confere cobertura horaria a partir de uma serie ja parseada.
 
-    A hora do fim exclusivo também é exigida como âncora para interpolar o
-    último ponto sub-horário. Respostas futuras preenchidas com ``null`` não
-    são aceitas nem armazenadas no cache.
+    Nucleo de `_avaliar_cobertura_clima`, extraido para aceitar `tempos`/
+    `series` ja parseados por `_serie_clima` -- em vez de receber o dict
+    bruto e reparsea-lo -- para que `obter_clima_horario` faca esse parse
+    uma unica vez por chamada (cache ou rede) e nao duas.
     """
-    try:
-        tempos, series = _serie_clima(bruto)
-    except (KeyError, TypeError, ValueError):
-        return False, None
     if not tempos or any(len(serie) != len(tempos) for serie in series.values()):
         return False, None
 
@@ -295,12 +332,61 @@ def _avaliar_cobertura_clima(
     return True, ultima_hora
 
 
-def _interpolar(tempos: list[datetime.datetime], serie: list, alvo: datetime.datetime) -> tuple[float, bool]:
+def _avaliar_cobertura_clima(
+    bruto: dict,
+    inicio_utc: datetime.datetime,
+    fim_utc_exclusivo: datetime.datetime,
+) -> tuple[bool, datetime.datetime | None]:
+    """Confirma que cada hora necessária possui todas as variáveis reais.
+
+    A hora do fim exclusivo também é exigida como âncora para interpolar o
+    último ponto sub-horário. Respostas futuras preenchidas com ``null`` não
+    são aceitas nem armazenadas no cache.
+
+    Mantida (em vez de removida) para uso direto sobre uma resposta bruta
+    ainda não parseada -- ex.: chamadas isoladas e testes que só têm o dict
+    do ERA5 em mãos. Internamente delega para `_analisar_cobertura` depois
+    de um único parse; `obter_clima_horario` chama `_analisar_cobertura`
+    diretamente, pois já parseou a série por conta própria.
+    """
+    try:
+        tempos, series = _serie_clima(bruto)
+    except (KeyError, TypeError, ValueError):
+        return False, None
+    return _analisar_cobertura(tempos, series, inicio_utc, fim_utc_exclusivo)
+
+
+def _posicao_interpolacao(
+    tempos: list[datetime.datetime], alvo: datetime.datetime
+) -> tuple[int, int, float, bool]:
+    """Localiza indices/fracao de interpolacao para um instante-alvo.
+
+    O resultado (quais duas horas ancoram o alvo e a fracao entre elas)
+    depende apenas da serie de tempos e do alvo, nunca do valor climatico em
+    si -- por isso e calculado uma unica vez por instante e reaproveitado
+    para as sete variaveis do ERA5, que compartilham a mesma serie de
+    tempos. Antes desta extracao, `_clima_no_instante` chamava esta mesma
+    conta 7 vezes por instante (uma por variavel); em uma geracao grande
+    (ate `MAXIMO_MEDICOES` pontos) isso significava repetir o mesmo floor/
+    ceil/fracao milhoes de vezes a mais do que o necessario.
+    """
     if alvo < tempos[0] or alvo > tempos[-1]:
         raise GeracaoDadosError("A série meteorológica não cobre todo o período solicitado.")
     passo = (alvo - tempos[0]).total_seconds() / 3600
     esquerda_idx = max(0, min(len(tempos) - 1, math.floor(passo)))
     direita_idx = max(0, min(len(tempos) - 1, math.ceil(passo)))
+    dt_esquerda = tempos[esquerda_idx]
+    dt_direita = tempos[direita_idx]
+    fracao = 0.0
+    if dt_esquerda != dt_direita:
+        fracao = (alvo - dt_esquerda).total_seconds() / (dt_direita - dt_esquerda).total_seconds()
+    return esquerda_idx, direita_idx, fracao, alvo != dt_esquerda
+
+
+def _interpolar_na_posicao(
+    serie: list, posicao: tuple[int, int, float, bool]
+) -> tuple[float, bool]:
+    esquerda_idx, direita_idx, fracao, interpolado = posicao
     esquerda = _numero_valido(serie[esquerda_idx])
     direita = _numero_valido(serie[direita_idx])
     if esquerda is None or direita is None:
@@ -308,15 +394,14 @@ def _interpolar(tempos: list[datetime.datetime], serie: list, alvo: datetime.dat
             "A série meteorológica possui uma lacuna no período solicitado; "
             "nenhum valor anterior será repetido para preencher dados ausentes."
         )
-    dt_esquerda = tempos[esquerda_idx]
-    dt_direita = tempos[direita_idx]
-    if dt_esquerda == dt_direita:
-        return esquerda, alvo != dt_esquerda
-    fracao = (alvo - dt_esquerda).total_seconds() / (
-        dt_direita - dt_esquerda
-    ).total_seconds()
+    if esquerda_idx == direita_idx:
+        return esquerda, interpolado
     valor = esquerda + (direita - esquerda) * fracao
-    return valor, alvo != dt_esquerda
+    return valor, interpolado
+
+
+def _interpolar(tempos: list[datetime.datetime], serie: list, alvo: datetime.datetime) -> tuple[float, bool]:
+    return _interpolar_na_posicao(serie, _posicao_interpolacao(tempos, alvo))
 
 
 def _clima_no_instante(
@@ -325,10 +410,11 @@ def _clima_no_instante(
     alvo: datetime.datetime,
     intervalo_minutos: int,
 ) -> dict:
+    posicao = _posicao_interpolacao(tempos, alvo)
     valores = {}
     interpolado = False
     for nome, serie in series.items():
-        valor, derivado = _interpolar(tempos, serie, alvo)
+        valor, derivado = _interpolar_na_posicao(serie, posicao)
         valores[nome] = valor
         interpolado = interpolado or derivado
     # Open-Meteo fornece precipitacao acumulada na hora. Distribuir pelo
@@ -422,6 +508,9 @@ def simular_animais(
     producao = float(config["producao_leite_kg_dia"])
     ordenhas = int(config["ordenhas_dia"])
     hora = instante_local.hour + instante_local.minute / 60
+    # THI classico (NRC, 1971), usado somente como sinal interno de estresse
+    # para modular atividade/consumo do rebanho -- independente do indice de
+    # conforto termico configurado na zona (ITU/ITUV/IGNU, ver `_indice`).
     thi = (1.8 * tbs + 32) - (0.55 - 0.0055 * ur) * (1.8 * tbs - 26)
     estresse = max(0.0, min(1.0, (thi - 68.0) / 16.0))
     rotina = _atividade_animal(especie, hora, ordenhas, estresse, rng)
@@ -502,6 +591,36 @@ def _iterar_instantes(inicio: datetime.datetime, fim: datetime.datetime, minutos
         atual += passo
 
 
+def _metadados_origem_json() -> str:
+    """Proveniencia das variaveis, ja serializada em JSON.
+
+    O conteudo e o mesmo para toda medicao de toda zona de uma execucao (a
+    fonte climatica e as formulas derivadas nao variam ponto a ponto).
+    Calcular e serializar isso uma unica vez por execucao -- em vez de
+    reconstruir o dict e rechamar `json.dumps` para cada um dos ate
+    `MAXIMO_MEDICOES` pontos gerados -- elimina trabalho repetido que nao
+    muda o resultado, so o tempo de geracao.
+    """
+    return json.dumps(
+        {
+            "tbs_externa_c": FONTE_CLIMA,
+            "ur_externa_pct": FONTE_CLIMA,
+            "velocidade_vento_ms": FONTE_CLIMA,
+            "precipitacao_mm": FONTE_CLIMA,
+            "pressao_hpa": FONTE_CLIMA,
+            "radiacao_w_m2": FONTE_CLIMA,
+            "nebulosidade_pct": FONTE_CLIMA,
+            "ponto_orvalho_c": "calculado por Magnus a partir de TBS e UR ERA5",
+            "tbu_c": "calculado por Stull a partir de TBS e UR ERA5",
+            "animais": (
+                "simulação de grupo parametrizada por área, densidade e peso; "
+                "CIGR/ASABE/NASEM"
+            ),
+        },
+        ensure_ascii=False,
+    )
+
+
 def gerar(dados: dict, zonas: list[dict]) -> dict:
     zonas = [zona for zona in zonas if zona.get("ativa")]
     if not zonas:
@@ -525,97 +644,93 @@ def gerar(dados: dict, zonas: list[dict]) -> dict:
         total_zonas=len(zonas),
         fonte_clima=FONTE_CLIMA,
     )
+    # Ver `_metadados_origem_json`: conteudo constante para toda a execucao,
+    # calculado e serializado uma unica vez (nao mais a cada medicao).
+    origem_variaveis_json = _metadados_origem_json()
     total = 0
     try:
-        for zona in zonas:
-            config = por_id[zona["id"]]
-            fuso = ZoneInfo(config["fuso_horario"])
-            inicio_local = datetime.datetime.combine(
-                parametros.data_inicio, datetime.time.min, tzinfo=fuso
-            )
-            fim_local = inicio_local + datetime.timedelta(days=parametros.dias)
-            inicio_utc = inicio_local.astimezone(datetime.timezone.utc)
-            fim_utc = fim_local.astimezone(datetime.timezone.utc)
-            bruto = obter_clima_horario(
-                config["latitude"], config["longitude"], inicio_utc, fim_utc
-            )
-            tempos, series = _serie_clima(bruto)
-            seed_zona = parametros.semente + zona["id"] * 100_003
-            rng = random.Random(seed_zona)
-            lote = []
-            for instante_local in _iterar_instantes(
-                inicio_local, fim_local, parametros.intervalo_minutos
-            ):
-                instante_utc = instante_local.astimezone(datetime.timezone.utc)
-                clima = _clima_no_instante(
-                    tempos, series, instante_utc, parametros.intervalo_minutos
+        # Uma unica conexao reaproveitada para todos os lotes de todas as
+        # zonas, em vez de abrir e fechar uma conexao a cada lote de
+        # `TAMANHO_LOTE_INSERCAO` medicoes -- ver `dados_db.sessao_geracao`.
+        # Cada lote continua sendo confirmado (commit) individualmente, como
+        # antes: uma falha no meio da geracao ainda e limpa pelo `DELETE` em
+        # `falhar_execucao`, e o lock de escrita nao fica preso durante o
+        # tempo de rede gasto buscando o clima da proxima zona.
+        with dados_db.sessao_geracao() as sessao:
+            for zona in zonas:
+                config = por_id[zona["id"]]
+                fuso = ZoneInfo(config["fuso_horario"])
+                inicio_local = datetime.datetime.combine(
+                    parametros.data_inicio, datetime.time.min, tzinfo=fuso
                 )
-                tbs = clima["tbs"]
-                ur = clima["ur"]
-                tpo = calcular_ponto_orvalho(tbs, ur)
-                tbu = calcular_bulbo_umido(tbs, ur)
-                valor, status, entradas = _indice(
-                    zona, tbs, tbu, tpo, clima["vento"], clima["radiacao"]
+                fim_local = inicio_local + datetime.timedelta(days=parametros.dias)
+                inicio_utc = inicio_local.astimezone(datetime.timezone.utc)
+                fim_utc = fim_local.astimezone(datetime.timezone.utc)
+                resposta_clima = obter_clima_horario(
+                    config["latitude"], config["longitude"], inicio_utc, fim_utc
                 )
-                animais = simular_animais(
-                    config, instante_local, tbs, ur,
-                    parametros.intervalo_minutos, rng,
-                )
-                qualidade = "reanálise_interpolada" if clima["interpolado"] else "reanálise_horária"
-                origem = {
-                    "tbs_externa_c": FONTE_CLIMA,
-                    "ur_externa_pct": FONTE_CLIMA,
-                    "velocidade_vento_ms": FONTE_CLIMA,
-                    "precipitacao_mm": FONTE_CLIMA,
-                    "pressao_hpa": FONTE_CLIMA,
-                    "radiacao_w_m2": FONTE_CLIMA,
-                    "nebulosidade_pct": FONTE_CLIMA,
-                    "ponto_orvalho_c": "calculado por Magnus a partir de TBS e UR ERA5",
-                    "tbu_c": "calculado por Stull a partir de TBS e UR ERA5",
-                    "animais": (
-                        "simulação de grupo parametrizada por área, densidade e peso; "
-                        "CIGR/ASABE/NASEM"
-                    ),
-                }
-                medicao = {
-                    "execucao_id": execucao_id,
-                    "zona_id": zona["id"],
-                    "zona_nome": zona["nome"],
-                    "especie": zona["especie"],
-                    "indice": zona["indice"],
-                    "timestamp_utc": instante_utc.isoformat(timespec="minutes"),
-                    "timestamp_local": instante_local.isoformat(timespec="minutes"),
-                    "fuso_horario": config["fuso_horario"],
-                    "tbs_externa_c": round(tbs, 3),
-                    "ur_externa_pct": round(ur, 3),
-                    "ponto_orvalho_c": round(min(tbs, tpo), 3),
-                    "tbu_c": round(min(tbs, tbu), 3),
-                    "velocidade_vento_ms": round(clima["vento"], 3),
-                    "precipitacao_mm": round(clima["precipitacao"], 5),
-                    "pressao_hpa": round(clima["pressao"], 2),
-                    "radiacao_w_m2": round(clima["radiacao"], 2),
-                    "nebulosidade_pct": round(clima["nebulosidade"], 2),
-                    "valor_indice": round(valor, 4),
-                    "status_termico": status,
-                    "area_util_m2": round(float(config["area_util_m2"]), 3),
-                    "densidade_categoria": config["densidade_categoria"],
-                    "densidade_animais_m2": round(
-                        float(config["densidade_animais_m2"]), 6
-                    ),
-                    "origem_variaveis": origem,
-                    "indicador_qualidade": qualidade,
-                    "entradas_indice": {k: round(v, 4) for k, v in entradas.items()},
-                    "simulation_seed": seed_zona,
-                    **animais,
-                }
-                lote.append(medicao)
-                if len(lote) >= 1000:
-                    dados_db.inserir_medicoes(lote)
+                tempos, series = resposta_clima.tempos, resposta_clima.series
+                seed_zona = parametros.semente + zona["id"] * 100_003
+                rng = random.Random(seed_zona)
+                lote = []
+                for instante_local in _iterar_instantes(
+                    inicio_local, fim_local, parametros.intervalo_minutos
+                ):
+                    instante_utc = instante_local.astimezone(datetime.timezone.utc)
+                    clima = _clima_no_instante(
+                        tempos, series, instante_utc, parametros.intervalo_minutos
+                    )
+                    tbs = clima["tbs"]
+                    ur = clima["ur"]
+                    tpo = calcular_ponto_orvalho(tbs, ur)
+                    tbu = calcular_bulbo_umido(tbs, ur)
+                    valor, status, entradas = _indice(
+                        zona, tbs, tbu, tpo, clima["vento"], clima["radiacao"]
+                    )
+                    animais = simular_animais(
+                        config, instante_local, tbs, ur,
+                        parametros.intervalo_minutos, rng,
+                    )
+                    qualidade = "reanálise_interpolada" if clima["interpolado"] else "reanálise_horária"
+                    medicao = {
+                        "execucao_id": execucao_id,
+                        "zona_id": zona["id"],
+                        "zona_nome": zona["nome"],
+                        "especie": zona["especie"],
+                        "indice": zona["indice"],
+                        "timestamp_utc": instante_utc.isoformat(timespec="minutes"),
+                        "timestamp_local": instante_local.isoformat(timespec="minutes"),
+                        "fuso_horario": config["fuso_horario"],
+                        "tbs_externa_c": round(tbs, 3),
+                        "ur_externa_pct": round(ur, 3),
+                        "ponto_orvalho_c": round(min(tbs, tpo), 3),
+                        "tbu_c": round(min(tbs, tbu), 3),
+                        "velocidade_vento_ms": round(clima["vento"], 3),
+                        "precipitacao_mm": round(clima["precipitacao"], 5),
+                        "pressao_hpa": round(clima["pressao"], 2),
+                        "radiacao_w_m2": round(clima["radiacao"], 2),
+                        "nebulosidade_pct": round(clima["nebulosidade"], 2),
+                        "valor_indice": round(valor, 4),
+                        "status_termico": status,
+                        "area_util_m2": round(float(config["area_util_m2"]), 3),
+                        "densidade_categoria": config["densidade_categoria"],
+                        "densidade_animais_m2": round(
+                            float(config["densidade_animais_m2"]), 6
+                        ),
+                        "origem_variaveis": origem_variaveis_json,
+                        "indicador_qualidade": qualidade,
+                        "entradas_indice": {k: round(v, 4) for k, v in entradas.items()},
+                        "simulation_seed": seed_zona,
+                        **animais,
+                    }
+                    lote.append(medicao)
+                    if len(lote) >= TAMANHO_LOTE_INSERCAO:
+                        sessao.inserir_medicoes(lote)
+                        total += len(lote)
+                        lote.clear()
+                if lote:
+                    sessao.inserir_medicoes(lote)
                     total += len(lote)
-                    lote.clear()
-            if lote:
-                dados_db.inserir_medicoes(lote)
-                total += len(lote)
         dados_db.concluir_execucao(execucao_id, total)
     except Exception as erro:
         dados_db.falhar_execucao(execucao_id, str(erro))
