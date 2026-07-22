@@ -8,11 +8,12 @@ import unittest
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
 
-from conforto_termico import database as db
-from conforto_termico import dados_entrada_db as dados_db
-from conforto_termico import gerador_dados as gerador
-from conforto_termico.app_factory import AppConfig, criar_app
-from conforto_termico.dados_entrada_cidades import referencias_publicas
+from app import database as db
+from app import dados_entrada_db as dados_db
+from app import gerador_dados as gerador
+from app.app_factory import AppConfig, criar_app
+from app.dados_entrada_cidades import referencias_publicas
+from tests.auth_test_utils import cliente_autenticado
 
 
 class TestDadosEntrada(unittest.TestCase):
@@ -244,7 +245,7 @@ class TestDadosEntrada(unittest.TestCase):
 
     def test_dashboard_consulta_mas_nao_registra_rotas_de_mutacao(self):
         app = criar_app("dashboard", AppConfig.from_env("dashboard"))
-        cliente = app.test_client()
+        cliente = cliente_autenticado(app)
         self.assertEqual(200, cliente.get("/api/dados-entrada/execucoes").status_code)
         self.assertEqual(200, cliente.get("/api/dados-entrada/referencias").status_code)
         self.assertEqual(404, cliente.post("/api/dados-entrada/gerar", json={}).status_code)

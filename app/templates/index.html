@@ -13,20 +13,76 @@
 
 <div class="app-shell">
 
+  <!-- Fase 2 (autenticacao): quem esta logado e por onde sair/administrar
+  -- contas. `usuario_atual` e `areas_permitidas` vem de `rotas_comuns.index`
+  -- (ver `auth.py`). -->
+  <header class="app-topo-sessao">
+    <span class="app-topo-sessao-usuario">
+      Logado como <strong>{{ usuario_atual.nome }}</strong>
+      ({{ perfil_label.get(usuario_atual.perfil, usuario_atual.perfil) }})
+    </span>
+    <span class="app-topo-sessao-acoes">
+      {% if "usuarios" in areas_permitidas %}
+      <a href="{{ url_for('usuarios.pagina_usuarios') }}" class="botao botao--texto">Gerenciar usuários</a>
+      {% endif %}
+      <form method="post" action="{{ url_for('auth.logout') }}" class="app-topo-sessao-logout">
+        <button type="submit" class="botao botao--texto">Sair</button>
+      </form>
+    </span>
+  </header>
+
+  <!-- Fase 1 (reorganizacao de UI): as abas sao agrupadas por area de uso -->
+  <!-- (Monitoramento / Operacao / Administracao / Dados) em vez de uma lista -->
+  <!-- plana -- ver README.md, secao "Organizacao das abas por papel de uso". -->
+  <!-- Cada `div.abas-grupo` e `role="presentation"`: existe so para agrupar -->
+  <!-- visualmente: o `role="tablist"` continua em `nav.abas-app` e os -->
+  <!-- botoes continuam `role="tab"`, preservando a arvore de acessibilidade. -->
+  <!-- Fase 2 (autenticacao): cada botao agora tambem exige a area
+  -- correspondente em `areas_permitidas` (perfil da sessao logada -- ver
+  -- `auth.py` e `rotas_comuns.index`). Um botao só aparece quando as DUAS
+  -- condicoes valem: o processo tem a rota (papel_app) E o perfil tem a
+  -- area. Isso e so a metade visual do controle de acesso -- a metade que
+  -- realmente importa (bloquear a chamada de API) esta nos hooks
+  -- `before_request` registrados por `auth.registrar_autenticacao`. -->
   <nav class="abas-app" role="tablist" aria-label="Navegação do app">
-    <button class="aba-botao{{ ' ativo' if aba_inicial == 'principal' else '' }}" type="button" role="tab" data-aba="principal" aria-controls="aba-principal" aria-selected="{{ 'true' if aba_inicial == 'principal' else 'false' }}">Dashboard</button>
-    {% if papel_app in (none, "coletor") %}
-    <button class="aba-botao" type="button" role="tab" data-aba="operacao" aria-controls="aba-operacao" aria-selected="false">Operação</button>
+    <div class="abas-grupo" role="presentation">
+      <span class="abas-grupo-rotulo">Monitoramento</span>
+      {% if "dashboard" in areas_permitidas %}
+      <button class="aba-botao{{ ' ativo' if aba_inicial == 'principal' else '' }}" type="button" role="tab" data-aba="principal" aria-controls="aba-principal" aria-selected="{{ 'true' if aba_inicial == 'principal' else 'false' }}">Dashboard</button>
+      {% endif %}
+      {% if papel_app in (none, "dashboard") and "analises" in areas_permitidas %}
+      <button class="aba-botao{{ ' ativo' if aba_inicial == 'analises' else '' }}" type="button" role="tab" data-aba="analises" aria-controls="aba-analises" aria-selected="{{ 'true' if aba_inicial == 'analises' else 'false' }}">Análises</button>
+      {% endif %}
+      {% if papel_app in (none, "dashboard") and "historico" in areas_permitidas %}
+      <button class="aba-botao" type="button" role="tab" data-aba="historico" aria-controls="aba-historico" aria-selected="false">Histórico</button>
+      {% endif %}
+    </div>
+    {% if papel_app in (none, "coletor") and "operacao" in areas_permitidas %}
+    <div class="abas-grupo" role="presentation">
+      <span class="abas-grupo-rotulo">Operação</span>
+      <button class="aba-botao" type="button" role="tab" data-aba="operacao" aria-controls="aba-operacao" aria-selected="false">Operação</button>
+    </div>
     {% endif %}
-    {% if papel_app in (none, "dashboard") %}
-    <button class="aba-botao{{ ' ativo' if aba_inicial == 'analises' else '' }}" type="button" role="tab" data-aba="analises" aria-controls="aba-analises" aria-selected="{{ 'true' if aba_inicial == 'analises' else 'false' }}">Análises</button>
-    <button class="aba-botao" type="button" role="tab" data-aba="historico" aria-controls="aba-historico" aria-selected="false">Histórico</button>
+    {% if papel_app in (none, "coletor") and ("cadastro" in areas_permitidas or "configuracoes" in areas_permitidas or "sistema" in areas_permitidas) %}
+    <div class="abas-grupo" role="presentation">
+      <span class="abas-grupo-rotulo">Administração</span>
+      {% if "cadastro" in areas_permitidas %}
+      <button class="aba-botao" type="button" role="tab" data-aba="zonas" aria-controls="aba-zonas" aria-selected="false">Cadastro</button>
+      {% endif %}
+      {% if "configuracoes" in areas_permitidas %}
+      <button class="aba-botao" type="button" role="tab" data-aba="configuracoes" aria-controls="aba-configuracoes" aria-selected="false">Configurações</button>
+      {% endif %}
+      {% if "sistema" in areas_permitidas %}
+      <button class="aba-botao" type="button" role="tab" data-aba="sistema" aria-controls="aba-sistema" aria-selected="false">Sistema</button>
+      {% endif %}
+    </div>
     {% endif %}
-    {% if papel_app in (none, "coletor") %}
-    <button class="aba-botao" type="button" role="tab" data-aba="zonas" aria-controls="aba-zonas" aria-selected="false">Zonas</button>
-    <button class="aba-botao" type="button" role="tab" data-aba="configuracoes" aria-controls="aba-configuracoes" aria-selected="false">Configuracoes</button>
+    {% if "dados_entrada" in areas_permitidas %}
+    <div class="abas-grupo" role="presentation">
+      <span class="abas-grupo-rotulo">Dados</span>
+      <button class="aba-botao" type="button" role="tab" data-aba="dados-entrada" aria-controls="aba-dados-entrada" aria-selected="false">Dados de entrada</button>
+    </div>
     {% endif %}
-    <button class="aba-botao" type="button" role="tab" data-aba="dados-entrada" aria-controls="aba-dados-entrada" aria-selected="false">Dados de entrada</button>
   </nav>
 
   <main id="aba-principal" class="grade aba-conteudo{{ '' if aba_inicial == 'principal' else ' oculto' }}" data-aba-conteudo="principal">
@@ -233,6 +289,17 @@
       </div>
     </section>
 
+    <section class="painel entradas-grafico-painel historico-grafico-tendencia">
+      <div class="grafico-bloco grafico-bloco--sem-moldura">
+        <div class="tabela-cabecalho">
+          <p class="grafico-titulo">Tendência do índice por resolução</p>
+          <div id="historico-resolucao-slot"></div>
+        </div>
+        <div class="grafico-canvas-wrap"><canvas id="grafico-tendencia-resolucao"></canvas></div>
+        <p id="tendencia-resolucao-legenda" class="grafico-legenda"></p>
+      </div>
+    </section>
+
     <section class="painel entradas-grafico-painel historico-grafico-entradas">
       <div class="grafico-bloco grafico-bloco--sem-moldura">
         <p class="grafico-titulo">Valores de entrada no histórico</p>
@@ -353,13 +420,48 @@
     </section>
   </section>
 
-  <section id="aba-configuracoes" class="grade grade-configuracoes aba-conteudo oculto" data-aba-conteudo="configuracoes" role="tabpanel">
-    <div class="configuracoes-coluna">
-      <section class="painel configuracoes-painel configuracoes-painel--app">
-        <h2 class="painel-titulo">Configurações do app</h2>
-        <div id="configuracoes-app" class="configuracoes-bloco"></div>
-      </section>
+  <!-- Configuracoes: fica enxuta de proposito. So o que quem decide o -->
+  <!-- limiar de alerta / manejo precisa mexer -- preferencias do app e -->
+  <!-- avisos por e-mail (quando e para quem avisar). Infraestrutura -->
+  <!-- tecnica (sensores, banco, SMTP, parametros de calculo) mudou para a -->
+  <!-- aba Sistema logo abaixo -- ver README.md. -->
+  <section id="aba-configuracoes" class="grade grade-configuracoes-enxuta aba-conteudo oculto" data-aba-conteudo="configuracoes" role="tabpanel">
+    <section class="painel configuracoes-painel configuracoes-painel--app">
+      <h2 class="painel-titulo">Preferências do app</h2>
+      <div id="configuracoes-app" class="configuracoes-bloco"></div>
+    </section>
 
+    <!-- E-mail: liga/desliga, destinatario e a partir de qual status -->
+    <!-- avisar -- decisao de manejo/alerta, nao de infraestrutura. As -->
+    <!-- credenciais do servidor SMTP em si (host/porta/usuario/senha) -->
+    <!-- ficam na aba Sistema, junto do resto da configuracao tecnica. -->
+    <section class="painel configuracoes-painel configuracoes-painel--email">
+      <h2 class="painel-titulo">Alertas por e-mail</h2>
+      <div id="configuracoes-email" class="configuracoes-bloco"></div>
+
+      <div class="campos-config">
+        <div class="campo-config">
+          <label for="cfg-status-minimo-email">Enviar a partir do status</label>
+          <select id="cfg-status-minimo-email">
+            <option value="conforto">Conforto</option>
+            <option value="alerta">Alerta</option>
+            <option value="perigo">Perigo</option>
+            <option value="emergencia">Emergência</option>
+          </select>
+        </div>
+      </div>
+      <p id="smtp-status" class="smtp-status">
+        Sem host SMTP configurado, o envio funciona em modo simulado (o e-mail é montado e mostrado na tela, mas nada é enviado de fato). Configure o servidor SMTP na aba Sistema.
+      </p>
+    </section>
+  </section>
+
+  <!-- Sistema: configuracao tecnica de instalacao -- sensores, banco de -->
+  <!-- dados, credenciais SMTP e parametros de calculo. Mexido raramente, -->
+  <!-- normalmente so na implantacao inicial ou por quem cuida do -->
+  <!-- hardware/infraestrutura (ver README.md). -->
+  <section id="aba-sistema" class="grade grade-configuracoes aba-conteudo oculto" data-aba-conteudo="sistema" role="tabpanel">
+    <div class="configuracoes-coluna">
       <section class="painel configuracoes-painel configuracoes-painel--sensores">
         <h2 class="painel-titulo">Sensores</h2>
         <div id="configuracoes-sensores" class="configuracoes-bloco">
@@ -415,23 +517,14 @@
     </div>
 
     <div class="configuracoes-coluna">
-      <!-- E-mail: liga/desliga, destinatario e credenciais SMTP para envio -->
-      <!-- de verdade (mesmos 4 parametros ja documentados no README como -->
-      <!-- variaveis de ambiente SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS). -->
-      <section class="painel configuracoes-painel configuracoes-painel--email">
-        <h2 class="painel-titulo">E-mail</h2>
-        <div id="configuracoes-email" class="configuracoes-bloco"></div>
-
+      <!-- Credenciais do servidor SMTP em si (mesmos 4 parametros ja -->
+      <!-- documentados no README como variaveis de ambiente -->
+      <!-- SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS). A decisao de "avisar a -->
+      <!-- partir de qual status" fica na aba Configuracoes, perto de quem -->
+      <!-- decide o limiar de alerta. -->
+      <section class="painel configuracoes-painel configuracoes-painel--smtp">
+        <h2 class="painel-titulo">Servidor SMTP</h2>
         <div class="campos-config">
-          <div class="campo-config">
-            <label for="cfg-status-minimo-email">Enviar a partir do status</label>
-            <select id="cfg-status-minimo-email">
-              <option value="conforto">Conforto</option>
-              <option value="alerta">Alerta</option>
-              <option value="perigo">Perigo</option>
-              <option value="emergencia">Emergência</option>
-            </select>
-          </div>
           <div class="campo-config">
             <label for="cfg-smtp-host">Servidor SMTP (host)</label>
             <input type="text" id="cfg-smtp-host" placeholder="smtp.seuservidor.com" autocomplete="off">
@@ -449,9 +542,6 @@
             <input type="password" id="cfg-smtp-senha" placeholder="Deixe em branco para manter a senha atual" autocomplete="new-password">
           </div>
         </div>
-        <p id="smtp-status" class="smtp-status">
-          Sem host SMTP configurado, o envio funciona em modo simulado (o e-mail é montado e mostrado na tela, mas nada é enviado de fato).
-        </p>
       </section>
 
       <section class="painel configuracoes-painel configuracoes-painel--calculos">

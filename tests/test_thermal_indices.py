@@ -12,7 +12,7 @@ Rodar com:
 
 import unittest
 
-from conforto_termico.thermal_indices import (
+from app.thermal_indices import (
     CAMPOS_POR_INDICE,
     INDICES_POR_ESPECIE,
     LIMITES,

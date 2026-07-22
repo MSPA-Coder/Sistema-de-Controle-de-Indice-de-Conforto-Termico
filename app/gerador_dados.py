@@ -186,7 +186,7 @@ def _chave_cache(latitude: float, longitude: float, inicio: str, fim: str) -> st
 def _baixar_json(url: str) -> dict:
     requisicao = urllib.request.Request(
         url,
-        headers={"User-Agent": "ConfortoTermico-Mestrado/1.0 (historical-input-generator)"},
+        headers={"User-Agent": "ConfortoTermico/1.0 (historical-input-generator)"},
     )
     try:
         # O Truststore usa o armazenamento nativo do sistema operacional,

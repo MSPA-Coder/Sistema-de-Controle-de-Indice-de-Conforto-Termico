@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Lancador para executar a aplicacao com `python app.py`."""
 
-from conforto_termico.web import (
+from app.web import (
     app,
     executar_servidor_local,
 )

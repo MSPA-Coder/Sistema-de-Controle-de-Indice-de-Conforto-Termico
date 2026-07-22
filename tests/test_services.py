@@ -2,9 +2,9 @@
 
 import unittest
 
-from conforto_termico import thermal_indices as ti
-from conforto_termico.models import Resfriamento
-from conforto_termico.services import EstadoSensor, EstrategiaResfriamento, HistoricoGraficoService
+from app import thermal_indices as ti
+from app.models import Resfriamento
+from app.services import EstadoSensor, EstrategiaResfriamento, HistoricoGraficoService
 
 
 class TestHistoricoGraficoService(unittest.TestCase):

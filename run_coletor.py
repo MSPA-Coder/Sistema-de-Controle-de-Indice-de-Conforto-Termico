@@ -15,7 +15,7 @@ por padrao (nenhuma variavel extra necessaria) -- o WAL + timeout de
 `database._conexao` ja cobre dois processos escrevendo/lendo o mesmo
 arquivo ao mesmo tempo."""
 
-from conforto_termico.app_factory import AppConfig, criar_app, executar_servidor
+from app.app_factory import AppConfig, criar_app, executar_servidor
 
 config = AppConfig.from_env("coletor")
 app = criar_app(papel_app="coletor", config=config)

@@ -10,7 +10,7 @@ respostas de sucesso, erro Modbus e excecao de rede.
 import unittest
 from unittest.mock import patch
 
-from conforto_termico import modbus_client
+from app import modbus_client
 
 
 class _RespostaFalsa:

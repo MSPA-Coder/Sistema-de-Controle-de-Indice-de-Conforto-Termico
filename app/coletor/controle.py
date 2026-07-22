@@ -12,6 +12,7 @@ import datetime
 import threading
 from collections import defaultdict
 
+from .. import agregacao
 from .. import database as db
 from .. import thermal_indices as ti
 from ..zona_service import ZonaCalculoError
@@ -149,6 +150,16 @@ class GerenciadorControleZonas:
 
         agora = self._agora().isoformat(timespec="seconds")
         db.salvar_status_coletor("online", ultimo_ciclo_em=agora, erro=None)
+
+        # Consolidacao de 15min/hora: idempotente e barata quando nao ha
+        # janela pendente (ver docstring de agregacao.py), entao roda a
+        # cada ciclo sem exigir um agendador separado.
+        try:
+            agregacao.executar(logger=logger)
+        except Exception:
+            if logger:
+                logger.exception("Falha na consolidacao periodica (15min/hora)")
+
         return resultados
 
     def calcular_manual(

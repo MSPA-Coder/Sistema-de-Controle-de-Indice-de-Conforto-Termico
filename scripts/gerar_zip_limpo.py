@@ -5,7 +5,7 @@ ambientes virtuais, logs ou temporários.
 
 Uso, a partir da raiz do projeto:
     python scripts/gerar_zip_limpo.py
-    python scripts/gerar_zip_limpo.py --output ../Mestrado_UNIP_clean.zip
+    python scripts/gerar_zip_limpo.py --output ../ConfortoTermico_clean.zip
 """
 from __future__ import annotations
 

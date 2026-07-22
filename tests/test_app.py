@@ -6,9 +6,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from conforto_termico import app_factory
-from conforto_termico import database as db
-from conforto_termico import web as flask_app
+from app import app_factory
+from app import database as db
+from app import web as flask_app
+from tests.auth_test_utils import cliente_autenticado
 
 
 class TestHistoricoGraficoApi(unittest.TestCase):
@@ -20,7 +21,7 @@ class TestHistoricoGraficoApi(unittest.TestCase):
         flask_app.historico_grafico_service.limpar()
         flask_app.sensor_simulado_service.limpar()
         flask_app._resfriador.desativar()
-        self.client = flask_app.app.test_client()
+        self.client = cliente_autenticado(flask_app.app)
 
     def tearDown(self):
         flask_app.historico_grafico_service.limpar()
@@ -520,7 +521,7 @@ class TestValidacaoDeParametros(unittest.TestCase):
         self.db_path_original = db.DB_PATH
         db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
         db.iniciar_banco()
-        self.client = flask_app.app.test_client()
+        self.client = cliente_autenticado(flask_app.app)
 
     def tearDown(self):
         db.DB_PATH = self.db_path_original
@@ -580,7 +581,7 @@ class TestCabecalhosDeSeguranca(unittest.TestCase):
         self.db_path_original = db.DB_PATH
         db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
         db.iniciar_banco()
-        self.client = flask_app.app.test_client()
+        self.client = cliente_autenticado(flask_app.app)
 
     def tearDown(self):
         db.DB_PATH = self.db_path_original
@@ -609,7 +610,7 @@ class TestErroInternoNaoVazaDetalhe(unittest.TestCase):
         self.db_path_original = db.DB_PATH
         db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
         db.iniciar_banco()
-        self.client = flask_app.app.test_client()
+        self.client = cliente_autenticado(flask_app.app)
 
     def tearDown(self):
         db.DB_PATH = self.db_path_original
@@ -643,7 +644,7 @@ class TestZonasApi(unittest.TestCase):
         db.iniciar_banco()
         flask_app.zona_service.limpar_historico_grafico()
         flask_app.zona_service.limpar_resfriador()
-        self.client = flask_app.app.test_client()
+        self.client = cliente_autenticado(flask_app.app)
 
     def tearDown(self):
         flask_app.zona_service.limpar_historico_grafico()

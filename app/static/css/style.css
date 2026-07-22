@@ -58,11 +58,30 @@ button { font-family: inherit; }
 .abas-app {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  align-items: center;
+  gap: 1.5rem;
   max-width: 1360px;
   width: 100%;
   margin: 0 auto;
   padding: 1.5rem 1.75rem 0;
+}
+/* Agrupamento visual das abas por area de uso (Monitoramento / Operacao / */
+/* Administracao / Dados) -- ver comentario no template sobre acessibilidade. */
+.abas-grupo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.abas-grupo-rotulo {
+  font-family: var(--fonte-mono);
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cor-texto-mute);
+  white-space: nowrap;
+  padding-right: 0.15rem;
 }
 .aba-botao {
   font-weight: 600;
@@ -145,6 +164,15 @@ button { font-family: inherit; }
   align-items: start;
   gap: 1rem;
 }
+/* Aba Configuracoes (pos Fase 1): so preferencias do app + limiar de */
+/* alerta por e-mail -- conteudo enxuto, uma coluna centralizada em vez */
+/* das duas colunas tecnicas da aba Sistema. */
+.grade-configuracoes-enxuta {
+  grid-template-columns: minmax(0, 720px);
+  justify-content: center;
+  align-items: start;
+  gap: 1rem;
+}
 .grade-historico {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: start;
@@ -201,7 +229,9 @@ button { font-family: inherit; }
     min-height: auto;
   }
   .grade-configuracoes { grid-template-columns: 1fr; }
-  .abas-app { padding: 0.85rem 1rem 0; }
+  .grade-configuracoes-enxuta { grid-template-columns: minmax(0, 1fr); }
+  .abas-app { padding: 0.85rem 1rem 0; gap: 0.85rem; }
+  .abas-grupo-rotulo { width: 100%; }
 }
 
 /* ---------------------------------------------------------------------------
@@ -1333,4 +1363,125 @@ td.status-emergencia { color: var(--status-emergencia); }
 }
 @media (min-width: 701px) and (max-width: 1050px) {
   .operacao-equipamentos { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* ---------------------------------------------------------------------------
+   Fase 2 (autenticacao): login e administracao de usuarios. Paginas fora da
+   SPA (server-rendered, sem app.js) -- reaproveitam os mesmos tokens de cor,
+   `.painel`, `.botao*`, `.campo-config` e `.check` ja usados no resto da
+   interface, para nao parecerem uma tela "colada" de outro sistema.
+   ------------------------------------------------------------------------- */
+
+.pagina-auth { min-height: 100vh; }
+
+.auth-pagina {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+.auth-cartao {
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.auth-titulo {
+  font-family: var(--fonte-mono);
+  font-size: 1.1rem;
+  margin: 0;
+  letter-spacing: 0.02em;
+}
+.auth-subtitulo { margin: 0 0 0.75rem; color: var(--cor-texto-mute); font-size: 0.85rem; }
+.auth-erro {
+  margin: 0 0 0.75rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--raio);
+  background: rgba(193, 68, 60, 0.16);
+  border: 1px solid var(--status-perigo);
+  color: #ffcdc8;
+  font-size: 0.83rem;
+}
+.auth-form { display: flex; flex-direction: column; gap: 0.85rem; }
+.auth-botao { margin-top: 0.25rem; }
+
+.admin-pagina { max-width: 960px; margin: 0 auto; padding: 1.75rem 1.5rem 3rem; }
+.admin-topo {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+.admin-voltar { display: inline-block; margin-bottom: 0.5rem; }
+.admin-titulo { font-family: var(--fonte-mono); font-size: 1.3rem; margin: 0 0 0.3rem; }
+.admin-subtitulo { margin: 0; color: var(--cor-texto-mute); font-size: 0.82rem; max-width: 46ch; }
+.admin-sessao {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.82rem;
+  color: var(--cor-texto-mute);
+  white-space: nowrap;
+}
+.admin-logout-form { display: inline; }
+
+.admin-flash-lista { margin-bottom: 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.admin-flash {
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--raio);
+  font-size: 0.83rem;
+}
+.admin-flash--erro {
+  background: rgba(193, 68, 60, 0.16);
+  border: 1px solid var(--status-perigo);
+  color: #ffcdc8;
+}
+
+.admin-painel { max-width: none; }
+.admin-painel-cabecalho {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+.admin-acoes { display: flex; gap: 0.5rem; }
+.admin-excluir-form { display: inline; }
+
+.admin-painel--form { max-width: 480px; }
+.admin-form { gap: 1rem; }
+.admin-check-ativo { margin-top: 0.2rem; }
+.admin-form-acoes { display: flex; gap: 0.75rem; margin-top: 0.5rem; }
+
+@media (max-width: 640px) {
+  .admin-topo { flex-direction: column; }
+  .admin-sessao { white-space: normal; }
+}
+
+/* Topbar de sessao (Fase 2) no topo da SPA principal -- quem esta logado,
+   link de administracao de usuarios (so quando a area "usuarios" esta
+   liberada) e o botao de sair. */
+.app-topo-sessao {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1.75rem;
+  background: var(--cor-painel);
+  border-bottom: 1px solid var(--cor-borda);
+  font-size: 0.78rem;
+  color: var(--cor-texto-mute);
+}
+.app-topo-sessao-usuario strong { color: var(--cor-texto); }
+.app-topo-sessao-acoes { display: flex; align-items: center; gap: 0.75rem; }
+.app-topo-sessao-logout { display: inline; }
+@media (max-width: 700px) {
+  .app-topo-sessao { padding: 0.5rem 1rem; }
 }

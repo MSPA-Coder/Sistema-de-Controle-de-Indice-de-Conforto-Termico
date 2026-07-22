@@ -14,7 +14,7 @@ Este processo nunca importa `modbus_client`/`zona_service` (ver
 tentasse usar essas pecas por engano, elas simplesmente nao existem na
 memoria deste processo."""
 
-from conforto_termico.app_factory import AppConfig, criar_app, executar_servidor
+from app.app_factory import AppConfig, criar_app, executar_servidor
 
 config = AppConfig.from_env("dashboard")
 app = criar_app(papel_app="dashboard", config=config)

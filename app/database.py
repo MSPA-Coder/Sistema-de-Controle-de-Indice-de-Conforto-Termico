@@ -48,6 +48,21 @@ MODOS_OPERACAO = ("desligado", "manual", "automatico", "manutencao")
 MODO_OPERACAO_PADRAO = "manual"
 _NAO_INFORMADO = object()
 
+# Perfis de usuario (Fase 2 -- autenticacao e controle de acesso por
+# pessoa). O MAPEAMENTO perfil -> areas da interface liberadas fica em
+# `auth.py` (AREAS_POR_PERFIL), perto da logica de sessao/login que o
+# consome -- aqui so a lista de valores aceitos na coluna `usuarios.perfil`,
+# para nao criar um import circular (`auth.py` ja importa este modulo para
+# persistir usuarios).
+PERFIS_VALIDOS = (
+    "operador",
+    "tecnico",
+    "veterinario",
+    "analista",
+    "gestor",
+    "administrador",
+)
+
 CONFIGURACOES_PADRAO = {
     "coletarDados": False,
     "habilitarSons": False,
@@ -164,6 +179,28 @@ def iniciar_banco() -> None:
                 chave TEXT PRIMARY KEY,
                 valor TEXT NOT NULL,
                 atualizado_em TEXT NOT NULL
+            )
+            """
+        )
+
+        # --- Usuarios (Fase 2: autenticacao e perfil por pessoa) ----------
+        # `login` com COLLATE NOCASE: compara/unifica sem diferenciar
+        # maiusculas de minusculas diretamente no indice UNIQUE, para que
+        # "Joao" e "joao" nao virem duas contas por descuido de digitacao.
+        # `senha_hash` nunca guarda a senha em texto puro -- ver `auth.py`
+        # (unico modulo que conhece o algoritmo de hash usado).
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS usuarios (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nome TEXT NOT NULL,
+                login TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                senha_hash TEXT NOT NULL,
+                perfil TEXT NOT NULL,
+                ativo INTEGER NOT NULL DEFAULT 1,
+                criado_em TEXT NOT NULL,
+                atualizado_em TEXT NOT NULL,
+                ultimo_login_em TEXT
             )
             """
         )
@@ -297,6 +334,71 @@ def iniciar_banco() -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_leituras_recentes_zona_id "
             "ON leituras_recentes_zona (zona_id, id)"
+        )
+
+        # --- Camada de agregacao (15 min / hora) ---------------------------
+        # `leituras` grava toda leitura individual (1 a cada
+        # `intervaloGravacaoMinutos`, tipicamente 1-5 min). Para analise de
+        # tendencia e relatorios, duas camadas derivadas sao consolidadas a
+        # partir dela por `agregacao.py`:
+        #
+        #  1) `agregados_15min`: media/minimo/maximo do indice E de cada
+        #     variavel de entrada (tbs, tbu, ur, v, tgn, tpo) dentro de cada
+        #     janela fechada de 15 minutos. Alimenta graficos de tendencia
+        #     sem precisar varrer a leitura bruta.
+        #  2) `resumos_horarios`: media do indice na hora, status
+        #     classificado a partir dessa media, e o percentual de leituras
+        #     daquela hora em cada status (Conforto/Alerta/Perigo/
+        #     Emergencia). E a unidade de tempo que a literatura de conforto
+        #     termico usa para reportar os indices (ITU/IGNU horarios).
+        #
+        # Ambas sao UPSERT por (zona_id, indice, janela) -- reprocessar uma
+        # janela ja consolidada apenas recalcula o mesmo resultado.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS agregados_15min (
+                zona_id INTEGER NOT NULL REFERENCES zonas(id) ON DELETE CASCADE,
+                especie TEXT NOT NULL,
+                indice TEXT NOT NULL,
+                janela_inicio TEXT NOT NULL,
+                amostras INTEGER NOT NULL,
+                valor_medio REAL NOT NULL,
+                valor_minimo REAL NOT NULL,
+                valor_maximo REAL NOT NULL,
+                entradas_medias TEXT NOT NULL,
+                criado_em TEXT NOT NULL,
+                PRIMARY KEY (zona_id, indice, janela_inicio)
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_agregados_15min_zona "
+            "ON agregados_15min (zona_id, janela_inicio)"
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS resumos_horarios (
+                zona_id INTEGER NOT NULL REFERENCES zonas(id) ON DELETE CASCADE,
+                especie TEXT NOT NULL,
+                indice TEXT NOT NULL,
+                hora_inicio TEXT NOT NULL,
+                amostras INTEGER NOT NULL,
+                valor_medio REAL NOT NULL,
+                valor_minimo REAL NOT NULL,
+                valor_maximo REAL NOT NULL,
+                status_da_media TEXT NOT NULL,
+                pct_conforto REAL NOT NULL,
+                pct_alerta REAL NOT NULL,
+                pct_perigo REAL NOT NULL,
+                pct_emergencia REAL NOT NULL,
+                criado_em TEXT NOT NULL,
+                PRIMARY KEY (zona_id, indice, hora_inicio)
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_resumos_horarios_zona "
+            "ON resumos_horarios (zona_id, hora_inicio)"
         )
 
         # Evolucao do resumo legado para distinguir aquilo que o algoritmo
@@ -655,12 +757,278 @@ def limpar_historico(especie: str | None = None, indice: str | None = None) -> N
                 "DELETE FROM leituras_recentes_zona WHERE especie = ? AND indice = ?",
                 (especie, indice),
             )
+            conn.execute(
+                "DELETE FROM agregados_15min WHERE especie = ? AND indice = ?",
+                (especie, indice),
+            )
+            conn.execute(
+                "DELETE FROM resumos_horarios WHERE especie = ? AND indice = ?",
+                (especie, indice),
+            )
         elif especie:
             conn.execute("DELETE FROM leituras WHERE especie = ?", (especie,))
             conn.execute("DELETE FROM leituras_recentes_zona WHERE especie = ?", (especie,))
+            conn.execute("DELETE FROM agregados_15min WHERE especie = ?", (especie,))
+            conn.execute("DELETE FROM resumos_horarios WHERE especie = ?", (especie,))
         else:
             conn.execute("DELETE FROM leituras")
             conn.execute("DELETE FROM leituras_recentes_zona")
+            conn.execute("DELETE FROM agregados_15min")
+            conn.execute("DELETE FROM resumos_horarios")
+
+
+# ---------------------------------------------------------------------------
+# Camada de agregacao (15 min / hora) -- ver comentario da tabela em
+# `iniciar_banco`. A logica de QUANDO consolidar vive em `agregacao.py`;
+# aqui ficam apenas as consultas e gravacoes.
+# ---------------------------------------------------------------------------
+def _formatar_janela(momento: datetime.datetime, minutos: int) -> str:
+    """Arredonda `momento` para baixo, para o inicio do bucket de `minutos`
+    minutos (ex.: 14:07:32 com minutos=15 vira 14:00:00)."""
+    bucket = (momento.minute // minutos) * minutos
+    return momento.replace(minute=bucket, second=0, microsecond=0).isoformat(
+        timespec="seconds"
+    )
+
+
+def janelas_15min_pendentes(zona_id: int, indice: str) -> list[str]:
+    """Devolve o inicio (ISO) de cada janela de 15 min FECHADA (ou seja, que
+    ja terminou) que tem leitura bruta na tabela `leituras` mas ainda nao
+    foi consolidada em `agregados_15min`."""
+    agora = datetime.datetime.now().replace(microsecond=0)
+    janela_atual_aberta = _formatar_janela(agora, 15)
+    with _conexao(escrita=False) as conn:
+        linhas = conn.execute(
+            """
+            SELECT DISTINCT
+                (strftime('%Y-%m-%dT%H:', criado_em) ||
+                 printf('%02d', (CAST(strftime('%M', criado_em) AS INTEGER) / 15) * 15) ||
+                 ':00') AS janela
+            FROM leituras
+            WHERE zona_id = ? AND indice = ?
+            """,
+            (zona_id, indice),
+        ).fetchall()
+        ja_feitas = conn.execute(
+            "SELECT janela_inicio FROM agregados_15min WHERE zona_id = ? AND indice = ?",
+            (zona_id, indice),
+        ).fetchall()
+    feitas = {linha["janela_inicio"] for linha in ja_feitas}
+    pendentes = sorted(
+        linha["janela"]
+        for linha in linhas
+        if linha["janela"] not in feitas and linha["janela"] < janela_atual_aberta
+    )
+    return pendentes
+
+
+def agregar_janela_15min(zona_id: int, especie: str, indice: str, janela_inicio: str) -> dict | None:
+    """Calcula media/minimo/maximo do indice e de cada campo de entrada
+    dentro da janela de 15 min informada e grava (UPSERT) em
+    `agregados_15min`. Devolve o registro gravado, ou None se a janela nao
+    tiver nenhuma leitura (nao deveria acontecer, ja que a janela veio de
+    `janelas_15min_pendentes`, mas o metodo fica seguro de qualquer jeito)."""
+    janela_fim = (
+        datetime.datetime.fromisoformat(janela_inicio) + datetime.timedelta(minutes=15)
+    ).isoformat(timespec="seconds")
+    with _conexao() as conn:
+        linhas = conn.execute(
+            """
+            SELECT valor, entradas FROM leituras
+            WHERE zona_id = ? AND indice = ? AND criado_em >= ? AND criado_em < ?
+            """,
+            (zona_id, indice, janela_inicio, janela_fim),
+        ).fetchall()
+        if not linhas:
+            return None
+
+        valores = [linha["valor"] for linha in linhas]
+        entradas_por_campo: dict[str, list[float]] = {}
+        for linha in linhas:
+            for campo, valor in json.loads(linha["entradas"]).items():
+                if isinstance(valor, (int, float)):
+                    entradas_por_campo.setdefault(campo, []).append(float(valor))
+        entradas_medias = {
+            campo: round(sum(vs) / len(vs), 2) for campo, vs in entradas_por_campo.items()
+        }
+
+        agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+        registro = {
+            "zona_id": zona_id,
+            "especie": especie,
+            "indice": indice,
+            "janela_inicio": janela_inicio,
+            "amostras": len(valores),
+            "valor_medio": round(sum(valores) / len(valores), 2),
+            "valor_minimo": round(min(valores), 2),
+            "valor_maximo": round(max(valores), 2),
+            "entradas_medias": entradas_medias,
+        }
+        conn.execute(
+            """
+            INSERT INTO agregados_15min
+                (zona_id, especie, indice, janela_inicio, amostras,
+                 valor_medio, valor_minimo, valor_maximo, entradas_medias, criado_em)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (zona_id, indice, janela_inicio) DO UPDATE SET
+                amostras = excluded.amostras,
+                valor_medio = excluded.valor_medio,
+                valor_minimo = excluded.valor_minimo,
+                valor_maximo = excluded.valor_maximo,
+                entradas_medias = excluded.entradas_medias,
+                criado_em = excluded.criado_em
+            """,
+            (
+                zona_id, especie, indice, janela_inicio, registro["amostras"],
+                registro["valor_medio"], registro["valor_minimo"], registro["valor_maximo"],
+                json.dumps(entradas_medias), agora,
+            ),
+        )
+    return registro
+
+
+def horas_pendentes(zona_id: int, indice: str) -> list[str]:
+    """Mesma ideia de `janelas_15min_pendentes`, mas para horas fechadas,
+    usando `agregados_15min` como fonte (ja que toda hora e composta por
+    ate 4 janelas de 15 min)."""
+    agora = datetime.datetime.now().replace(microsecond=0)
+    hora_atual_aberta = agora.replace(minute=0, second=0, microsecond=0).isoformat(
+        timespec="seconds"
+    )
+    with _conexao(escrita=False) as conn:
+        linhas = conn.execute(
+            """
+            SELECT DISTINCT (strftime('%Y-%m-%dT%H:00:00', janela_inicio)) AS hora
+            FROM agregados_15min
+            WHERE zona_id = ? AND indice = ?
+            """,
+            (zona_id, indice),
+        ).fetchall()
+        ja_feitas = conn.execute(
+            "SELECT hora_inicio FROM resumos_horarios WHERE zona_id = ? AND indice = ?",
+            (zona_id, indice),
+        ).fetchall()
+    feitas = {linha["hora_inicio"] for linha in ja_feitas}
+    return sorted(
+        linha["hora"]
+        for linha in linhas
+        if linha["hora"] not in feitas and linha["hora"] < hora_atual_aberta
+    )
+
+
+def consolidar_resumo_horario(zona_id: int, especie: str, indice: str, hora_inicio: str) -> dict | None:
+    """Consolida a hora informada a partir da LEITURA BRUTA (nao dos
+    agregados de 15 min, para nao perder precisao nos percentuais de
+    status), calculando: media/minimo/maximo do indice, o status
+    classificado a partir da MEDIA horaria (a forma como a literatura de
+    ITU/IGNU reporta indices horarios), e o percentual de leituras da hora
+    em cada status."""
+    hora_fim = (
+        datetime.datetime.fromisoformat(hora_inicio) + datetime.timedelta(hours=1)
+    ).isoformat(timespec="seconds")
+    with _conexao() as conn:
+        linhas = conn.execute(
+            """
+            SELECT valor, status FROM leituras
+            WHERE zona_id = ? AND indice = ? AND criado_em >= ? AND criado_em < ?
+            """,
+            (zona_id, indice, hora_inicio, hora_fim),
+        ).fetchall()
+        if not linhas:
+            return None
+
+        valores = [linha["valor"] for linha in linhas]
+        valor_medio = round(sum(valores) / len(valores), 2)
+        status_da_media = ti.classificar_status(valor_medio, especie, indice)
+
+        total = len(linhas)
+        contagem = {status: 0 for status in ti.STATUS_ORDEM}
+        for linha in linhas:
+            contagem[linha["status"]] = contagem.get(linha["status"], 0) + 1
+        percentuais = {
+            status: round((contagem.get(status, 0) / total) * 100, 1)
+            for status in ti.STATUS_ORDEM
+        }
+
+        agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+        conn.execute(
+            """
+            INSERT INTO resumos_horarios
+                (zona_id, especie, indice, hora_inicio, amostras, valor_medio,
+                 valor_minimo, valor_maximo, status_da_media,
+                 pct_conforto, pct_alerta, pct_perigo, pct_emergencia, criado_em)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (zona_id, indice, hora_inicio) DO UPDATE SET
+                amostras = excluded.amostras,
+                valor_medio = excluded.valor_medio,
+                valor_minimo = excluded.valor_minimo,
+                valor_maximo = excluded.valor_maximo,
+                status_da_media = excluded.status_da_media,
+                pct_conforto = excluded.pct_conforto,
+                pct_alerta = excluded.pct_alerta,
+                pct_perigo = excluded.pct_perigo,
+                pct_emergencia = excluded.pct_emergencia,
+                criado_em = excluded.criado_em
+            """,
+            (
+                zona_id, especie, indice, hora_inicio, total, valor_medio,
+                round(min(valores), 2), round(max(valores), 2), status_da_media,
+                percentuais["Conforto"], percentuais["Alerta"],
+                percentuais["Perigo"], percentuais["Emergência"], agora,
+            ),
+        )
+    return {
+        "zona_id": zona_id, "indice": indice, "hora_inicio": hora_inicio,
+        "amostras": total, "valor_medio": valor_medio, "status_da_media": status_da_media,
+        "percentuais": percentuais,
+    }
+
+
+def obter_agregados_15min(zona_id: int, limite: int = 96) -> list[dict]:
+    """Ultimas janelas de 15 min consolidadas de uma zona, em ordem
+    cronologica (96 janelas = 24h de historico por padrao)."""
+    limite = max(1, min(2000, int(limite)))
+    with _conexao(escrita=False) as conn:
+        linhas = conn.execute(
+            """
+            SELECT * FROM agregados_15min WHERE zona_id = ?
+            ORDER BY janela_inicio DESC LIMIT ?
+            """,
+            (zona_id, limite),
+        ).fetchall()
+    dados = [dict(linha) for linha in reversed(linhas)]
+    for item in dados:
+        item["entradas_medias"] = json.loads(item["entradas_medias"])
+    return dados
+
+
+def obter_resumos_horarios(
+    zona_id: int,
+    limite: int = 168,
+    data_inicio: str | None = None,
+    data_fim: str | None = None,
+) -> list[dict]:
+    """Ultimos resumos horarios de uma zona (168 horas = 7 dias por
+    padrao), com filtro de data opcional para relatorios de periodo."""
+    limite = max(1, min(5000, int(limite)))
+    filtros = ["zona_id = ?"]
+    parametros: list = [zona_id]
+    if data_inicio:
+        filtros.append("hora_inicio >= ?")
+        parametros.append(f"{data_inicio} 00:00:00")
+    if data_fim:
+        fim_exclusivo = (
+            datetime.date.fromisoformat(data_fim) + datetime.timedelta(days=1)
+        ).isoformat()
+        filtros.append("hora_inicio < ?")
+        parametros.append(f"{fim_exclusivo} 00:00:00")
+    where = "WHERE " + " AND ".join(filtros)
+    with _conexao(escrita=False) as conn:
+        linhas = conn.execute(
+            f"SELECT * FROM resumos_horarios {where} ORDER BY hora_inicio DESC LIMIT ?",
+            [*parametros, limite],
+        ).fetchall()
+    return [dict(linha) for linha in reversed(linhas)]
 
 
 def criar_backup_banco() -> dict:
@@ -2028,3 +2396,240 @@ def salvar_configuracoes(configuracoes: dict) -> dict:
             ],
         )
     return salvas
+
+
+# ---------------------------------------------------------------------------
+# Usuarios (Fase 2: autenticacao e perfil por pessoa). Este modulo nunca
+# calcula nem confere hash de senha -- `senha_hash` chega aqui ja pronto
+# (ver `auth.py`, unico lugar que conhece `werkzeug.security`). Manter o
+# hashing fora de `database.py` e deliberado: a senha em texto puro nunca
+# precisa passar perto de uma f-string de SQL ou de um log de depuracao
+# deste modulo.
+# ---------------------------------------------------------------------------
+
+
+class UsuarioInvalidoError(ValueError):
+    """Dados de usuario invalidos (nome vazio, perfil desconhecido, login
+    ja em uso, etc.) -- convertida em HTTP 400/409 pela rota chamadora."""
+
+
+class UsuarioNaoEncontradoError(UsuarioInvalidoError):
+    """Operacao (atualizar/excluir) referenciou um id de usuario que nao
+    existe -- convertida em HTTP 404 pela rota chamadora."""
+
+
+class UltimoAdministradorError(UsuarioInvalidoError):
+    """Recusa desativar/rebaixar/excluir o ultimo administrador ativo: sem
+    essa trava, um erro de operacao (ou um clique errado) podia deixar o
+    sistema sem NENHUM usuario capaz de gerenciar outros usuarios -- um
+    auto-lockout que so daria pra corrigir mexendo direto no arquivo do
+    banco."""
+
+
+def _validar_usuario(dados: dict, *, exigir_senha: bool) -> dict:
+    nome = str(dados.get("nome", "")).strip()
+    if not nome:
+        raise UsuarioInvalidoError("Informe o nome do usuário.")
+
+    login = str(dados.get("login", "")).strip()
+    if not login:
+        raise UsuarioInvalidoError("Informe o login do usuário.")
+    if len(login) > 80:
+        raise UsuarioInvalidoError("O login pode ter no máximo 80 caracteres.")
+    if any(caractere.isspace() for caractere in login):
+        raise UsuarioInvalidoError("O login não pode conter espaços.")
+
+    perfil = dados.get("perfil")
+    if perfil not in PERFIS_VALIDOS:
+        raise UsuarioInvalidoError(
+            f"Perfil inválido: {perfil!r} (esperado um de {PERFIS_VALIDOS})."
+        )
+
+    resultado = {
+        "nome": nome[:255],
+        "login": login,
+        "perfil": perfil,
+        "ativo": _coagir_booleano(dados.get("ativo", True), True),
+    }
+
+    senha_hash = dados.get("senha_hash")
+    if exigir_senha and not senha_hash:
+        raise UsuarioInvalidoError("Informe uma senha para o usuário.")
+    if senha_hash:
+        resultado["senha_hash"] = senha_hash
+    return resultado
+
+
+def _linha_usuario_publica(linha: sqlite3.Row) -> dict:
+    """Mesma logica de `_configuracoes_publicas`: o hash da senha nunca sai
+    deste modulo em direcao a uma resposta HTTP."""
+    usuario = dict(linha)
+    usuario.pop("senha_hash", None)
+    usuario["ativo"] = bool(usuario["ativo"])
+    return usuario
+
+
+def criar_usuario(dados: dict) -> dict:
+    validado = _validar_usuario(dados, exigir_senha=True)
+    agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+    with _conexao() as conn:
+        existe = conn.execute(
+            "SELECT 1 FROM usuarios WHERE login = ?", (validado["login"],)
+        ).fetchone()
+        if existe is not None:
+            raise UsuarioInvalidoError(f"Já existe um usuário com o login '{validado['login']}'.")
+        cursor = conn.execute(
+            "INSERT INTO usuarios (nome, login, senha_hash, perfil, ativo, criado_em, atualizado_em) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                validado["nome"],
+                validado["login"],
+                validado["senha_hash"],
+                validado["perfil"],
+                int(validado["ativo"]),
+                agora,
+                agora,
+            ),
+        )
+        linha = conn.execute(
+            "SELECT * FROM usuarios WHERE id = ?", (cursor.lastrowid,)
+        ).fetchone()
+    return _linha_usuario_publica(linha)
+
+
+def listar_usuarios() -> list[dict]:
+    with _conexao(escrita=False) as conn:
+        linhas = conn.execute("SELECT * FROM usuarios ORDER BY nome").fetchall()
+    return [_linha_usuario_publica(linha) for linha in linhas]
+
+
+def obter_usuario(usuario_id: int) -> dict | None:
+    with _conexao(escrita=False) as conn:
+        linha = conn.execute("SELECT * FROM usuarios WHERE id = ?", (usuario_id,)).fetchone()
+    return _linha_usuario_publica(linha) if linha else None
+
+
+def obter_usuario_por_login(login: str) -> dict | None:
+    """Unica funcao deste modulo que devolve o `senha_hash` de verdade --
+    `auth.py` precisa dele para conferir a senha digitada no login. Nunca
+    chamar esta funcao a partir de uma rota que devolve o resultado direto
+    numa resposta HTTP (use `obter_usuario`/`listar_usuarios` para isso)."""
+    login = str(login or "").strip()
+    if not login:
+        return None
+    with _conexao(escrita=False) as conn:
+        linha = conn.execute("SELECT * FROM usuarios WHERE login = ?", (login,)).fetchone()
+    return dict(linha) if linha else None
+
+
+def contar_usuarios_ativos_por_perfil(perfil: str, *, excluir_id: int | None = None) -> int:
+    with _conexao(escrita=False) as conn:
+        if excluir_id is None:
+            linha = conn.execute(
+                "SELECT COUNT(*) AS total FROM usuarios WHERE perfil = ? AND ativo = 1",
+                (perfil,),
+            ).fetchone()
+        else:
+            linha = conn.execute(
+                "SELECT COUNT(*) AS total FROM usuarios "
+                "WHERE perfil = ? AND ativo = 1 AND id != ?",
+                (perfil, excluir_id),
+            ).fetchone()
+    return int(linha["total"])
+
+
+def atualizar_usuario(usuario_id: int, dados: dict) -> dict:
+    """Atualiza nome/login/perfil/ativo e, opcionalmente, a senha (so se
+    `dados["senha_hash"]` vier preenchido -- do contrario a senha atual e
+    preservada, mesma logica ja usada para `smtpSenha` em
+    `salvar_configuracoes`). Verifica dentro da MESMA transacao se esta
+    operacao desativaria ou rebaixaria o ultimo administrador ativo."""
+    validado = _validar_usuario(dados, exigir_senha=False)
+    with _conexao() as conn:
+        atual = conn.execute("SELECT * FROM usuarios WHERE id = ?", (usuario_id,)).fetchone()
+        if atual is None:
+            raise UsuarioNaoEncontradoError(f"Usuário {usuario_id} não encontrado.")
+
+        conflito = conn.execute(
+            "SELECT 1 FROM usuarios WHERE login = ? AND id != ?",
+            (validado["login"], usuario_id),
+        ).fetchone()
+        if conflito is not None:
+            raise UsuarioInvalidoError(f"Já existe um usuário com o login '{validado['login']}'.")
+
+        deixa_de_ser_admin_ativo = atual["perfil"] == "administrador" and (
+            validado["perfil"] != "administrador" or not validado["ativo"]
+        )
+        if deixa_de_ser_admin_ativo:
+            restantes = conn.execute(
+                "SELECT COUNT(*) AS total FROM usuarios "
+                "WHERE perfil = 'administrador' AND ativo = 1 AND id != ?",
+                (usuario_id,),
+            ).fetchone()
+            if int(restantes["total"]) == 0:
+                raise UltimoAdministradorError(
+                    "Esta é a última conta de administrador ativa. "
+                    "Promova outro usuário a administrador antes de alterar esta."
+                )
+
+        agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+        if "senha_hash" in validado:
+            conn.execute(
+                "UPDATE usuarios SET nome = ?, login = ?, perfil = ?, ativo = ?, "
+                "senha_hash = ?, atualizado_em = ? WHERE id = ?",
+                (
+                    validado["nome"],
+                    validado["login"],
+                    validado["perfil"],
+                    int(validado["ativo"]),
+                    validado["senha_hash"],
+                    agora,
+                    usuario_id,
+                ),
+            )
+        else:
+            conn.execute(
+                "UPDATE usuarios SET nome = ?, login = ?, perfil = ?, ativo = ?, "
+                "atualizado_em = ? WHERE id = ?",
+                (
+                    validado["nome"],
+                    validado["login"],
+                    validado["perfil"],
+                    int(validado["ativo"]),
+                    agora,
+                    usuario_id,
+                ),
+            )
+        linha = conn.execute("SELECT * FROM usuarios WHERE id = ?", (usuario_id,)).fetchone()
+    return _linha_usuario_publica(linha)
+
+
+def excluir_usuario(usuario_id: int) -> bool:
+    """`False` se o id nao existia. Levanta `UltimoAdministradorError` se
+    `usuario_id` for o unico administrador ativo restante -- mesma trava de
+    `atualizar_usuario`, aplicada aqui porque excluir tem o mesmo efeito
+    pratico de desativar."""
+    with _conexao() as conn:
+        atual = conn.execute("SELECT * FROM usuarios WHERE id = ?", (usuario_id,)).fetchone()
+        if atual is None:
+            return False
+        if atual["perfil"] == "administrador" and atual["ativo"]:
+            restantes = conn.execute(
+                "SELECT COUNT(*) AS total FROM usuarios "
+                "WHERE perfil = 'administrador' AND ativo = 1 AND id != ?",
+                (usuario_id,),
+            ).fetchone()
+            if int(restantes["total"]) == 0:
+                raise UltimoAdministradorError(
+                    "Esta é a última conta de administrador ativa e não pode ser excluída."
+                )
+        cursor = conn.execute("DELETE FROM usuarios WHERE id = ?", (usuario_id,))
+    return cursor.rowcount > 0
+
+
+def registrar_login_usuario(usuario_id: int) -> None:
+    agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+    with _conexao() as conn:
+        conn.execute(
+            "UPDATE usuarios SET ultimo_login_em = ? WHERE id = ?", (agora, usuario_id)
+        )

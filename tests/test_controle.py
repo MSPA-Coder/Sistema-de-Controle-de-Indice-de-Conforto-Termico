@@ -5,8 +5,8 @@ import tempfile
 import threading
 import unittest
 
-from conforto_termico import database as db
-from conforto_termico.coletor.controle import (
+from app import database as db
+from app.coletor.controle import (
     GerenciadorControleZonas,
     ZonaOcupadaError,
 )

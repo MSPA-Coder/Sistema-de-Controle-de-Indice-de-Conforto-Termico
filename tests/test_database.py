@@ -7,7 +7,7 @@ import threading
 import time
 import unittest
 
-from conforto_termico import database as db
+from app import database as db
 
 
 class TestIntervaloMinimoLeituras(unittest.TestCase):
@@ -1063,7 +1063,7 @@ class TestEquipamentosCRUD(unittest.TestCase):
     def test_criar_equipamento_em_zona_inexistente_levanta_subclasse_especifica(self):
         # ZonaNaoEncontradaError e subclasse de ZonaInvalidaError; web.py
         # depende dela para devolver 404 (em vez de 400) sem precisar
-        # reconsultar o banco -- ver conforto_termico/web.py:criar_equipamento.
+        # reconsultar o banco -- ver app/web.py:criar_equipamento.
         with self.assertRaises(db.ZonaNaoEncontradaError):
             db.criar_equipamento(9999, self._equipamento_base())
 
@@ -1166,6 +1166,163 @@ class TestConcorrenciaLeituraEscrita(unittest.TestCase):
         thread1.join(timeout=2)
         thread2.join(timeout=2)
         self.assertEqual(1, len(segunda_comecou_em))
+
+
+class TestUsuariosCRUD(unittest.TestCase):
+    """Fase 2 (autenticacao): CRUD de `usuarios` na camada de persistencia.
+    Testes de sessao/login/HTTP ficam em test_auth.py; aqui so a logica de
+    banco -- validacao, unicidade de login e as travas do ultimo
+    administrador."""
+
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.db_path_original = db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
+        db.iniciar_banco()
+
+    def tearDown(self):
+        db.DB_PATH = self.db_path_original
+        self.tempdir.cleanup()
+
+    @staticmethod
+    def _dados(**sobrescreve):
+        base = {
+            "nome": "Ana Admin",
+            "login": "ana",
+            "perfil": "administrador",
+            "senha_hash": "hash-fake-nao-importa-aqui",
+        }
+        base.update(sobrescreve)
+        return base
+
+    def test_criar_usuario_nao_devolve_senha_hash(self):
+        usuario = db.criar_usuario(self._dados())
+        self.assertNotIn("senha_hash", usuario)
+        self.assertEqual("ana", usuario["login"])
+        self.assertTrue(usuario["ativo"])
+
+    def test_criar_usuario_recusa_nome_vazio(self):
+        with self.assertRaises(db.UsuarioInvalidoError):
+            db.criar_usuario(self._dados(nome="  "))
+
+    def test_criar_usuario_recusa_login_vazio(self):
+        with self.assertRaises(db.UsuarioInvalidoError):
+            db.criar_usuario(self._dados(login=""))
+
+    def test_criar_usuario_recusa_login_com_espaco(self):
+        with self.assertRaises(db.UsuarioInvalidoError):
+            db.criar_usuario(self._dados(login="ana silva"))
+
+    def test_criar_usuario_recusa_perfil_invalido(self):
+        with self.assertRaises(db.UsuarioInvalidoError):
+            db.criar_usuario(self._dados(perfil="fiscal"))
+
+    def test_criar_usuario_recusa_sem_senha(self):
+        dados = self._dados()
+        del dados["senha_hash"]
+        with self.assertRaises(db.UsuarioInvalidoError):
+            db.criar_usuario(dados)
+
+    def test_login_duplicado_e_recusado_mesmo_com_letras_diferentes(self):
+        db.criar_usuario(self._dados(login="ana"))
+        with self.assertRaises(db.UsuarioInvalidoError):
+            db.criar_usuario(self._dados(login="ANA", nome="Outra Ana"))
+
+    def test_obter_usuario_por_login_e_case_insensitive(self):
+        criado = db.criar_usuario(self._dados(login="ana"))
+        encontrado = db.obter_usuario_por_login("ANA")
+        self.assertIsNotNone(encontrado)
+        self.assertEqual(criado["id"], encontrado["id"])
+        # Unica funcao que devolve o hash de verdade -- ver docstring.
+        self.assertIn("senha_hash", encontrado)
+
+    def test_obter_usuario_por_login_inexistente_devolve_none(self):
+        self.assertIsNone(db.obter_usuario_por_login("ninguem"))
+
+    def test_listar_usuarios_ordena_por_nome(self):
+        db.criar_usuario(self._dados(nome="Zeca", login="zeca"))
+        db.criar_usuario(self._dados(nome="Ana", login="ana2"))
+        nomes = [u["nome"] for u in db.listar_usuarios()]
+        self.assertEqual(["Ana", "Zeca"], nomes)
+
+    def test_atualizar_usuario_preserva_senha_quando_nao_informada(self):
+        criado = db.criar_usuario(self._dados())
+        db.atualizar_usuario(
+            criado["id"], {"nome": "Ana A. Admin", "login": "ana", "perfil": "administrador", "ativo": True}
+        )
+        interno = db.obter_usuario_por_login("ana")
+        self.assertEqual("hash-fake-nao-importa-aqui", interno["senha_hash"])
+        self.assertEqual("Ana A. Admin", interno["nome"])
+
+    def test_atualizar_usuario_troca_senha_quando_informada(self):
+        criado = db.criar_usuario(self._dados())
+        db.atualizar_usuario(
+            criado["id"],
+            {
+                "nome": "Ana Admin", "login": "ana", "perfil": "administrador",
+                "ativo": True, "senha_hash": "novo-hash",
+            },
+        )
+        interno = db.obter_usuario_por_login("ana")
+        self.assertEqual("novo-hash", interno["senha_hash"])
+
+    def test_atualizar_usuario_inexistente_levanta_erro(self):
+        with self.assertRaises(db.UsuarioNaoEncontradoError):
+            db.atualizar_usuario(9999, self._dados())
+
+    def test_atualizar_usuario_recusa_login_ja_usado_por_outro(self):
+        db.criar_usuario(self._dados(login="ana"))
+        outro = db.criar_usuario(self._dados(login="bruno", perfil="operador"))
+        with self.assertRaises(db.UsuarioInvalidoError):
+            db.atualizar_usuario(outro["id"], self._dados(login="ana", perfil="operador"))
+
+    def test_nao_deixa_rebaixar_o_ultimo_administrador_ativo(self):
+        unico_admin = db.criar_usuario(self._dados())
+        with self.assertRaises(db.UltimoAdministradorError):
+            db.atualizar_usuario(
+                unico_admin["id"],
+                {"nome": "Ana", "login": "ana", "perfil": "operador", "ativo": True},
+            )
+
+    def test_nao_deixa_desativar_o_ultimo_administrador_ativo(self):
+        unico_admin = db.criar_usuario(self._dados())
+        with self.assertRaises(db.UltimoAdministradorError):
+            db.atualizar_usuario(
+                unico_admin["id"],
+                {"nome": "Ana", "login": "ana", "perfil": "administrador", "ativo": False},
+            )
+
+    def test_rebaixar_e_permitido_quando_existe_outro_administrador_ativo(self):
+        primeiro = db.criar_usuario(self._dados())
+        db.criar_usuario(self._dados(login="bruno", nome="Bruno"))
+        resultado = db.atualizar_usuario(
+            primeiro["id"],
+            {"nome": "Ana", "login": "ana", "perfil": "operador", "ativo": True},
+        )
+        self.assertEqual("operador", resultado["perfil"])
+
+    def test_excluir_usuario_inexistente_devolve_false(self):
+        self.assertFalse(db.excluir_usuario(9999))
+
+    def test_nao_deixa_excluir_o_ultimo_administrador_ativo(self):
+        unico_admin = db.criar_usuario(self._dados())
+        with self.assertRaises(db.UltimoAdministradorError):
+            db.excluir_usuario(unico_admin["id"])
+        # A conta continua intacta apos a tentativa recusada.
+        self.assertIsNotNone(db.obter_usuario(unico_admin["id"]))
+
+    def test_excluir_e_permitido_quando_existe_outro_administrador_ativo(self):
+        primeiro = db.criar_usuario(self._dados())
+        db.criar_usuario(self._dados(login="bruno", nome="Bruno"))
+        self.assertTrue(db.excluir_usuario(primeiro["id"]))
+        self.assertIsNone(db.obter_usuario(primeiro["id"]))
+
+    def test_registrar_login_usuario_grava_timestamp(self):
+        criado = db.criar_usuario(self._dados())
+        self.assertIsNone(criado["ultimo_login_em"])
+        db.registrar_login_usuario(criado["id"])
+        atualizado = db.obter_usuario(criado["id"])
+        self.assertIsNotNone(atualizado["ultimo_login_em"])
 
 
 if __name__ == "__main__":

@@ -11,7 +11,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from conforto_termico.models import Email, _email_valido
+from app.models import Email, _email_valido
 
 
 class TestEmailValido(unittest.TestCase):

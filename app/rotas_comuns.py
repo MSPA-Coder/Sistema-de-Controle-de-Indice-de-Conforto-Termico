@@ -21,6 +21,7 @@ import datetime
 
 from flask import Blueprint, current_app, jsonify, render_template, request
 
+from . import auth
 from . import database as db
 from . import thermal_indices as ti
 from .app_factory import MENSAGEM_ERRO_INTERNO
@@ -64,11 +65,16 @@ def _parametro_data(nome: str) -> tuple[str | None, tuple | None]:
 @comum_bp.route("/")
 def index():
     # O papel do app corrente (None/"coletor"/"dashboard") decide quais
-    # botoes de aba o template mostra e qual aba abre por padrao -- ver
-    # `templates/index.html`. Dashboard e somente leitura e existe em
-    # todos os papeis; Operacao aparece apenas no processo coletor.
+    # botoes de aba EXISTEM no processo -- ver `templates/index.html`. O
+    # PERFIL da sessao logada (Fase 2 -- ver `auth.py`) decide, por cima
+    # disso, quais desses botoes a pessoa efetivamente ve: um botao so
+    # aparece quando as duas condicoes valem ao mesmo tempo. Dashboard e
+    # somente leitura e existe em todos os papeis/perfis; Operacao aparece
+    # apenas no processo coletor E para quem tem a area "operacao".
     papel_app = current_app.config.get("CONFORTO_PAPEL_APP")
     aba_inicial = "principal"
+    usuario = auth.usuario_atual()
+    areas_permitidas = auth.AREAS_POR_PERFIL.get(usuario["perfil"], frozenset()) if usuario else frozenset()
     return render_template(
         "index.html",
         indices_por_especie=ti.INDICES_POR_ESPECIE,
@@ -79,6 +85,9 @@ def index():
         limites=ti.LIMITES,
         papel_app=papel_app,
         aba_inicial=aba_inicial,
+        usuario_atual=usuario,
+        areas_permitidas=areas_permitidas,
+        perfil_label=auth.PERFIL_LABEL,
     )
 
 
@@ -176,6 +185,44 @@ def historico_leituras():
             valor_referencia=valor_referencia,
             data_inicio=data_inicio,
             data_fim=data_fim,
+        )
+    )
+
+
+@comum_bp.route("/api/zonas/<int:zona_id>/agregados-15min", methods=["GET"])
+def agregados_15min_zona(zona_id):
+    """Serie de medias/minimo/maximo por janela de 15 min, consolidada por
+    `agregacao.py`. Usada para graficos de tendencia mais longos sem
+    precisar varrer a leitura bruta minuto a minuto."""
+    if db.obter_zona(zona_id) is None:
+        return jsonify({"erro": f"Zona {zona_id} nao encontrada."}), 404
+    limite, erro = _parametro_inteiro("limite", 96)
+    if erro:
+        return jsonify(erro[0]), erro[1]
+    return jsonify(db.obter_agregados_15min(zona_id, limite=limite or 96))
+
+
+@comum_bp.route("/api/zonas/<int:zona_id>/resumo-horario", methods=["GET"])
+def resumo_horario_zona(zona_id):
+    """Serie horaria consolidada: media/minimo/maximo do indice, status da
+    media e percentual de tempo em cada status na hora. E a granularidade
+    recomendada para relatorios (ver `docs/ANALISE_DE_DADOS.pdf`)."""
+    if db.obter_zona(zona_id) is None:
+        return jsonify({"erro": f"Zona {zona_id} nao encontrada."}), 404
+    limite, erro = _parametro_inteiro("limite", 168)
+    if erro:
+        return jsonify(erro[0]), erro[1]
+    data_inicio, erro = _parametro_data("data_inicio")
+    if erro:
+        return jsonify(erro[0]), erro[1]
+    data_fim, erro = _parametro_data("data_fim")
+    if erro:
+        return jsonify(erro[0]), erro[1]
+    if data_inicio and data_fim and data_inicio > data_fim:
+        return jsonify({"erro": "A data inicial não pode ser posterior à data final."}), 400
+    return jsonify(
+        db.obter_resumos_horarios(
+            zona_id, limite=limite or 168, data_inicio=data_inicio, data_fim=data_fim
         )
     )
 

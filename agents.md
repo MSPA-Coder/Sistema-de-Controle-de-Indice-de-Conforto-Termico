@@ -32,24 +32,24 @@ state instead of raising).
 Use software engineering practices that maximize performance, reliability and
 stability:
 
-- Keep domain formulas and thresholds centralized in `conforto_termico/thermal_indices.py`.
-- Keep HTTP route composition in `conforto_termico/app_factory.py`
+- Keep domain formulas and thresholds centralized in `app/thermal_indices.py`.
+- Keep HTTP route composition in `app/app_factory.py`
   (`criar_app(papel_app)`), and the routes themselves split by role:
-  `conforto_termico/coletor/rotas.py` (Modbus/control/config),
-  `conforto_termico/dashboard/rotas.py` (read-only analytics), and
-  `conforto_termico/rotas_comuns.py` (read-only routes shared by both
+  `app/coletor/rotas.py` (Modbus/control/config),
+  `app/dashboard/rotas.py` (read-only analytics), and
+  `app/rotas_comuns.py` (read-only routes shared by both
   roles). See "Coletor/Dashboard Architecture" below for the full
-  rationale. `conforto_termico/web.py` is now just the "single process"
+  rationale. `app/web.py` is now just the "single process"
   (Fase 0) composition + backward-compatible re-exports; do not put new
   route logic directly in it.
-- Keep orchestration and stateful application behavior in `conforto_termico/services.py`
-  (single-station manual/simulated flow) and `conforto_termico/zona_service.py`
+- Keep orchestration and stateful application behavior in `app/services.py`
+  (single-station manual/simulated flow) and `app/zona_service.py`
   (per-zone Modbus flow) -- these are deliberately separate services; do not
   merge them into one class (see "Zonas Modbus" below for why).
-- Keep persistence details in `conforto_termico/database.py`.
-- Keep the Modbus TCP/RTU client abstraction in `conforto_termico/modbus_client.py`;
+- Keep persistence details in `app/database.py`.
+- Keep the Modbus TCP/RTU client abstraction in `app/modbus_client.py`;
   nothing else in the codebase should import `pymodbus` directly.
-- Keep UI behavior in `conforto_termico/static/js/app.js`.
+- Keep UI behavior in `app/static/js/app.js`.
 - Add tests for changes that affect calculations, persistence, sensor
   simulation, equipment control, automatic mode, zones/Modbus, or public API
   responses.
@@ -226,13 +226,13 @@ already-processed data. See the migration plan discussed with the person
 for the full reasoning (Purdue/ISA-95 style separation between real-time
 control and supervisory/historian layers).
 
-- **coletor** (`conforto_termico/coletor/rotas.py` +
-  `conforto_termico/coletor/estado.py`): talks Modbus, reads sensors,
+- **coletor** (`app/coletor/rotas.py` +
+  `app/coletor/estado.py`): talks Modbus, reads sensors,
   calculates the index, drives fan/mister state, and writes everything to
   the database (readings, equipment state). This is where the control
   loop (`zona_service.py`) lives -- it must keep working even if no
   dashboard is running anywhere.
-- **dashboard** (`conforto_termico/dashboard/rotas.py`): read-only --
+- **dashboard** (`app/dashboard/rotas.py`): read-only --
   zone statistics and the "Painel executivo por zona" card on the
   Analises tab. Depends ONLY on `database.py`; must never import
   `modbus_client` or `zona_service` (enforced by
@@ -240,7 +240,7 @@ control and supervisory/historian layers).
   test_app_dashboard_nao_importa_modulos_de_modbus`, which checks
   `sys.modules` in a clean subprocess -- not just that the route is
   absent).
-- **comum** (`conforto_termico/rotas_comuns.py`): read-only routes useful
+- **comum** (`app/rotas_comuns.py`): read-only routes useful
   to both roles (home page, zone listing, persisted-reading history,
   diagnostics). Lives in its own Blueprint specifically because it is
   registered in all three configurations below; duplicating it inside
@@ -303,7 +303,7 @@ unless those call sites are also made defensive. Operation content remains
 rendered but has no navigation entry in the dashboard role; the dashboard
 server also has no write routes.
 
-**Backward compatibility.** `conforto_termico/web.py` re-exports (not
+**Backward compatibility.** `app/web.py` re-exports (not
 copies) the objects tests and `app.py` already import from it: `app`,
 `AppConfig`, `MENSAGEM_ERRO_INTERNO`, `_resfriador`,
 `historico_grafico_service`, `sensor_simulado_service`, `zona_service`,

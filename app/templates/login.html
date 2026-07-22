@@ -1,0 +1,27 @@
+{% extends "_layout_auth.html" %}
+{% block titulo %}Entrar · Conforto Térmico{% endblock %}
+{% block conteudo %}
+<div class="auth-pagina">
+  <div class="auth-cartao painel">
+    <h1 class="auth-titulo">Conforto Térmico</h1>
+    <p class="auth-subtitulo">Entre com seu usuário para continuar.</p>
+
+    {% if erro %}
+    <p class="auth-erro" role="alert">{{ erro }}</p>
+    {% endif %}
+
+    <form method="post" action="{{ url_for('auth.login') }}" class="auth-form">
+      <input type="hidden" name="proxima" value="{{ proxima }}">
+      <div class="campo-config">
+        <label for="campo-login">Usuário</label>
+        <input type="text" id="campo-login" name="login" autocomplete="username" autofocus required>
+      </div>
+      <div class="campo-config">
+        <label for="campo-senha">Senha</label>
+        <input type="password" id="campo-senha" name="senha" autocomplete="current-password" required>
+      </div>
+      <button type="submit" class="botao botao--primario auth-botao">Entrar</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

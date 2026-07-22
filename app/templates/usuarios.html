@@ -1,0 +1,78 @@
+{% extends "_layout_auth.html" %}
+{% block titulo %}Usuários · Conforto Térmico{% endblock %}
+{% block conteudo %}
+<div class="admin-pagina">
+  <header class="admin-topo">
+    <div>
+      <a class="botao--texto admin-voltar" href="{{ url_for('comum.index') }}">&larr; Voltar ao sistema</a>
+      <h1 class="admin-titulo">Usuários</h1>
+      <p class="admin-subtitulo">
+        Cada perfil libera um conjunto diferente de abas -- ver README.md,
+        seção "Organização das abas por papel de uso".
+      </p>
+    </div>
+    <div class="admin-sessao">
+      Logado como <strong>{{ usuario_atual.nome }}</strong>
+      ({{ perfil_label.get(usuario_atual.perfil, usuario_atual.perfil) }})
+      <form method="post" action="{{ url_for('auth.logout') }}" class="admin-logout-form">
+        <button type="submit" class="botao botao--texto">Sair</button>
+      </form>
+    </div>
+  </header>
+
+  {% with mensagens = get_flashed_messages(with_categories=true) %}
+    {% if mensagens %}
+    <div class="admin-flash-lista">
+      {% for categoria, mensagem in mensagens %}
+      <p class="admin-flash admin-flash--{{ categoria }}" role="alert">{{ mensagem }}</p>
+      {% endfor %}
+    </div>
+    {% endif %}
+  {% endwith %}
+
+  <div class="painel admin-painel">
+    <div class="admin-painel-cabecalho">
+      <h2 class="painel-titulo">Contas cadastradas</h2>
+      <a class="botao botao--primario botao--compacto" href="{{ url_for('usuarios.criar_usuario_rota') }}">Novo usuário</a>
+    </div>
+
+    <div class="tabela-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Nome</th>
+            <th>Login</th>
+            <th>Perfil</th>
+            <th>Status</th>
+            <th>Último login</th>
+            <th>Ações</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for usuario in usuarios %}
+          <tr>
+            <td>{{ usuario.nome }}</td>
+            <td>{{ usuario.login }}</td>
+            <td>{{ perfil_label.get(usuario.perfil, usuario.perfil) }}</td>
+            <td>{{ "Ativo" if usuario.ativo else "Inativo" }}</td>
+            <td>{{ usuario.ultimo_login_em or "Nunca" }}</td>
+            <td class="admin-acoes">
+              <a class="botao botao--fantasma botao--compacto" href="{{ url_for('usuarios.editar_usuario_rota', usuario_id=usuario.id) }}">Editar</a>
+              {% if usuario.id != usuario_atual.id %}
+              <form method="post" action="{{ url_for('usuarios.excluir_usuario_rota', usuario_id=usuario.id) }}"
+                    class="admin-excluir-form"
+                    onsubmit="return confirm('Excluir o usuário {{ usuario.nome }}? Esta ação não pode ser desfeita.');">
+                <button type="submit" class="botao botao--perigo botao--compacto">Excluir</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="tabela-vazia">Nenhum usuário cadastrado ainda.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

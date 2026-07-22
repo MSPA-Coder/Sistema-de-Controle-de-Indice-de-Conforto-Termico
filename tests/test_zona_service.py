@@ -12,8 +12,8 @@ import os
 import tempfile
 import unittest
 
-from conforto_termico import database as db
-from conforto_termico.zona_service import ZonaCalculoError, ZonaService
+from app import database as db
+from app.zona_service import ZonaCalculoError, ZonaService
 
 
 def _ignorar_estado_equipamentos(*args):

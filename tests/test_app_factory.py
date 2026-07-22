@@ -11,12 +11,14 @@ maquina, dois processos), simulado aqui com dois apps Flask no mesmo
 interpretador."""
 
 import os
+import re
 import sys
 import tempfile
 import unittest
 
-from conforto_termico import database as db
-from conforto_termico.app_factory import AppConfig, criar_app
+from app import database as db
+from app.app_factory import AppConfig, criar_app
+from tests.auth_test_utils import cliente_autenticado
 
 
 class TestCriarAppPorPapel(unittest.TestCase):
@@ -61,7 +63,7 @@ class TestCriarAppPorPapel(unittest.TestCase):
         self.assertIn("/api/zonas", rotas_get)
         rotas_put = self._rotas(app, "PUT")
         self.assertIn("/api/zonas/<int:zona_id>/controle", rotas_put)
-        pagina = app.test_client().get("/").get_data(as_text=True)
+        pagina = cliente_autenticado(app).get("/").get_data(as_text=True)
         self.assertIn('id="campos-entrada-dashboard"', pagina)
         self.assertNotIn("Visualização somente leitura", pagina)
         self.assertIn('data-aba="operacao"', pagina)
@@ -92,10 +94,94 @@ class TestCriarAppPorPapel(unittest.TestCase):
             "/api/zonas/<int:zona_id>/controle", self._rotas(app, "PUT")
         )
 
-        pagina = app.test_client().get("/").get_data(as_text=True)
+        pagina = cliente_autenticado(app).get("/").get_data(as_text=True)
         self.assertIn('data-aba="principal"', pagina)
         self.assertNotIn('data-aba="operacao"', pagina)
         self.assertIn('id="campos-entrada-dashboard"', pagina)
+
+
+class TestReorganizacaoAbasFase1(unittest.TestCase):
+    """Fase 1 (reorganizacao de UI): a antiga aba unica "Configuracoes"
+    virou duas ("Configuracoes" enxuta + "Sistema" tecnica) e "Zonas" ganhou
+    o rotulo "Cadastro". Nenhuma rota mudou -- so o agrupamento visual e
+    onde cada campo aparece no HTML. Estes testes travam esse contrato:
+    o botao da aba Sistema segue a mesma regra de papel que o de
+    Configuracoes/Cadastro (so aparece no coletor), e nenhum campo se
+    perdeu na divisao."""
+
+    @staticmethod
+    def _rotas(app, metodo):
+        return {
+            regra.rule
+            for regra in app.url_map.iter_rules()
+            if metodo in regra.methods and regra.rule.startswith(("/api", "/"))
+        }
+
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.db_path_original = db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
+
+    def tearDown(self):
+        db.DB_PATH = self.db_path_original
+        self.tempdir.cleanup()
+
+    def test_aba_sistema_segue_a_mesma_regra_de_papel_que_configuracoes(self):
+        pagina_coletor = cliente_autenticado(criar_app(papel_app="coletor")).get("/").get_data(as_text=True)
+        self.assertIn('data-aba="sistema"', pagina_coletor)
+        self.assertIn('data-aba="configuracoes"', pagina_coletor)
+        self.assertIn('data-aba="zonas"', pagina_coletor)
+        self.assertIn(">Cadastro<", pagina_coletor)
+        self.assertNotIn(">Zonas</button>", pagina_coletor)
+
+        pagina_dashboard = cliente_autenticado(criar_app(papel_app="dashboard")).get("/").get_data(as_text=True)
+        self.assertNotIn('data-aba="sistema"', pagina_dashboard)
+        self.assertNotIn('data-aba="configuracoes"', pagina_dashboard)
+        self.assertNotIn('data-aba="zonas"', pagina_dashboard)
+
+    def test_campos_tecnicos_migraram_para_sistema_sem_se_perder(self):
+        pagina = cliente_autenticado(criar_app(papel_app="coletor")).get("/").get_data(as_text=True)
+        # Campos que agora vivem na aba Sistema (infraestrutura tecnica).
+        for campo_id in (
+            "cfg-zonas-simulado",
+            "cfg-intervalo-leitura",
+            "cfg-intervalo-gravacao",
+            "cfg-ponto-orvalho",
+            "cfg-umidade-relativa",
+            "cfg-altitude",
+            "cfg-limite-umidade-nebulizador",
+            "cfg-smtp-host",
+            "cfg-smtp-porta",
+            "cfg-smtp-usuario",
+            "cfg-smtp-senha",
+            "btn-backup-banco",
+        ):
+            with self.subTest(campo=campo_id):
+                self.assertIn(f'id="{campo_id}"', pagina)
+
+        # Campo que ficou na aba Configuracoes (decisao de alerta/manejo,
+        # nao infraestrutura).
+        self.assertIn('id="cfg-status-minimo-email"', pagina)
+
+        # A aba Sistema comeca depois da aba Configuracoes no documento;
+        # os campos de SMTP devem estar no trecho da aba Sistema, nao mais
+        # dentro da secao antiga de Configuracoes.
+        indice_config = pagina.index('id="aba-configuracoes"')
+        indice_sistema = pagina.index('id="aba-sistema"')
+        indice_smtp_host = pagina.index('id="cfg-smtp-host"')
+        self.assertLess(indice_sistema, indice_smtp_host)
+        self.assertLess(indice_config, indice_sistema)
+
+    def test_nenhum_id_duplicado_na_pagina_renderizada(self):
+        # Fase 1 moveu blocos inteiros de markup entre secoes; um
+        # copiar-e-colar mal feito duplicaria algum id e quebraria
+        # `document.getElementById` (que so encontra o primeiro).
+        # papel_app=None renderiza os tres conjuntos de rotas juntos no
+        # mesmo processo -- e o cenario mais exigente para IDs unicos.
+        pagina = cliente_autenticado(criar_app(papel_app=None)).get("/").get_data(as_text=True)
+        ids = re.findall(r'\bid="([^"]+)"', pagina)
+        duplicados = sorted({item for item in ids if ids.count(item) > 1})
+        self.assertEqual([], duplicados, f"IDs duplicados no HTML: {duplicados}")
 
     def test_app_dashboard_nao_importa_modulos_de_modbus(self):
         """Nao basta a rota nao existir: um processo de dashboard genuino
@@ -107,10 +193,10 @@ class TestCriarAppPorPapel(unittest.TestCase):
 
         codigo = (
             "import sys; "
-            "from conforto_termico.app_factory import criar_app; "
+            "from app.app_factory import criar_app; "
             "criar_app(papel_app='dashboard'); "
-            "proibidos = ['conforto_termico.modbus_client', "
-            "'conforto_termico.zona_service', 'conforto_termico.coletor.estado']; "
+            "proibidos = ['app.modbus_client', "
+            "'app.zona_service', 'app.coletor.estado']; "
             "carregados = [m for m in proibidos if m in sys.modules]; "
             "print(','.join(carregados))"
         )
@@ -140,8 +226,8 @@ class TestColetorEDashboardCompartilhamOMesmoBanco(unittest.TestCase):
         config = AppConfig(
             debug=False, host="127.0.0.1", port=0, threaded=False, max_content_length=1_000_000
         )
-        self.coletor = criar_app(papel_app="coletor", config=config).test_client()
-        self.dashboard = criar_app(papel_app="dashboard", config=config).test_client()
+        self.coletor = cliente_autenticado(criar_app(papel_app="coletor", config=config))
+        self.dashboard = cliente_autenticado(criar_app(papel_app="dashboard", config=config))
 
     def tearDown(self):
         db.DB_PATH = self.db_path_original

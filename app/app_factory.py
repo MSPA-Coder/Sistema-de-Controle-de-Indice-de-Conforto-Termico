@@ -37,6 +37,7 @@ servico propositalmente.
 
 from __future__ import annotations
 
+import datetime
 import json
 import os
 from dataclasses import dataclass
@@ -47,6 +48,7 @@ from flask import Flask, jsonify, request
 from flask.json.provider import DefaultJSONProvider
 from werkzeug.exceptions import HTTPException
 
+from . import auth
 from . import database as db
 
 # Mensagem generica devolvida ao cliente para qualquer excecao nao tratada.
@@ -186,11 +188,37 @@ def criar_app(papel_app: str | None = None, config: AppConfig | None = None) -> 
     app.config["CONFORTO_PAPEL_APP"] = papel_app
     app.config["CONFORTO_DEBUG"] = config.debug
 
+    # Fase 2 (autenticacao): a chave de sessao e por-processo (nao muda com
+    # `papel_app`), e coletor/dashboard compartilham o MESMO
+    # `instance/historico.db` -- logo, tambem compartilham a mesma tabela
+    # `usuarios` e podem compartilhar a mesma chave persistida em
+    # `instance/secret_key.txt` sem problema (ver `auth.py`).
+    app.secret_key = auth.obter_ou_criar_chave_secreta()
+    app.config["SESSION_COOKIE_HTTPONLY"] = True
+    app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+    # 12h: suficiente para um turno de trabalho sem precisar logar de novo,
+    # curto o bastante para nao deixar uma sessao esquecida aberta por dias
+    # num tablet compartilhado na fazenda. Nao substitui o habito de sair
+    # (`/logout`) ao encerrar o uso em um dispositivo compartilhado -- este
+    # projeto nao implementa protecao CSRF por token; o cookie
+    # SameSite=Lax acima cobre o caso comum (POST vindo de outro site), mas
+    # uma pessoa mal-intencionada com acesso FISICO a uma sessao aberta
+    # ainda consegue agir como o usuario logado.
+    app.permanent_session_lifetime = datetime.timedelta(hours=12)
+
     db.iniciar_banco()
 
     from .rotas_comuns import comum_bp
 
     app.register_blueprint(comum_bp)
+
+    # Login/logout e administracao de contas sao transversais a
+    # papel_app: registrados nos tres casos (None/coletor/dashboard) porque
+    # os dois processos apontam para o MESMO banco -- ver comentario acima
+    # sobre a chave de sessao.
+    app.register_blueprint(auth.auth_bp)
+    app.register_blueprint(auth.usuarios_bp)
+    auth.registrar_autenticacao(app)
 
     # A aba de dados de entrada pode ser consultada nos dois papeis. As
     # rotas de mutacao sao registradas somente no coletor logo abaixo.

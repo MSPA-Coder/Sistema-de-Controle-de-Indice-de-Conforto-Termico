@@ -123,6 +123,19 @@ let historicoLeituraSelecionadaId = null;
 let historicoCarregamentoId = 0;
 let salvamentoConfigTimeoutId = null;
 let historicoScrollTimeoutId = null;
+
+// Grafico de tendencia por resolucao (aba Historico): a mesma zona pode ser
+// vista em 3 granularidades -- leitura bruta (1-5 min), agregado de 15 min
+// e resumo horario. "bruto" usa a mesma rota GET /api/zonas/<id>/historico
+// ja existente; as outras duas consomem as rotas novas de agregacao.
+const RESOLUCOES_TENDENCIA = [
+  { valor: "bruto", texto: "Tempo real (leitura bruta)" },
+  { valor: "15min", texto: "Agregado de 15 em 15 min" },
+  { valor: "hora", texto: "Resumo por hora" },
+];
+let resolucaoTendencia = "bruto";
+let graficoTendenciaResolucao = null;
+let tendenciaResolucaoCarregamentoId = 0;
 let paineisExecutivosCache = [];
 let smtpSenhaJaConfigurada = false;
 let audioCtx = null;
@@ -1410,6 +1423,145 @@ function garantirBlocosGraficosHistorico(indices) {
   });
 }
 
+function leituraTendenciaBruta(item) {
+  return { rotulo: formatarDataHoraCurta(item.criado_em), valor: item.valor, cor: corStatus(item.status) };
+}
+
+function leituraTendenciaAgregada15min(item) {
+  return {
+    rotulo: formatarDataHoraCurta(item.janela_inicio),
+    valor: item.valor_medio,
+    minimo: item.valor_minimo,
+    maximo: item.valor_maximo,
+  };
+}
+
+function leituraTendenciaHoraria(item) {
+  return {
+    rotulo: formatarDataHoraCurta(item.hora_inicio),
+    valor: item.valor_medio,
+    minimo: item.valor_minimo,
+    maximo: item.valor_maximo,
+    cor: corStatus(item.status_da_media),
+  };
+}
+
+async function buscarPontosTendencia(zonaId) {
+  if (resolucaoTendencia === "15min") {
+    const resposta = await fetch(`/api/zonas/${zonaId}/agregados-15min?limite=96`);
+    if (!resposta.ok) throw new Error("Falha ao carregar agregados de 15 min.");
+    const dados = await resposta.json();
+    return {
+      pontos: dados.map(leituraTendenciaAgregada15min),
+      legenda: `Média, mínimo e máximo a cada 15 min — últimas ${dados.length} janelas (até 24h).`,
+    };
+  }
+  if (resolucaoTendencia === "hora") {
+    const resposta = await fetch(`/api/zonas/${zonaId}/resumo-horario?limite=168`);
+    if (!resposta.ok) throw new Error("Falha ao carregar o resumo horário.");
+    const dados = await resposta.json();
+    return {
+      pontos: dados.map(leituraTendenciaHoraria),
+      legenda: `Média horária (status calculado a partir da média) — últimas ${dados.length} horas (até 7 dias).`,
+    };
+  }
+  const resposta = await fetch(`/api/zonas/${zonaId}/historico?limite=200`);
+  if (!resposta.ok) throw new Error("Falha ao carregar a leitura em tempo real.");
+  const dados = await resposta.json();
+  return {
+    pontos: dados.map(leituraTendenciaBruta),
+    legenda: `Leitura bruta, uma a cada ciclo do coletor — últimas ${dados.length} leituras.`,
+  };
+}
+
+async function atualizarGraficoTendenciaResolucao() {
+  if (typeof Chart === "undefined") return;
+  const canvas = document.getElementById("grafico-tendencia-resolucao");
+  const legendaEl = document.getElementById("tendencia-resolucao-legenda");
+  if (!canvas) return;
+
+  if (!filtroHistoricoZona) {
+    if (graficoTendenciaResolucao) {
+      graficoTendenciaResolucao.destroy();
+      graficoTendenciaResolucao = null;
+    }
+    if (legendaEl) legendaEl.textContent = "Selecione uma zona no filtro acima para ver a tendência.";
+    return;
+  }
+
+  const carregamentoId = ++tendenciaResolucaoCarregamentoId;
+  let pontos = [];
+  let legenda = "";
+  try {
+    ({ pontos, legenda } = await buscarPontosTendencia(filtroHistoricoZona));
+  } catch (erro) {
+    if (carregamentoId !== tendenciaResolucaoCarregamentoId) return;
+    console.error("Nao foi possivel carregar a tendencia da zona:", erro);
+    if (legendaEl) legendaEl.textContent = "Não foi possível carregar os dados desta resolução agora.";
+    return;
+  }
+  if (carregamentoId !== tendenciaResolucaoCarregamentoId) return;
+
+  if (legendaEl) {
+    legendaEl.textContent = pontos.length
+      ? legenda
+      : "Sem dados consolidados nesta resolução ainda (aguarde o coletor rodar mais alguns ciclos).";
+  }
+
+  const temFaixa = resolucaoTendencia !== "bruto";
+  const corLinha = "#4F8A93";
+  const datasets = [];
+  if (temFaixa) {
+    datasets.push({
+      label: "Máximo",
+      data: pontos.map((ponto) => ponto.maximo),
+      borderWidth: 0,
+      pointRadius: 0,
+      backgroundColor: "rgba(79, 138, 147, 0.18)",
+      fill: "+1",
+      tension: 0.25,
+      order: 2,
+    });
+    datasets.push({
+      label: "Mínimo",
+      data: pontos.map((ponto) => ponto.minimo),
+      borderWidth: 0,
+      pointRadius: 0,
+      backgroundColor: "rgba(79, 138, 147, 0.18)",
+      fill: false,
+      tension: 0.25,
+      order: 2,
+    });
+  }
+  datasets.push({
+    label: "Média",
+    data: pontos.map((ponto) => ponto.valor),
+    borderColor: corLinha,
+    backgroundColor: pontos.map((ponto) => ponto.cor || corLinha),
+    borderWidth: 2,
+    pointRadius: temFaixa ? 2 : 1.5,
+    pointHoverRadius: 5,
+    tension: 0.25,
+    fill: false,
+    order: 1,
+  });
+
+  const opcoes = opcoesGrafico(false);
+  opcoes.plugins.legend.display = false;
+  opcoes.scales.x.ticks.display = pontos.length <= 40;
+  aplicarEscalaDinamica(
+    opcoes,
+    "y",
+    pontos.flatMap((ponto) => [ponto.valor, ponto.minimo, ponto.maximo])
+  );
+
+  graficoTendenciaResolucao = criarOuAtualizarGrafico(graficoTendenciaResolucao, "grafico-tendencia-resolucao", {
+    type: "line",
+    data: { labels: pontos.map((ponto) => ponto.rotulo), datasets },
+    options: opcoes,
+  });
+}
+
 function atualizarGraficosHistorico(leituras) {
   if (typeof Chart === "undefined") return;
   const assinatura = JSON.stringify({
@@ -1741,6 +1893,7 @@ async function carregarHistoricoPersistido(opcoes = {}) {
     renderizarFiltrosHistorico();
     renderizarPaginaHistorico();
     atualizarGraficosHistorico([]);
+    atualizarGraficoTendenciaResolucao();
     atualizarControleHistoricoScroll();
     return;
   }
@@ -1792,6 +1945,7 @@ async function carregarHistoricoPersistido(opcoes = {}) {
     renderizarFiltrosHistorico();
     aplicarFiltrosHistorico(false);
     atualizarGraficosHistorico(historicoLeiturasJanela);
+    atualizarGraficoTendenciaResolucao();
     atualizarControleHistoricoScroll();
   } catch (erro) {
     if (carregamentoId === historicoCarregamentoId) {
@@ -1876,6 +2030,26 @@ function prepararAbaHistorico() {
     filtros.appendChild(statusPeriodo);
   }
 
+  const slotResolucao = document.getElementById("historico-resolucao-slot");
+  if (slotResolucao && !document.getElementById("filtro-historico-resolucao")) {
+    const label = document.createElement("label");
+    label.className = "historico-filtro";
+    label.setAttribute("for", "filtro-historico-resolucao");
+    const span = document.createElement("span");
+    span.textContent = "Resolução";
+    const select = document.createElement("select");
+    select.id = "filtro-historico-resolucao";
+    RESOLUCOES_TENDENCIA.forEach((opcao) => {
+      const item = document.createElement("option");
+      item.value = opcao.valor;
+      item.textContent = opcao.texto;
+      select.appendChild(item);
+    });
+    select.value = resolucaoTendencia;
+    label.append(span, select);
+    slotResolucao.appendChild(label);
+  }
+
   const paginacao = document.getElementById("historico-paginacao");
   const controleCabecalho = document.getElementById("historico-controle-cabecalho");
   if (controleCabecalho && paginacao && paginacao.parentElement !== controleCabecalho) {
@@ -1913,6 +2087,10 @@ function inicializarHistorico() {
   document.getElementById("filtro-historico-valor")?.addEventListener("change", atualizarFiltroHistorico);
   document.getElementById("filtro-historico-de")?.addEventListener("change", atualizarFiltroHistorico);
   document.getElementById("filtro-historico-ate")?.addEventListener("change", atualizarFiltroHistorico);
+  document.getElementById("filtro-historico-resolucao")?.addEventListener("change", (evento) => {
+    resolucaoTendencia = evento.target.value;
+    atualizarGraficoTendenciaResolucao();
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -4027,12 +4205,21 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("cfg-altitude").addEventListener("input", atualizarCamposCalculados);
   document.getElementById("cfg-smtp-host")?.addEventListener("input", refletirStatusSmtp);
   document.getElementById("cfg-smtp-senha")?.addEventListener("input", refletirStatusSmtp);
-  document.querySelectorAll("#aba-configuracoes input, #aba-configuracoes select").forEach((controle) => {
-    controle.addEventListener("change", agendarSalvarConfiguracoes);
-    if (["number", "email"].includes(controle.type)) {
-      controle.addEventListener("input", agendarSalvarConfiguracoes);
-    }
-  });
+  // Fase 1: os campos tecnicos (sensores, banco, SMTP, calculos) migraram
+  // da aba Configuracoes para a aba Sistema (ver templates/index.html). O
+  // seletor abaixo precisa cobrir as duas secoes, senao um campo movido
+  // para Sistema deixaria de salvar sozinho ao ser alterado.
+  document
+    .querySelectorAll(
+      "#aba-configuracoes input, #aba-configuracoes select, " +
+        "#aba-sistema input, #aba-sistema select"
+    )
+    .forEach((controle) => {
+      controle.addEventListener("change", agendarSalvarConfiguracoes);
+      if (["number", "email"].includes(controle.type)) {
+        controle.addEventListener("input", agendarSalvarConfiguracoes);
+      }
+    });
   document.getElementById("operacao-modo")?.addEventListener("change", alterarControleOperacao);
   document
     .getElementById("operacao-acionamento-zona")

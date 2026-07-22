@@ -10,8 +10,8 @@ gradual de SensorSimuladoService.
 
 import unittest
 
-from conforto_termico import thermal_indices as ti
-from conforto_termico.modbus_simulador import SimuladorModbusZonas
+from app import thermal_indices as ti
+from app.modbus_simulador import SimuladorModbusZonas
 
 
 class TestSimuladorModbusZonas(unittest.TestCase):
