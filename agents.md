@@ -303,6 +303,26 @@ unless those call sites are also made defensive. Operation content remains
 rendered but has no navigation entry in the dashboard role; the dashboard
 server also has no write routes.
 
+**Fase 2 (`auth.py`) adds a second, per-person dimension on top of
+`papel_app` -- `areas_permitidas` -- and gates nav buttons on BOTH at once
+(`{% if papel_app in (...) and "area" in areas_permitidas %}`). The same
+"content stays in the DOM, only the nav button is conditional" rule above
+still applies, and matters MORE now: some visible content is sourced from
+markup physically nested inside a DIFFERENT tab's `<section>` and moved at
+runtime by `moverControlesParaConfiguracoes()` (e.g. the "Configurações"
+tab's e-mail toggle and destination field are raw HTML inside
+`<section id="aba-operacao">`, relocated via `appendChild`). A perfil like
+"veterinario" (has `configuracoes`, not `operacao`) already depends on
+`aba-operacao`'s hidden markup being present for its own tab to render
+correctly. Server-side omitting a `<section>` whose area a perfil lacks --
+the natural next step after this file's own gating -- is NOT safe today
+for exactly this reason: it would silently break Configurações for
+veterinario, on top of the pre-existing unguarded-`getElementById` risk
+above. Do this only after (a) making every relevant call site
+null-safe and (b) moving each field's source markup into the tab it
+actually belongs to, so no visible tab depends on another tab's DOM
+existing.**
+
 **Backward compatibility.** `app/web.py` re-exports (not
 copies) the objects tests and `app.py` already import from it: `app`,
 `AppConfig`, `MENSAGEM_ERRO_INTERNO`, `_resfriador`,

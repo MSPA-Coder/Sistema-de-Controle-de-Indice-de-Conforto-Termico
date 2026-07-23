@@ -2149,6 +2149,14 @@ function ativarAba(aba) {
     }, 0);
   }
 
+  // Dashboard e Operacao dependem do polling de 3s (`atualizarMonitoramento`)
+  // para dado ao vivo; dispara na hora ao entrar na aba em vez de esperar o
+  // proximo tick, senao a tela mostraria ate 3s de estado desatualizado
+  // (ou "aguardando heartbeat") logo ao trocar de aba.
+  if (aba === "principal" || aba === "operacao") {
+    atualizarMonitoramento();
+  }
+
   if (aba === "analises") {
     carregarAnalises();
   }
@@ -3184,8 +3192,32 @@ async function carregarEstadoOperacional() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Monitoramento em tempo real (polling de 3s): so as abas Dashboard e
+// Operacao mostram dado ao vivo (status do coletor, eventos, cartoes de
+// zona) -- nas outras abas, rodar esse polling e trabalho de servidor
+// desperdicado, multiplicado por sessao aberta (cada zona cadastrada vira
+// uma chamada `/api/zonas/<id>/historico` a cada 3s, em paralelo com
+// `/api/operacao/status` e `/api/operacao/eventos` -- ver
+// `atualizarMonitoramento`). `abaAtivaAtual()` le a classe `.ativo` que
+// `ativarAba()` ja mantem no botao da aba corrente -- nenhum estado novo
+// para manter sincronizado.
+const ABAS_COM_MONITORAMENTO_AO_VIVO = new Set(["principal", "operacao"]);
+
+function abaAtivaAtual() {
+  return document.querySelector("[data-aba].ativo")?.dataset.aba || "principal";
+}
+
+function monitoramentoAoVivoNecessario() {
+  // `document.hidden`: a aba do NAVEGADOR esta em segundo plano (usuario
+  // trocou de aba/app) -- ninguem esta olhando, independente de qual aba
+  // do sistema estava selecionada.
+  return !document.hidden && ABAS_COM_MONITORAMENTO_AO_VIVO.has(abaAtivaAtual());
+}
+
 async function atualizarMonitoramento() {
   if (monitoramentoEmExecucao) return;
+  if (!monitoramentoAoVivoNecessario()) return;
   monitoramentoEmExecucao = true;
   try {
     await Promise.all([
@@ -4228,6 +4260,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     botao.addEventListener("click", () => comandarAtuadorOperacao(botao));
   });
   window.setInterval(atualizarMonitoramento, 3000);
+  // Complementa o `if (document.hidden)` dentro de `atualizarMonitoramento`:
+  // ao voltar para a aba do navegador (ex.: usuario alternou de app e
+  // voltou), atualiza na hora em vez de esperar ate 3s parado num estado
+  // desatualizado. Sem custo quando a aba do SISTEMA ativa nao e
+  // Dashboard/Operacao -- `monitoramentoAoVivoNecessario()` ja filtra isso.
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) atualizarMonitoramento();
+  });
 
   document.getElementById("btn-nova-zona").addEventListener("click", () => abrirDialogZona());
   document.getElementById("btn-cancelar-zona").addEventListener("click", () => {

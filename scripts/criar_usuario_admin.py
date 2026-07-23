@@ -8,7 +8,7 @@ logar: `/usuarios` (onde se cadastra gente) exige estar logado como
 administrador, e não existe nenhum administrador ainda. Este script existe
 para quebrar esse ciclo -- rode uma vez, logo após a primeira instalação:
 
-    python criar_usuario_admin.py
+    python scripts/criar_usuario_admin.py
 
 Ele pede nome, login e senha interativamente (a senha não aparece no
 terminal, via `getpass`) e cria o usuário com perfil "administrador". Se já
@@ -26,6 +26,11 @@ from __future__ import annotations
 import argparse
 import getpass
 import sys
+from pathlib import Path
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 from app import auth
 from app import database as db

@@ -15,7 +15,7 @@ import sys
 import tempfile
 import unittest
 
-import criar_usuario_admin as script
+import scripts.criar_usuario_admin as script
 from app import database as db
 
 
@@ -34,7 +34,7 @@ class TestCriarUsuarioAdmin(unittest.TestCase):
         self.tempdir.cleanup()
 
     def _rodar(self, *args, entrada_stdin: str = ""):
-        sys.argv = ["criar_usuario_admin.py", *args]
+        sys.argv = ["scripts/criar_usuario_admin.py", *args]
         sys.stdin = io.StringIO(entrada_stdin)
         return script.main()
 

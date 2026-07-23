@@ -101,7 +101,7 @@ ninguém consegue entrar para criar o primeiro administrador pela própria
 interface. Rode uma vez, direto no banco, para quebrar esse ciclo:
 
 ```bash
-python criar_usuario_admin.py
+python scripts/criar_usuario_admin.py
 ```
 
 Pede nome, login e senha interativamente (a senha não aparece no
@@ -238,13 +238,73 @@ para eventualmente rodar em processos -- e maquinas -- separados:
   leitura uteis nos dois papeis.
 
 `app_factory.criar_app(papel_app)` monta o Flask a partir desses
-Blueprints. O modo combinado (`papel_app=None`, ver `web.py`/`app.py`) ainda
-existe por compatibilidade e desenvolvimento local. `run_coletor.py` e
-`run_dashboard.py` tambem funcionam de forma independente
-(`papel_app="coletor"`/`"dashboard"`, cada um so com as rotas do seu papel).
-Os dois processos compartilham o MESMO arquivo `instance/historico.db` -- o
-`_conexao()` de `database.py` ja liga WAL e usa timeout de lock pensando
-nesse cenario.
+Blueprints. `app.py` (`papel_app=None`, ver `web.py`) registra os dois
+papeis no MESMO processo -- é o modo **recomendado por padrão**,
+inclusive em produção: ver "Um processo ou dois?", logo abaixo.
+`run_coletor.py` e `run_dashboard.py` também funcionam de forma
+independente (`papel_app="coletor"`/`"dashboard"`, cada um só com as
+rotas do seu papel), para quando coletor e dashboard realmente precisam
+ser dois processos -- normalmente porque estão em duas MÁQUINAS
+diferentes. Quando rodam como dois processos, eles compartilham o MESMO
+arquivo `instance/historico.db`: o `_conexao()` de `database.py` já liga
+WAL e usa timeout de lock pensando nesse cenário -- mas isso pressupõe o
+arquivo num disco local comum aos dois processos (mesma máquina, ou um
+segundo processo acessando o mesmo disco); SQLite (mesmo em WAL) não é
+projetado para um arquivo compartilhado por NFS/SMB entre máquinas
+distintas -- travas de arquivo em sistemas de rede são pouco confiáveis, e
+isso vale tanto para o `historico.db` quanto para a tabela `usuarios` (Fase
+2) que mora nele.
+
+### Um processo ou dois?
+
+Rodar `app.py` (um processo só) usa menos RAM que `run_coletor.py` +
+`run_dashboard.py` juntos -- cada processo Python paga o interpretador e as
+importações do zero; no ambiente de teste deste projeto, um segundo
+processo Flask soma mais uns 25-30 MB, só de subir. Isso importa em
+hardware pequeno (Raspberry Pi e similares).
+
+Antes da Fase 2, rodar coletor e dashboard como dois processos separados
+também funcionava como uma trava de segurança: um dashboard nunca importa
+`modbus_client`/`zona_service`, então nem um bug conseguiria mandar um
+comando Modbus a partir dele. Com login por pessoa (Fase 2), essa mesma
+garantia já vale DENTRO de um único processo -- um usuário com perfil
+"gestor" ou "veterinário" recebe 403 ao tentar acionar um equipamento,
+mesmo que a rota exista no processo, porque o perfil dele não tem a área
+"operacao" (ver `auth.AREA_POR_ENDPOINT`). Ou seja: a separação em dois
+processos não é mais necessária como mecanismo de segurança -- só continua
+fazendo sentido por um motivo ORGANIZACIONAL real: coletor e dashboard
+precisam mesmo estar em duas máquinas fisicamente diferentes (ex.: coletor
+preso ao hardware Modbus na granja, dashboard num computador de escritório
+sem acesso à rede do barracão).
+
+Recomendação: use `app.py` por padrão. Só use `run_coletor.py` +
+`run_dashboard.py` se a granja realmente tiver duas máquinas separadas
+fazendo esses dois papeis -- e, nesse caso, prefira sincronizar
+`instance/historico.db` por algum outro meio (ou aceitar que cada máquina
+tenha seu próprio banco) em vez de compartilhar o arquivo por uma pasta de
+rede.
+
+### Monitoramento ao vivo só quando alguém está olhando
+
+`app.js` atualiza o status do coletor e os cartões de zona a cada 3s
+(`atualizarMonitoramento`) -- mas só as abas Dashboard e Operação mostram
+esse dado. Antes, esse polling rodava para SEMPRE, em qualquer aba, mesmo
+com a aba do navegador em segundo plano: com N zonas cadastradas, cada
+sessão aberta gerava N+2 requisições a cada 3 segundos, 24h por dia,
+independente do que a pessoa estivesse olhando. Isso pesa direto no
+processo do servidor (mais do que o tamanho do HTML/JS jamais pesaria) e
+escala com o número de sessões abertas -- um tablet de granja com o painel
+ligado o dia inteiro, por exemplo.
+
+Agora o polling só faz trabalho de verdade quando a aba ativa é Dashboard
+ou Operação **e** a aba do navegador está visível (`document.hidden` via
+Page Visibility API); nas demais abas (Análises, Histórico, Cadastro,
+Configurações, Sistema, Dados de entrada) ele simplesmente não dispara as
+requisições. Ao entrar em Dashboard/Operação, ou ao voltar de uma aba do
+navegador em segundo plano, atualiza na hora em vez de esperar até 3s
+num estado desatualizado. Nenhum HTML deixou de ser renderizado -- só o
+QUANDO das chamadas de API mudou, o que evita o risco de dependência
+cruzada entre abas descrito em `agents.md`.
 
 O estado desejado e o estado confirmado de cada equipamento sao persistidos
 a cada ciclo (`database.salvar_estado_equipamentos`, tabela
@@ -281,7 +341,7 @@ Antes do primeiro acesso, crie o usuário administrador (uma vez só -- ver
 "Perfis de usuário e autenticação", acima):
 
 ```powershell
-python criar_usuario_admin.py
+python scripts/criar_usuario_admin.py
 ```
 
 ### Um processo so (padrao)
