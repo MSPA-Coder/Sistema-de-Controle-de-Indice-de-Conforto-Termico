@@ -40,10 +40,8 @@ def _email_valido(endereco: object) -> bool:
 def formatar_linhas_entradas(entradas: dict | None) -> list[str]:
     """Monta, uma por linha, a descricao "- Rótulo (campo): valor unidade"
     de cada entrada usada num calculo (ex.: temperatura, umidade). Ponto
-    unico dessa formatacao: reaproveitado tanto pelo e-mail da leitura
-    unica (`Email._formatar_entradas`, aba Principal) quanto pelo e-mail
-    consolidado de zonas (`web._formatar_entradas_email`) -- antes desta
-    funcao existir, a mesma logica estava duplicada nos dois modulos."""
+    unico dessa formatacao, reutilizado pelos e-mails de alerta e pelos
+    resumos consolidados de zonas."""
     if not entradas:
         return []
 

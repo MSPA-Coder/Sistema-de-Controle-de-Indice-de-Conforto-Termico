@@ -2,13 +2,9 @@
 """
 test_app_factory.py
 =====================
-Testa `app_factory.criar_app`: que cada `papel_app` registra exatamente o
-conjunto de rotas esperado, que um app "dashboard" nunca importa codigo
-relacionado a Modbus (nao so "a rota nao existe" -- o MODULO nao e
-carregado), e que dois apps distintos (coletor e dashboard) conseguem
-operar sobre o MESMO arquivo SQLite -- o cenario da Fase 1 (mesma
-maquina, dois processos), simulado aqui com dois apps Flask no mesmo
-interpretador."""
+Testa `app_factory.criar_app`: cada `papel_app` registra o conjunto de
+rotas esperado, o dashboard nao carrega codigo relacionado a Modbus e
+os apps de coleta e visualizacao compartilham o mesmo banco SQLite."""
 
 import os
 import re
@@ -86,7 +82,6 @@ class TestCriarAppPorPapel(unittest.TestCase):
         # nada que fale Modbus, calcule ou grave
         self.assertNotIn("/api/zonas/<int:zona_id>/calcular", rotas_post)
         self.assertNotIn("/api/zonas/calcular-ativas", rotas_post)
-        self.assertNotIn("/api/calcular", rotas_post)
         self.assertNotIn("/api/configuracoes", rotas_post)
         self.assertNotIn("/api/backup-banco", rotas_post)
         self.assertNotIn("/api/zonas", rotas_post)  # criar zona e do coletor
@@ -100,22 +95,8 @@ class TestCriarAppPorPapel(unittest.TestCase):
         self.assertIn('id="campos-entrada-dashboard"', pagina)
 
 
-class TestReorganizacaoAbasFase1(unittest.TestCase):
-    """Fase 1 (reorganizacao de UI): a antiga aba unica "Configuracoes"
-    virou duas ("Configuracoes" enxuta + "Sistema" tecnica) e "Zonas" ganhou
-    o rotulo "Cadastro". Nenhuma rota mudou -- so o agrupamento visual e
-    onde cada campo aparece no HTML. Estes testes travam esse contrato:
-    o botao da aba Sistema segue a mesma regra de papel que o de
-    Configuracoes/Cadastro (so aparece no coletor), e nenhum campo se
-    perdeu na divisao."""
-
-    @staticmethod
-    def _rotas(app, metodo):
-        return {
-            regra.rule
-            for regra in app.url_map.iter_rules()
-            if metodo in regra.methods and regra.rule.startswith(("/api", "/"))
-        }
+class TestOrganizacaoDasAbas(unittest.TestCase):
+    """Verifica a visibilidade das abas por papel e os campos essenciais."""
 
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
@@ -126,22 +107,23 @@ class TestReorganizacaoAbasFase1(unittest.TestCase):
         db.DB_PATH = self.db_path_original
         self.tempdir.cleanup()
 
-    def test_aba_sistema_segue_a_mesma_regra_de_papel_que_configuracoes(self):
+    def test_abas_administrativas_aparecem_somente_no_coletor(self):
         pagina_coletor = cliente_autenticado(criar_app(papel_app="coletor")).get("/").get_data(as_text=True)
         self.assertIn('data-aba="sistema"', pagina_coletor)
         self.assertIn('data-aba="configuracoes"', pagina_coletor)
         self.assertIn('data-aba="zonas"', pagina_coletor)
-        self.assertIn(">Cadastro<", pagina_coletor)
-        self.assertNotIn(">Zonas</button>", pagina_coletor)
 
         pagina_dashboard = cliente_autenticado(criar_app(papel_app="dashboard")).get("/").get_data(as_text=True)
         self.assertNotIn('data-aba="sistema"', pagina_dashboard)
         self.assertNotIn('data-aba="configuracoes"', pagina_dashboard)
         self.assertNotIn('data-aba="zonas"', pagina_dashboard)
 
-    def test_campos_tecnicos_migraram_para_sistema_sem_se_perder(self):
+    def test_campos_tecnicos_estao_na_aba_sistema(self):
         pagina = cliente_autenticado(criar_app(papel_app="coletor")).get("/").get_data(as_text=True)
-        # Campos que agora vivem na aba Sistema (infraestrutura tecnica).
+        inicio_sistema = pagina.index('id="aba-sistema"')
+        fim_sistema = pagina.index('id="aba-zonas"')
+        trecho_sistema = pagina[inicio_sistema:fim_sistema]
+
         for campo_id in (
             "cfg-zonas-simulado",
             "cfg-intervalo-leitura",
@@ -157,27 +139,15 @@ class TestReorganizacaoAbasFase1(unittest.TestCase):
             "btn-backup-banco",
         ):
             with self.subTest(campo=campo_id):
-                self.assertIn(f'id="{campo_id}"', pagina)
+                self.assertIn(f'id="{campo_id}"', trecho_sistema)
 
-        # Campo que ficou na aba Configuracoes (decisao de alerta/manejo,
-        # nao infraestrutura).
-        self.assertIn('id="cfg-status-minimo-email"', pagina)
-
-        # A aba Sistema comeca depois da aba Configuracoes no documento;
-        # os campos de SMTP devem estar no trecho da aba Sistema, nao mais
-        # dentro da secao antiga de Configuracoes.
-        indice_config = pagina.index('id="aba-configuracoes"')
-        indice_sistema = pagina.index('id="aba-sistema"')
-        indice_smtp_host = pagina.index('id="cfg-smtp-host"')
-        self.assertLess(indice_sistema, indice_smtp_host)
-        self.assertLess(indice_config, indice_sistema)
+        inicio_config = pagina.index('id="aba-configuracoes"')
+        trecho_config = pagina[inicio_config:inicio_sistema]
+        self.assertIn('id="cfg-status-minimo-email"', trecho_config)
 
     def test_nenhum_id_duplicado_na_pagina_renderizada(self):
-        # Fase 1 moveu blocos inteiros de markup entre secoes; um
-        # copiar-e-colar mal feito duplicaria algum id e quebraria
-        # `document.getElementById` (que so encontra o primeiro).
-        # papel_app=None renderiza os tres conjuntos de rotas juntos no
-        # mesmo processo -- e o cenario mais exigente para IDs unicos.
+        # IDs duplicados tornam o comportamento de `getElementById`
+        # ambiguo e quebram a associacao entre controles e rotulos.
         pagina = cliente_autenticado(criar_app(papel_app=None)).get("/").get_data(as_text=True)
         ids = re.findall(r'\bid="([^"]+)"', pagina)
         duplicados = sorted({item for item in ids if ids.count(item) > 1})
@@ -211,11 +181,7 @@ class TestReorganizacaoAbasFase1(unittest.TestCase):
 
 
 class TestColetorEDashboardCompartilhamOMesmoBanco(unittest.TestCase):
-    """O cenario central da Fase 1: coletor e dashboard sao dois apps
-    Flask (na pratica, dois PROCESSOS) distintos, mas apontam para o MESMO
-    arquivo SQLite. Tudo que o coletor grava -- leitura, estado dos
-    equipamentos -- precisa aparecer para o dashboard, sem nenhuma
-    comunicacao direta entre os dois alem do arquivo."""
+    """Coletor e dashboard compartilham dados somente pelo banco SQLite."""
 
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()

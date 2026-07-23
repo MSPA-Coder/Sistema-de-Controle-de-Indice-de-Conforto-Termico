@@ -9,6 +9,7 @@ gradual de SensorSimuladoService.
 """
 
 import unittest
+from unittest.mock import patch
 
 from app import thermal_indices as ti
 from app.modbus_simulador import SimuladorModbusZonas
@@ -78,10 +79,18 @@ class TestSimuladorModbusZonas(unittest.TestCase):
         equipamento = {"tipo": "sensor", "nome": "x"}
         self.assertTrue(self.simulador.testar_conexao(equipamento))
 
-    def test_registrar_calculo_nao_lanca_excecao(self):
+    def test_resfriamento_ativo_reduz_temperaturas_da_proxima_leitura(self):
         self.simulador.registrar_calculo(
-            1, "frangos", "ITU", {"tbs": 30, "tbu": 22}, 75.0, "Conforto"
-        )  # nao deve lancar
+            1, "frangos", "ITU", {"tbs": 30.0, "tbu": 22.0}, 75.0, "Alerta"
+        )
+        self.resfriamento_ativo = True
+
+        with patch("app.modbus_simulador.random.uniform", return_value=0):
+            tbs = self.simulador.ler_valor(self._sensor("tbs"))
+            tbu = self.simulador.ler_valor(self._sensor("tbu"))
+
+        self.assertEqual(28.5, tbs)
+        self.assertEqual(20.9, tbu)
 
     def test_indices_diferentes_geram_campos_diferentes(self):
         zona_ignu = {"id": 2, "nome": "Zona IGNU", "especie": "suinos", "indice": "IGNU", "ativa": True}

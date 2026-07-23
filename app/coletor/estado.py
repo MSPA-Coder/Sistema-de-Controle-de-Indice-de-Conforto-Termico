@@ -17,27 +17,9 @@ from __future__ import annotations
 from .. import database as db
 from .. import modbus_client
 from ..modbus_simulador import SimuladorModbusZonas
-from ..models import Resfriamento
-from ..services import CalculoIctService, HistoricoGraficoService, SensorSimuladoService
 from ..zona_service import ZonaService
 from .controle import GerenciadorControleZonas
 
-# Estado do equipamento remoto (ventilador/nebulizador) da aba "Dashboard"
-# (fluxo sem zona, herdado da dissertacao original). A dissertacao descreve
-# um unico posto de controle (estacao de producao), por isso um unico
-# objeto "global" em memoria e suficiente aqui -- assim como o programa
-# original era uma aplicacao desktop de um unico usuario.
-_resfriador = Resfriamento()
-historico_grafico_service = HistoricoGraficoService(db.obter_historico)
-sensor_simulado_service = SensorSimuladoService()
-calculo_ict_service = CalculoIctService(
-    _resfriador,
-    historico_grafico_service,
-    sensor_simulado_service,
-    db.salvar_leitura,
-    db.obter_historico,
-    obter_configuracoes=db.obter_configuracoes,
-)
 zona_service = ZonaService(
     obter_zona=db.obter_zona,
     salvar_leitura=db.salvar_leitura,

@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Lancador do processo DASHBOARD (so leitura: analises e historico, sem
-Modbus) -- FASE 1 da separacao coletor/dashboard (ver `agents.md`).
+"""Lancador do processo DASHBOARD (analises e historico, sem Modbus).
 
 Para rodar:
     python run_dashboard.py

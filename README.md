@@ -1,366 +1,83 @@
 # Sistema de Controle dos Índices de Conforto Térmico
 
-Aplicacao web local em **Python 3 + Flask** para monitoramento em tempo real
-e consolidacao historica de indices de conforto termico na producao animal
-(aviarios, granjas de suinos e confinamentos de bovinos de leite/corte).
+Aplicação web em Python e Flask para monitorar conforto térmico na produção animal. O sistema calcula índices térmicos, acompanha zonas com sensores e atuadores, mantém histórico local e oferece visões de operação e análise com acesso controlado por perfil.
 
-> Origem cientifica: os indices, faixas de classificacao e formulas usados
-> aqui vem da dissertacao de mestrado *"Programa Computacional para o
-> Calculo de Indices de Conforto Termico na Producao Industrial de Animais
-> para Carne e Leite"* (Mariano Sergio Pacheco de Angelo, UNIP, 2013). O
-> software em si foi reconstruido do zero como aplicacao web moderna; a
-> dissertacao e citada aqui apenas como referencia da metodologia, nao como
-> descricao do estado atual do codigo.
+As fórmulas, faixas de classificação e espécies atendidas têm como referência a dissertação *Programa Computacional para o Cálculo de Índices de Conforto Térmico na Produção Industrial de Animais para Carne e Leite* (Mariano Sergio Pacheco de Angelo, UNIP, 2013). A implementação atual está centralizada em `app/thermal_indices.py`.
 
-A interface e em portugues do Brasil. Os identificadores internos do projeto
-(arquivos, modulos, funcoes, campos JSON, ids HTML e classes CSS) usam ASCII.
+## Principais recursos
 
-## Funcionalidades
+- Cálculo e classificação dos índices ITU, ITUV e IGNU.
+- Monitoramento por zona com sensores, ventiladores e nebulizadores independentes.
+- Modos de operação desligado, manual, automático e manutenção.
+- Simulação de sensores e atuadores para uso sem hardware Modbus.
+- Histórico em SQLite, com séries em tempo real, agregados de 15 minutos e resumos horários.
+- Painéis de acompanhamento, análises por zona e filtros de histórico.
+- Geração de dados de entrada a partir do clima histórico disponibilizado pelo Open-Meteo.
+- Alertas por e-mail, com pré-visualização quando não há SMTP configurado.
+- Login obrigatório, perfis de acesso e administração de usuários.
+- Execução combinada ou separada nos papéis de coletor e dashboard.
 
-- Calcula os indices **ITU**, **ITUV** e **IGNU** conforme as formulas e
-  limites centralizados em `app/thermal_indices.py`.
-- Classifica cada leitura em **Conforto**, **Alerta**, **Perigo** ou
-  **Emergencia**, com mensagens de orientacao e cores por faixa.
-- Mantem historico em SQLite para leituras manuais, simuladas e por zona.
-- Aba **Analises** com o percentual de tempo em cada status termico e a
-  media/minimo/maximo do indice, por zona; clicar numa linha abre o
-  historico filtrado daquela zona.
-- Consolida automaticamente a leitura bruta em janelas de **15 minutos**
-  (media/minimo/maximo) e em **resumos horarios** (media, status da media e
-  percentual de tempo em cada status), sem precisar reprocessar o historico
-  inteiro a cada consulta -- ver `agregacao.py` e a secao **Banco de
-  dados**. Na aba **Historico**, o card "Tendencia do indice por resolucao"
-  deixa alternar entre as 3 granularidades (tempo real / 15 min / hora) para
-  a zona selecionada no filtro.
-- Exibe graficos com Chart.js empacotado localmente em
-  `app/static/js/vendor/chart.umd.js`.
-- Possui configuracoes persistidas para especie, indice, intervalos,
-  calculo de umidade/ponto de orvalho, alertas, equipamentos e SMTP.
-- Envia e-mails reais por SMTP quando configurado; sem SMTP, monta o conteudo
-  e opera em modo simulado.
-- Controla ventiladores e nebulizadores com histerese de intensidade por
-  leituras consecutivas, sem reduzir niveis de uma vez.
-- Suporta zonas Modbus com sensores, ventiladores e nebulizadores
-  independentes por zona.
-- Inclui modo simulado para zonas, permitindo demonstrar o fluxo completo sem
-  hardware Modbus real.
-- Inclui uma aba independente **Dados de entrada** que baixa clima historico
-  ERA5 pelo Open-Meteo, calcula grandezas psicrometricas, simula atividade e
-  carga termica animal e grava tudo em `instance/dados_entrada.db`. A aba
-  aparece no coletor e no dashboard (somente leitura neste ultimo), gera
-  apenas para zonas ativas e permite copiar uma geracao, sem duplicidade,
-  para `instance/historico.db`.
-- As abas sao agrupadas por area de uso (Monitoramento / Operacao /
-  Administracao / Dados) em vez de uma lista plana -- ver a secao
-  **Organizacao das abas por papel de uso** abaixo.
+## Índices implementados
 
-## Organizacao das abas por papel de uso
-
-A navegacao agrupa as abas por area de uso, nao so por papel de processo
-(coletor/dashboard). A ideia e que cada grupo corresponda a uma frequencia e
-um risco de uso diferentes: monitorar e constante e nao-destrutivo, operar e
-diario mas pode acionar equipamento fisico, administrar e raro e mexe em
-fiacao/credenciais.
-
-| Grupo | Abas | Uso tipico |
+| Índice | Fórmula | Espécies |
 |---|---|---|
-| **Monitoramento** | Dashboard, Analises, Historico | Leitura e tendencias -- quem acompanha o processo (analista, veterinario, gestor) sem precisar agir sobre ele. |
-| **Operacao** | Operacao | Acao no dia a dia: modo por zona, comandos de equipamento, ciclo manual -- quem esta no campo. |
-| **Administracao** | Cadastro, Configuracoes, Sistema | Configuracao pouco frequente: cadastro de zona/equipamento com fiacao Modbus, limiar de alerta por e-mail e infraestrutura tecnica (sensores, banco, SMTP, parametros de calculo). |
-| **Dados** | Dados de entrada | Geracao/consulta de series historicas para validacao e testes, usada tanto por quem opera quanto por quem analisa. |
-
-Dentro de **Administracao**, "Cadastro" (fiacao Modbus, teste de conexao) e
-"Sistema" (SMTP, banco, sensores, calculos) ficam separados de
-"Configuracoes" (preferencias do app e a partir de qual status avisar por
-e-mail) de proposito: a primeira e uma tarefa de instalacao/tecnica, feita
-raramente e por quem cuida do hardware; a segunda e uma decisao de manejo,
-que quem acompanha o bem-estar animal pode querer ajustar sem precisar
-enxergar credenciais de SMTP ou fator de escala de registrador Modbus.
-
-Esse agrupamento e so organizacao visual (Fase 1): o HTML de cada aba
-continua sempre renderizado no DOM independente do `papel_app`, e nenhuma
-rota mudou. A separacao de acesso por PESSOA (operador/tecnico/veterinario/
-analista/gestor/administrador), com login e bloqueio real das rotas de
-escrita por perfil, e tratada a parte -- ver a secao **Perfis de usuario e
-autenticacao** mais abaixo.
-
-## Perfis de usuário e autenticação
-
-Fase 2: login é exigido para **qualquer** acesso ao sistema, inclusive a
-aba Dashboard -- não existe mais uso anônimo. Cada pessoa tem sua própria
-conta (nome, login, senha, perfil), guardada na tabela `usuarios` do mesmo
-`instance/historico.db` que coletor e dashboard já compartilhavam desde a
-Fase 1 -- por isso as contas valem para os dois processos sem nenhuma
-configuração extra.
-
-### Primeiro acesso (bootstrap)
-
-Uma instalação nova não tem nenhum usuário cadastrado, e a tela que cadastra
-gente (`/usuarios`) exige estar logado como administrador -- ou seja,
-ninguém consegue entrar para criar o primeiro administrador pela própria
-interface. Rode uma vez, direto no banco, para quebrar esse ciclo:
-
-```bash
-python scripts/criar_usuario_admin.py
-```
-
-Pede nome, login e senha interativamente (a senha não aparece no
-terminal). Depois disso, use a tela **Gerenciar usuários** (link no topo do
-app, visível só para administradores) para cadastrar o resto da equipe.
-
-### Perfis e áreas liberadas
-
-Cada perfil libera um subconjunto das áreas da interface (ver a seção
-**Organização das abas por papel de uso**, acima). "Dashboard" é a única
-área presente em todos os perfis, porque essa aba nunca tem uma ação de
-escrita -- é puramente informativa.
-
-| Perfil | Áreas liberadas |
-|---|---|
-| Operador | Dashboard, Operação |
-| Técnico | Dashboard, Operação, Histórico, Cadastro, Sistema, Dados de entrada |
-| Veterinário | Dashboard, Análises, Histórico, Configurações |
-| Analista | Dashboard, Análises, Histórico, Dados de entrada |
-| Gestor | Dashboard, Análises, Histórico |
-| Administrador | Todas, incluindo Usuários |
-
-Duas exceções, dentro da área "Dados de entrada": **excluir** dados
-(medições ou todo o histórico) fica restrito a Técnico e Administrador,
-mesmo que Analista também tenha acesso de escrita à mesma área (gerar,
-salvar parâmetros, exportar, copiar para o histórico) -- excluir é
-irreversível, gerar/exportar não. O mapa completo endpoint-por-endpoint
-está em `app/auth.py` (`AREA_POR_ENDPOINT`,
-`PERFIS_EXTRA_POR_ENDPOINT`).
-
-Este controle é aplicado em DOIS lugares, e os dois precisam concordar, mas
-só um deles é controle de acesso de verdade:
-
-- **No template** (`templates/index.html`): um botão de aba só aparece se
-  `papel_app` (Fase 0/1 -- qual processo) **e** `areas_permitidas` (Fase 2
-  -- qual perfil) liberarem ao mesmo tempo. Isso é só conveniência visual.
-- **Nas rotas** (`auth.registrar_autenticacao`, hooks `before_request`
-  registrados em toda `criar_app`): quem realmente bloqueia uma chamada de
-  API indevida, mesmo que a pessoa tente direto (curl, DevTools, etc.), não
-  só clicando num botão escondido.
-
-### Sessão e segurança
-
-- Senhas nunca são guardadas em texto puro -- hash via `werkzeug.security`
-  (scrypt nesta versão). `database.py` nunca vê a senha em si, só o hash já
-  pronto (ver `auth.py`).
-- A sessão dura 12h e usa cookie `HttpOnly` + `SameSite=Lax`. Isso cobre o
-  caso comum de CSRF (POST vindo de outro site), mas este projeto não
-  implementa proteção CSRF por token -- não substitui o hábito de clicar em
-  **Sair** ao encerrar o uso num dispositivo compartilhado (ex.: tablet na
-  fazenda).
-- Desativar uma conta (`ativo = não` na tela de usuários) derruba qualquer
-  sessão já aberta dessa conta na próxima requisição -- não precisa esperar
-  o cookie expirar sozinho.
-- Sempre existe pelo menos um administrador ativo: o sistema recusa
-  desativar, rebaixar ou excluir o único administrador restante, e uma
-  conta não consegue remover o próprio acesso de administrador enquanto
-  está logada nela (mesmo que exista outro administrador) -- evita
-  auto-lockout por engano.
-- Login errado e login inexistente devolvem a mesma mensagem
-  ("Login ou senha inválidos"), de propósito -- diferenciar os dois
-  permitiria descobrir quais logins existem só tentando senhas ao acaso.
-
-### Chave de sessão
-
-Por padrão, a chave usada para assinar o cookie de sessão é gerada
-automaticamente e guardada em `instance/secret_key.txt` (criado com
-permissão `600`, já coberto pelo `.gitignore`) na primeira vez que o
-sistema sobe. Para fixar uma chave própria (recomendado em produção, ou se
-`instance/` for recriado com frequência), defina a variável de ambiente
-antes de rodar:
-
-```bash
-export CONFORTO_SECRET_KEY="uma-string-aleatoria-bem-longa"
-```
-
-## Estrutura
-
-```text
-.
-├── app.py                              # lancador (1 processo so): python app.py
-├── run_coletor.py                      # lancador do processo COLETOR (fase 1)
-├── run_dashboard.py                    # lancador do processo DASHBOARD (fase 1)
-├── config/servidor.json                # portas/defaults por papel do servidor
-├── conforto_termico/
-│   ├── web.py                          # composicao "1 processo so" (fase 0); reexporta app/servicos
-│   ├── app_factory.py                  # criar_app(papel_app): monta o Flask a partir dos blueprints
-│   ├── rotas_comuns.py                 # rotas somente-leitura usadas pelos dois papeis (/, /api/zonas GET, ...)
-│   ├── coletor/
-│   │   ├── estado.py                   # instancia ZonaService e os demais servicos com estado
-│   │   └── rotas.py                    # rotas que falam Modbus, calculam e gravam
-│   ├── dashboard/
-│   │   └── rotas.py                    # rotas de leitura (analises, painel executivo)
-│   ├── thermal_indices.py              # formulas, limites e validacoes
-│   ├── models.py                       # Temperatura, Resfriamento e Email
-│   ├── services.py                     # fluxo manual/simulado da estacao principal
-│   ├── zona_service.py                 # fluxo por zona Modbus (malha de controle)
-│   ├── modbus_client.py                # adaptador pymodbus opcional
-│   ├── modbus_simulador.py             # simulador de sensores/atuadores por zona
-│   ├── database.py                     # SQLite: configuracoes, zonas, historico e estado dos equipamentos
-│   ├── dados_entrada_db.py              # SQLite isolado das series historicas/simuladas
-│   ├── gerador_dados.py                 # ERA5, interpolacao e simulacao animal
-│   ├── dados_entrada_rotas.py           # API da aba Dados de entrada
-│   ├── templates/index.html
-│   └── static/
-│       ├── css/style.css
-│       └── js/app.js
-├── tests/                              # unittest
-├── scripts/seed_zonas.py               # cria zonas de exemplo
-├── requirements.txt
-└── instance/
-    ├── historico.db                    # banco local criado/usado em runtime
-    └── dados_entrada.db                # banco isolado criado pela nova aba
-```
-
-## Arquitetura
-
-O sistema esta organizado em torno de dois PAPEIS (`papel_app`), pensados
-para eventualmente rodar em processos -- e maquinas -- separados:
-
-- **coletor** (`coletor/rotas.py` + `coletor/estado.py`): fala Modbus, le
-  sensores, calcula o indice, aciona ventilador/nebulizador e grava tudo
-  no banco (leituras, estado dos equipamentos). E aqui que fica a malha de
-  controle (`zona_service.py`) -- ela precisa continuar funcionando mesmo
-  que nenhum dashboard esteja de pe. O agendador de backend
-  (`coletor/controle.py`) executa somente zonas em modo `automatico`, com
-  lock por zona e heartbeat persistido.
-- **dashboard** (`dashboard/rotas.py`): so leitura -- estatisticas e o
-  Dashboard de monitoramento, historico, estatisticas e o
-  "Painel executivo por zona" da aba Analises. Depende SOMENTE de
-  `database.py`; nunca importa `modbus_client` nem `zona_service`.
-- **comum** (`rotas_comuns.py`): pagina inicial, lista de zonas,
-  navegacao pelo historico persistido e diagnostico -- rotas somente
-  leitura uteis nos dois papeis.
-
-`app_factory.criar_app(papel_app)` monta o Flask a partir desses
-Blueprints. `app.py` (`papel_app=None`, ver `web.py`) registra os dois
-papeis no MESMO processo -- é o modo **recomendado por padrão**,
-inclusive em produção: ver "Um processo ou dois?", logo abaixo.
-`run_coletor.py` e `run_dashboard.py` também funcionam de forma
-independente (`papel_app="coletor"`/`"dashboard"`, cada um só com as
-rotas do seu papel), para quando coletor e dashboard realmente precisam
-ser dois processos -- normalmente porque estão em duas MÁQUINAS
-diferentes. Quando rodam como dois processos, eles compartilham o MESMO
-arquivo `instance/historico.db`: o `_conexao()` de `database.py` já liga
-WAL e usa timeout de lock pensando nesse cenário -- mas isso pressupõe o
-arquivo num disco local comum aos dois processos (mesma máquina, ou um
-segundo processo acessando o mesmo disco); SQLite (mesmo em WAL) não é
-projetado para um arquivo compartilhado por NFS/SMB entre máquinas
-distintas -- travas de arquivo em sistemas de rede são pouco confiáveis, e
-isso vale tanto para o `historico.db` quanto para a tabela `usuarios` (Fase
-2) que mora nele.
-
-### Um processo ou dois?
-
-Rodar `app.py` (um processo só) usa menos RAM que `run_coletor.py` +
-`run_dashboard.py` juntos -- cada processo Python paga o interpretador e as
-importações do zero; no ambiente de teste deste projeto, um segundo
-processo Flask soma mais uns 25-30 MB, só de subir. Isso importa em
-hardware pequeno (Raspberry Pi e similares).
-
-Antes da Fase 2, rodar coletor e dashboard como dois processos separados
-também funcionava como uma trava de segurança: um dashboard nunca importa
-`modbus_client`/`zona_service`, então nem um bug conseguiria mandar um
-comando Modbus a partir dele. Com login por pessoa (Fase 2), essa mesma
-garantia já vale DENTRO de um único processo -- um usuário com perfil
-"gestor" ou "veterinário" recebe 403 ao tentar acionar um equipamento,
-mesmo que a rota exista no processo, porque o perfil dele não tem a área
-"operacao" (ver `auth.AREA_POR_ENDPOINT`). Ou seja: a separação em dois
-processos não é mais necessária como mecanismo de segurança -- só continua
-fazendo sentido por um motivo ORGANIZACIONAL real: coletor e dashboard
-precisam mesmo estar em duas máquinas fisicamente diferentes (ex.: coletor
-preso ao hardware Modbus na granja, dashboard num computador de escritório
-sem acesso à rede do barracão).
-
-Recomendação: use `app.py` por padrão. Só use `run_coletor.py` +
-`run_dashboard.py` se a granja realmente tiver duas máquinas separadas
-fazendo esses dois papeis -- e, nesse caso, prefira sincronizar
-`instance/historico.db` por algum outro meio (ou aceitar que cada máquina
-tenha seu próprio banco) em vez de compartilhar o arquivo por uma pasta de
-rede.
-
-### Monitoramento ao vivo só quando alguém está olhando
-
-`app.js` atualiza o status do coletor e os cartões de zona a cada 3s
-(`atualizarMonitoramento`) -- mas só as abas Dashboard e Operação mostram
-esse dado. Antes, esse polling rodava para SEMPRE, em qualquer aba, mesmo
-com a aba do navegador em segundo plano: com N zonas cadastradas, cada
-sessão aberta gerava N+2 requisições a cada 3 segundos, 24h por dia,
-independente do que a pessoa estivesse olhando. Isso pesa direto no
-processo do servidor (mais do que o tamanho do HTML/JS jamais pesaria) e
-escala com o número de sessões abertas -- um tablet de granja com o painel
-ligado o dia inteiro, por exemplo.
-
-Agora o polling só faz trabalho de verdade quando a aba ativa é Dashboard
-ou Operação **e** a aba do navegador está visível (`document.hidden` via
-Page Visibility API); nas demais abas (Análises, Histórico, Cadastro,
-Configurações, Sistema, Dados de entrada) ele simplesmente não dispara as
-requisições. Ao entrar em Dashboard/Operação, ou ao voltar de uma aba do
-navegador em segundo plano, atualiza na hora em vez de esperar até 3s
-num estado desatualizado. Nenhum HTML deixou de ser renderizado -- só o
-QUANDO das chamadas de API mudou, o que evita o risco de dependência
-cruzada entre abas descrito em `agents.md`.
-
-O estado desejado e o estado confirmado de cada equipamento sao persistidos
-a cada ciclo (`database.salvar_estado_equipamentos`, tabela
-`estado_equipamentos`). Uma janela curta de todas as leituras tambem e
-persistida em `leituras_recentes_zona`, para que os graficos ao vivo nao
-dependam da memoria do coletor. A operacao usa quatro modos por zona:
-`desligado`, `manual`, `automatico` e `manutencao`; o acionamento fisico
-exige tanto a trava global quanto a trava da propria zona.
-
-O unico modulo que importa `pymodbus` diretamente e `modbus_client.py`.
-
-## Indices implementados
-
-| Indice | Formula | Disponivel para |
-|---|---|---|
-| ITU | `0.72 * (tbs + tbu) + 40.6` | frangos, bovinos, suinos |
+| ITU | `0.72 * (tbs + tbu) + 40.6` | frangos, bovinos e suínos |
 | ITUV | `(0.85 * tbs + 0.15 * tbu) * v ** -0.058` | frangos |
-| IGNU | `0.6 * tgn + 0.36 * tpo + 41.5` | frangos, bovinos, suinos |
+| IGNU | `0.6 * tgn + 0.36 * tpo + 41.5` | frangos, bovinos e suínos |
 
-As faixas de classificacao ficam em `LIMITES`, dentro de
-`thermal_indices.py`. Os dicionarios compartilhados desse modulo sao
-congelados com `MappingProxyType`; ao adicionar uma especie, indice, limite ou
-campo, edite o literal antes da chamada a `_congelar`.
+Cada resultado é classificado como **Conforto**, **Alerta**, **Perigo** ou **Emergência**. Os limites por espécie e índice ficam em `app/thermal_indices.py`.
 
-## Como rodar
+## Requisitos
 
-Crie ou selecione um ambiente Python 3.10+ e instale as dependencias:
+- Python 3.10 ou superior.
+- Dependências de `requirements.txt`.
+- `pymodbus` somente para comunicação com hardware Modbus real.
+- Acesso à internet somente para baixar dados climáticos ainda não presentes no cache.
+
+## Instalação
+
+No PowerShell:
 
 ```powershell
-pip install -r requirements.txt
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ```
 
-Antes do primeiro acesso, crie o usuário administrador (uma vez só -- ver
-"Perfis de usuário e autenticação", acima):
+Para usar equipamentos Modbus reais:
+
+```powershell
+python -m pip install "pymodbus>=3.8,<4.0"
+```
+
+## Primeiro acesso
+
+Crie o primeiro administrador antes de iniciar o uso:
 
 ```powershell
 python scripts/criar_usuario_admin.py
 ```
 
-### Um processo so (padrao)
+O script solicita nome, login e senha. Depois do primeiro acesso, administradores podem gerenciar as demais contas pela interface.
+
+## Execução
+
+### Aplicação completa
+
+Esta é a opção indicada para execução local em uma única máquina:
 
 ```powershell
 python app.py
 ```
 
-Acesse `http://127.0.0.1:5000` -- todas as abas (Dashboard, Operacao,
-Analises, Historico, Cadastro, Configuracoes, Sistema, Dados de entrada)
-ficam disponiveis nesse unico processo.
+Acesse `http://127.0.0.1:5000`.
 
-No PyCharm, abra a pasta do projeto, selecione o interpretador Python do
-ambiente virtual e rode `app.py`.
+No Windows, `scripts/conforto_termico_menu.bat` oferece um menu para iniciar a aplicação localmente, disponibilizá-la na rede, alterar a porta da sessão ou encerrar o processo iniciado pelo projeto.
 
-### Dois processos (coletor + dashboard)
+### Coletor e dashboard separados
 
-Cada um numa porta diferente, mesma maquina. As portas padrao ja estao em
-`config/servidor.json` (`5000` para coletor, `5001` para dashboard):
+Use esta opção quando houver necessidade operacional de separar a comunicação com o hardware da camada de consulta:
 
 ```powershell
 python run_coletor.py
@@ -370,236 +87,212 @@ python run_coletor.py
 python run_dashboard.py
 ```
 
-O coletor (`5000`) mostra Dashboard/Operacao/Cadastro/Configuracoes/Sistema/
-Dados de entrada; o dashboard (`5001`) mostra Dashboard/Analises/Historico/
-Dados de entrada (somente leitura). Apenas o coletor grava e comanda; o
-dashboard acessa as tabelas compartilhadas em modo somente leitura. Os dois
-usam o mesmo `instance/historico.db`.
+Por padrão, o coletor usa a porta `5000` e o dashboard usa a porta `5001`. Na mesma máquina, ambos acessam `instance/historico.db`.
 
-## Configuracao do servidor
+O coletor lê sensores, executa a malha de controle, aciona equipamentos e grava dados. O dashboard expõe somente consultas e análises, sem carregar o cliente Modbus.
 
-O arquivo `config/servidor.json` define defaults versionados por papel. Sem
-variaveis de ambiente, `app.py` usa `padrao.port` (`5000`), `run_coletor.py`
-usa `coletor.port` (`5000`) e `run_dashboard.py` usa `dashboard.port`
-(`5001`).
+Não compartilhe o arquivo SQLite por NFS, SMB ou pasta de rede entre máquinas. Para uma implantação distribuída, use um banco cliente-servidor ou uma integração explícita entre o coletor e o dashboard.
 
-As variaveis abaixo sao opcionais e sempre sobrescrevem o arquivo. Valem tanto
-para `app.py` quanto para `run_coletor.py`/`run_dashboard.py`.
+## Configuração do servidor
 
-| Variavel | Padrao | Descricao |
+Os valores padrão ficam em `config/servidor.json`. Variáveis de ambiente, quando definidas, têm precedência:
+
+| Variável | Padrão | Finalidade |
 |---|---:|---|
-| `CONFORTO_DEBUG` | `0` | Liga o debugger do Werkzeug. Use apenas em desenvolvimento local. |
-| `CONFORTO_HOST` | `127.0.0.1` | Interface de rede do Flask. |
-| `CONFORTO_PORT` | `config/servidor.json` | Porta TCP. |
-| `CONFORTO_THREADED` | `1` | Atende requisicoes concorrentes no servidor de desenvolvimento. |
-| `CONFORTO_MAX_CONTENT_LENGTH` | `1000000` | Tamanho maximo do corpo da requisicao, em bytes. |
+| `CONFORTO_DEBUG` | `0` | Ativa o modo de depuração do Flask. Use somente em desenvolvimento local. |
+| `CONFORTO_HOST` | `127.0.0.1` | Interface de rede usada pelo servidor. |
+| `CONFORTO_PORT` | conforme o papel | Porta TCP. |
+| `CONFORTO_THREADED` | `1` | Habilita atendimento concorrente no servidor local. |
+| `CONFORTO_MAX_CONTENT_LENGTH` | `1000000` | Limite do corpo das requisições, em bytes. |
+| `CONFORTO_SECRET_KEY` | arquivo local gerado | Define a chave usada para assinar a sessão. |
 
-## Configuracoes persistidas
+Exemplo:
 
-A rota `/api/configuracoes` salva e retorna as configuracoes do app. Todas as
-chaves conhecidas passam por validacao e coercao segura em `database.py`.
-Valores invalidos voltam ao padrao daquele campo.
+```powershell
+$env:CONFORTO_HOST = "0.0.0.0"
+$env:CONFORTO_PORT = "5000"
+python app.py
+```
 
-Principais chaves:
+Ao expor o serviço fora da máquina local, mantenha `CONFORTO_DEBUG=0`, restrinja a rede de acesso e use um servidor WSGI e HTTPS adequados ao ambiente. O servidor embutido do Flask é voltado ao desenvolvimento e a operações locais controladas.
 
-- `especie` e `indice`: selecao global da interface, validada em conjunto.
-- `coletarDados`, `modoAutomatico`, `habilitarSons`, `enviarEmails`,
-  `habilitarEquipamentos`.
-- `intervaloLeituraSegundos` e `intervaloGravacaoMinutos`.
-- `modoPontoOrvalho`, `modoUmidadeRelativa`, `altitudeMetros`.
-- `limiteUmidadeNebulizador`.
-- `emailDestino`.
-- `smtpHost`, `smtpPorta`, `smtpUsuario`, `smtpSenha`.
-- `modoSimuladoZonas`.
+## Perfis de acesso
 
-`smtpSenha` e somente escrita pela API HTTP: respostas publicas sempre retornam
-`smtpSenha: ""` e `smtpSenhaConfigurada: true/false`.
+Todo acesso exige autenticação. As permissões são verificadas nas rotas; ocultar uma aba é apenas parte da apresentação da interface.
+
+| Perfil | Áreas disponíveis |
+|---|---|
+| Operador | Dashboard e Operação |
+| Técnico | Dashboard, Operação, Histórico, Cadastro, Sistema e Dados de entrada |
+| Veterinário | Dashboard, Análises, Histórico e Configurações |
+| Analista | Dashboard, Análises, Histórico e Dados de entrada |
+| Gestor | Dashboard, Análises e Histórico |
+| Administrador | Todas as áreas e gerenciamento de usuários |
+
+A exclusão de dados de entrada é restrita a técnicos e administradores. O sistema também impede que o último administrador ativo seja removido ou desativado.
+
+As sessões duram até 12 horas e usam cookies `HttpOnly` e `SameSite=Lax`. A aplicação não implementa token CSRF; encerre a sessão em dispositivos compartilhados e não exponha a instalação diretamente à internet.
+
+## Organização da interface
+
+- **Monitoramento:** Dashboard, Análises e Histórico.
+- **Operação:** modos das zonas, ciclos manuais e comandos de equipamentos.
+- **Administração:** Cadastro, Configurações e Sistema.
+- **Dados:** geração, consulta, exportação e cópia de dados de entrada.
+
+A disponibilidade de cada área depende do perfil do usuário e, quando os processos são separados, do papel da aplicação.
+
+## Zonas e Modbus
+
+Uma zona representa uma área de produção com espécie, índice, sensores e atuadores próprios. Cada zona pode ter de zero a vários sensores, ventiladores e nebulizadores.
+
+Os equipamentos podem usar Modbus TCP ou RTU. A configuração inclui os parâmetros de conexão, unidade, registrador e, para sensores, campo medido, tipo de dado e fator de escala.
+
+Em cada ciclo de uma zona, o sistema:
+
+1. lê os sensores ativos;
+2. agrupa as leituras pelo campo medido;
+3. calcula a média quando há mais de um sensor para o mesmo campo;
+4. desconsidera sensores sem resposta e registra as falhas;
+5. deriva umidade relativa e ponto de orvalho quando possível;
+6. calcula e classifica o índice;
+7. atualiza o estado de resfriamento da zona;
+8. envia comandos aos atuadores habilitados;
+9. persiste a leitura e o estado dos equipamentos.
+
+As zonas mantêm estados de controle independentes. A falha de um sensor não bloqueia o ciclo se os campos obrigatórios continuarem disponíveis.
+
+### Modo simulado
+
+`modoSimuladoZonas` vem habilitado em uma instalação nova. Nesse modo, não há comunicação com rede ou porta serial: leituras são geradas pelo simulador e comandos de atuadores retornam sucesso simulado.
+
+Antes de desabilitar a simulação:
+
+- instale `pymodbus`;
+- confira endereços, unidades, registradores e fatores de escala;
+- teste a conexão de cada equipamento;
+- valide as travas global e da zona;
+- execute o primeiro acionamento com supervisão local.
+
+Falhas de comunicação Modbus são convertidas em estado de leitura ou escrita malsucedida e registradas pelo fluxo de controle, sem encerrar o servidor.
 
 ## E-mail
 
-Sem SMTP configurado, o sistema apenas monta o conteudo do e-mail e informa que
-o envio real nao ocorreu. Para envio real, configure o servidor SMTP pela aba
-**Sistema** (host/porta/usuario/senha) e o limiar de aviso pela aba
-**Configuracoes** ("Enviar a partir do status"), ou por variaveis de
-ambiente:
+Configure destinatário, status mínimo e servidor SMTP pela interface. Também é possível fornecer valores SMTP pelo ambiente:
 
 ```powershell
-$env:SMTP_HOST = "smtp.seuservidor.com"
+$env:SMTP_HOST = "smtp.exemplo.com"
 $env:SMTP_PORT = "587"
-$env:SMTP_USER = "usuario@seudominio.com"
+$env:SMTP_USER = "usuario@exemplo.com"
 $env:SMTP_PASS = "senha-ou-app-password"
 ```
 
-Quando uma chave SMTP existe tanto no banco quanto no ambiente, o valor do
-banco tem prioridade se nao estiver vazio. O destinatario e validado ao salvar
-a configuracao e novamente antes de montar a mensagem SMTP.
+Os valores persistidos têm prioridade quando não estão vazios. Sem host SMTP, o sistema prepara a mensagem, mas não realiza o envio.
 
-## Zonas Modbus
+A senha SMTP nunca é devolvida pela API. A interface informa apenas se existe uma senha configurada.
 
-A aba **Cadastro** (rotulada "Zonas" internamente no codigo -- `data-aba="zonas"`,
-`aba-zonas` -- por ser a mesma tela desde a Fase 0) cadastra areas de producao
-com seus proprios sensores, ventiladores e nebulizadores. Cada zona define:
+## Dados de entrada
 
-- nome, especie, indice e status ativo/inativo;
-- 0 a N sensores;
-- 0 a N ventiladores;
-- 0 a N nebulizadores.
+A área **Dados de entrada** gera séries para zonas ativas a partir de dados climáticos históricos do Open-Meteo, complementados por cálculos psicrométricos e simulação de atividade e carga térmica animal.
 
-Equipamentos podem usar Modbus TCP ou RTU:
+Os resultados ficam em `instance/dados_entrada.db`, separado do histórico operacional. Uma execução pode ser exportada em CSV ou copiada uma única vez para `instance/historico.db`.
 
-- TCP: `host`, `porta`;
-- RTU: `porta_serial`, `baud_rate`;
-- ambos: `unidade_id`, `tipo_registrador`, `endereco_registrador`;
-- sensores: `campo_medido`, `tipo_dado`, `fator_escala`.
+Consultas climáticas são armazenadas em cache. Uma geração que precise de um período ainda não armazenado depende de acesso à internet e da disponibilidade do serviço externo.
 
-O calculo por zona funciona assim:
+## Persistência e arquivos locais
 
-1. Le todos os sensores cadastrados na zona.
-2. Agrupa leituras por `campo_medido`.
-3. Usa a media das leituras quando ha mais de um sensor no mesmo campo.
-4. Exclui sensores sem resposta da media e os lista em `sensores_com_falha`.
-5. Deriva `ur` e `tpo` a partir de `tbs` + `tbu` quando nao houver sensor
-   dedicado para esses campos.
-6. Calcula o indice da zona.
-7. Atualiza o estado de resfriamento daquela zona.
-8. Escreve o estado nos ventiladores/nebulizadores cadastrados.
-9. Grava a leitura em `leituras` com `zona_id`.
+Arquivos de execução ficam em `instance/`, que não deve ser versionada:
 
-Cada zona tem uma instancia propria de `Resfriamento`, portanto intensidade e
-histerese sao independentes entre zonas.
+- `historico.db`: usuários, configurações, zonas, equipamentos, leituras, estados e agregações;
+- `dados_entrada.db`: parâmetros, cache climático e séries geradas;
+- `secret_key.txt`: chave de sessão gerada automaticamente quando `CONFORTO_SECRET_KEY` não foi definida.
 
-### Modo simulado de zonas
+Excluir uma zona remove seus equipamentos, mas preserva as leituras históricas sem vínculo com a zona.
 
-`modoSimuladoZonas` vem ligado por padrao. Nesse modo:
+Faça backup periódico de `instance/` com a aplicação parada ou use a função de backup disponível na área Sistema.
 
-- leituras de sensores sao geradas por `modbus_simulador.py`;
-- atuadores sempre respondem como escrita bem-sucedida;
-- teste de conexao retorna sucesso;
-- nenhum acesso real a rede ou porta serial e feito.
-
-Desligue esse modo somente quando o hardware Modbus real estiver conectado e a
-dependencia opcional `pymodbus` estiver instalada:
+Para criar uma distribuição do código sem bancos, ambiente virtual, caches e metadados locais:
 
 ```powershell
-pip install pymodbus
+python scripts/gerar_zip_limpo.py
 ```
 
-`modbus_client.py` nunca propaga excecoes: falhas de conexao, biblioteca
-ausente e respostas Modbus de erro viram `None` em leitura ou `False` em
-escrita/teste.
+## Dados de demonstração
 
-## Dados de exemplo
-
-Para popular o banco com cinco zonas demonstrativas:
+Para cadastrar cinco zonas de exemplo:
 
 ```powershell
 python scripts/seed_zonas.py
 ```
 
-O script e idempotente: se ja houver zonas, ele nao cria duplicatas. Para
-forcar nova insercao:
+O script não adiciona zonas quando já existem registros. Use `--forcar` apenas quando quiser inserir outro conjunto:
 
 ```powershell
 python scripts/seed_zonas.py --forcar
 ```
 
-## API principal
+## Estrutura do projeto
 
-Rotas principais:
+```text
+.
+├── app.py                     # aplicação completa
+├── run_coletor.py             # processo com aquisição e controle
+├── run_dashboard.py           # processo de consulta e análise
+├── config/servidor.json       # configuração versionada do servidor
+├── app/
+│   ├── app_factory.py         # composição da aplicação por papel
+│   ├── auth.py                # autenticação e autorização
+│   ├── thermal_indices.py     # fórmulas, limites e validações
+│   ├── services.py            # estratégias do simulador de sensores
+│   ├── zona_service.py        # cálculo e controle por zona
+│   ├── modbus_client.py       # integração com pymodbus
+│   ├── database.py            # persistência operacional
+│   ├── agregacao.py           # agregados de 15 minutos e horários
+│   ├── dados_entrada_*.py     # geração e persistência de dados de entrada
+│   ├── coletor/               # rotas e estado do coletor
+│   ├── dashboard/             # rotas de análise
+│   ├── templates/             # interface HTML
+│   └── static/                # CSS, JavaScript e Chart.js
+├── scripts/                   # utilitários de administração e demonstração
+├── tests/                     # testes automatizados
+├── docs/                      # material de referência
+└── instance/                  # dados locais não versionados
+```
 
-| Metodo | Rota | Uso |
-|---|---|---|
-| `GET` | `/` | Interface web. |
-| `POST` | `/api/calcular` | Calculo manual/simulado da estacao unica. |
-| `GET` | `/api/sensor` | Leitura simulada da estacao unica. |
-| `GET` | `/api/historico` | Historico persistido por especie/indice. |
-| `GET` | `/api/historico-todos` | Historico persistido de todos os indices da especie. |
-| `GET` | `/api/historico-leituras` | Historico paginado/filtravel (zona, especie, indice, status, periodo). |
-| `GET` | `/api/historico-grafico` | Historico visual em memoria por especie/indice. |
-| `GET` | `/api/historico-grafico-todos` | Historico visual de todos os indices da especie. |
-| `GET` | `/api/configuracoes` | Consulta configuracoes publicas. |
-| `POST` | `/api/configuracoes` | Salva configuracoes. |
-| `POST` | `/api/reset` | Limpa historico da estacao unica. |
-| `GET` | `/api/diagnostico` | Verifica banco e total de leituras. |
-| `POST` | `/api/backup-banco` | Gera uma copia do arquivo do banco de dados. |
+## Arquitetura
 
-Rotas de zonas:
+`app_factory.criar_app(papel_app)` compõe a aplicação a partir de Blueprints:
 
-| Metodo | Rota | Uso |
-|---|---|---|
-| `GET` | `/api/zonas` | Lista zonas. |
-| `POST` | `/api/zonas` | Cria zona. |
-| `GET` | `/api/analises` | Estatisticas por zona: percentual de tempo em cada status e media/minimo/maximo do indice (aba Analises). |
-| `GET` | `/api/zonas/<zona_id>` | Obtem zona. |
-| `PUT` | `/api/zonas/<zona_id>` | Atualiza zona. |
-| `DELETE` | `/api/zonas/<zona_id>` | Exclui zona e seus equipamentos. |
-| `POST` | `/api/zonas/<zona_id>/equipamentos` | Cria equipamento. |
-| `PUT` | `/api/zonas/<zona_id>/equipamentos/<equipamento_id>` | Atualiza equipamento. |
-| `DELETE` | `/api/zonas/<zona_id>/equipamentos/<equipamento_id>` | Exclui equipamento. |
-| `POST` | `/api/zonas/<zona_id>/equipamentos/<equipamento_id>/testar-conexao` | Testa conexao. |
-| `POST` | `/api/zonas/<zona_id>/calcular` | Calcula uma zona por sensores ou entradas manuais. |
-| `POST` | `/api/zonas/calcular-ativas` | Calcula todas as zonas ativas em sequencia. |
-| `GET` | `/api/zonas/<zona_id>/historico` | Historico visual da zona. |
-| `GET` | `/api/zonas/<zona_id>/agregados-15min` | Serie consolidada a cada 15 min (media/minimo/maximo do indice e das entradas). |
-| `GET` | `/api/zonas/<zona_id>/resumo-horario` | Serie consolidada por hora (media/minimo/maximo, status da media e % de tempo em cada status). Aceita `data_inicio`/`data_fim`. |
+- `papel_app=None`: aplicação completa;
+- `papel_app="coletor"`: aquisição, configuração, controle e escrita;
+- `papel_app="dashboard"`: consultas e análises.
 
-Todas as rotas `/api/*` retornam JSON em erros conhecidos e tambem em erros
-inesperados. Detalhes internos ficam no log do Flask; a resposta HTTP usa
-mensagem generica.
+As rotas compartilhadas de leitura ficam em `app/rotas_comuns.py`. Os cálculos operacionais são sempre associados a uma zona e coordenados por `app/zona_service.py`. Em desenvolvimento, `app/modbus_simulador.py` reutiliza as estratégias de geração e resfriamento de `app/services.py` para simular sensores sem hardware Modbus.
 
-## Banco de dados
-
-O banco SQLite fica em `instance/historico.db`. Tabelas principais:
-
-- `leituras`: historico de calculos, com `zona_id` nulo para fluxo de estacao
-  unica e preenchido para fluxo por zona.
-- `agregados_15min`: consolidacao automatica da leitura bruta a cada janela
-  fechada de 15 minutos (media/minimo/maximo do indice e de cada entrada).
-  Gerada por `agregacao.py`, chamada a cada ciclo do coletor automatico.
-- `resumos_horarios`: consolidacao automatica por hora fechada (media,
-  minimo, maximo, status classificado a partir da media horaria e
-  percentual de leituras da hora em cada status). E a granularidade usada
-  para reportar ITU/IGNU na literatura de conforto termico -- ver
-  `docs/ANALISE_DE_DADOS.pdf`.
-- `configuracoes`: chave/valor JSON sanitizado.
-- `zonas`: cadastro das zonas.
-- `equipamentos`: cadastro dos sensores e atuadores de cada zona.
-
-`leituras.zona_id` usa `ON DELETE SET NULL`: excluir uma zona remove seus
-equipamentos, mas preserva leituras historicas.
+A API é interna à interface web e não possui versionamento público. Ao alterar um contrato JSON, atualize no mesmo trabalho o backend, o JavaScript consumidor, os testes e esta documentação.
 
 ## Testes
 
-Execute a suite completa:
+Execute a suíte completa:
 
 ```powershell
-.\.venv\Scripts\python -m unittest discover -v
+.\.venv\Scripts\python.exe -m unittest discover -v
 ```
 
-Se nao houver ambiente virtual:
+Ou, com o Python já ativo no ambiente:
 
 ```powershell
 python -m unittest discover -v
 ```
 
-Os testes cobrem formulas, validacao, persistencia, SMTP, APIs Flask,
-simulacao, cliente Modbus com fakes, fluxo por zona e autenticacao/perfis
-de usuario (`test_auth.py`, `test_database.py::TestUsuariosCRUD`,
-`test_criar_usuario_admin.py`). Testes de Modbus nao dependem de hardware
-real nem de rede disponivel.
+Os testes de Modbus usam simulações e não exigem hardware ou conectividade. Mudanças locais podem ser verificadas primeiro com o módulo de teste relacionado; antes de integrar uma alteração ampla, execute a suíte completa.
 
-## Manutencao
+## Manutenção
 
-Regras de manutencao importantes:
+As diretrizes permanentes para alterações no código estão em `agents.md`. Em resumo:
 
-- Mantenha formulas, limites e mapeamentos em `thermal_indices.py`.
-- Nao una `CalculoIctService` e `ZonaService`; eles representam fluxos
-  distintos.
-- Nao importe `pymodbus` fora de `modbus_client.py`.
-- Para novas configuracoes persistidas, adicione coercao em
-  `_sanitizar_configuracoes`.
-- Para novos campos/indices/especies, atualize testes e `scripts/seed_zonas.py`.
-- Preserve campos JSON existentes, salvo quando uma mudanca de contrato for
-  explicitamente desejada.
-
-Consulte `agents.md` para as regras completas usadas por agentes de codigo.
+- mantenha fórmulas e limites centralizados;
+- trate segurança de atuadores e segredos como contratos;
+- prefira testes de comportamento a testes de detalhes internos;
+- altere ou remova testes quando o requisito correspondente mudar intencionalmente;
+- documente o estado atual do produto, sem registrar etapas intermediárias de desenvolvimento.

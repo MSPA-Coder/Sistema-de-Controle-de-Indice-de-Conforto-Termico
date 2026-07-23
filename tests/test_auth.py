@@ -2,7 +2,7 @@
 """
 test_auth.py
 =============
-Fase 2 (autenticacao e controle de acesso por perfil). Cobre `auth.py`:
+Testa autenticacao e controle de acesso por perfil em `auth.py`:
 hashing de senha, login/logout, e o controle de acesso por AREA (por
 pessoa/perfil). Ver `test_app_factory.py` para o gating por PROCESSO
 (papel_app) e `test_database.py::TestUsuariosCRUD` para a persistencia

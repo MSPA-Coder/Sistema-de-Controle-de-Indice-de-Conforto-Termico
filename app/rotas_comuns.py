@@ -10,8 +10,7 @@ Vivem num Blueprint proprio (nem em `coletor/rotas.py` nem em
 `dashboard/rotas.py`) porque sao registradas nos TRES casos de
 `app_factory.criar_app` (`papel_app` None/"coletor"/"dashboard"). Se
 estivessem duplicadas em coletor e dashboard, o caso `papel_app=None`
-(Fase 0, os dois blueprints no mesmo app) tentaria registrar a mesma URL
-duas vezes -- o Flask recusa isso.
+tentaria registrar a mesma URL duas vezes -- o Flask recusa isso.
 """
 
 from __future__ import annotations
@@ -66,7 +65,7 @@ def _parametro_data(nome: str) -> tuple[str | None, tuple | None]:
 def index():
     # O papel do app corrente (None/"coletor"/"dashboard") decide quais
     # botoes de aba EXISTEM no processo -- ver `templates/index.html`. O
-    # PERFIL da sessao logada (Fase 2 -- ver `auth.py`) decide, por cima
+    # PERFIL da sessao logada (ver `auth.py`) decide, por cima
     # disso, quais desses botoes a pessoa efetivamente ve: um botao so
     # aparece quando as duas condicoes valem ao mesmo tempo. Dashboard e
     # somente leitura e existe em todos os papeis/perfis; Operacao aparece

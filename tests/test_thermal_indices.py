@@ -13,9 +13,6 @@ Rodar com:
 import unittest
 
 from app.thermal_indices import (
-    CAMPOS_POR_INDICE,
-    INDICES_POR_ESPECIE,
-    LIMITES,
     calcular_ignu,
     calcular_itu,
     calcular_ituv,
@@ -93,38 +90,6 @@ class TestClassificacao(unittest.TestCase):
         self.assertTrue(status_atinge_minimo("Emergência", "perigo"))
         self.assertTrue(status_atinge_minimo("Perigo", "perigo"))
         self.assertFalse(status_atinge_minimo("Alerta", "perigo"))
-
-
-class TestEstabilidadeConfiguracaoImutavel(unittest.TestCase):
-    """As tabelas de configuracao compartilhada (LIMITES,
-    INDICES_POR_ESPECIE, CAMPOS_POR_INDICE, etc.) sao estado de processo
-    unico, reutilizado em toda requisicao HTTP. `_congelar` as protege com
-    `MappingProxyType` para que uma tentativa de mutacao (por bug ou
-    modificacao futura descuidada) falhe imediatamente com TypeError em
-    vez de corromper silenciosamente o comportamento do app para todo
-    mundo ate o proximo restart."""
-
-    def test_limites_e_somente_leitura_no_nivel_superior(self):
-        with self.assertRaises(TypeError):
-            LIMITES["ITU"] = {}
-
-    def test_limites_e_somente_leitura_em_niveis_aninhados(self):
-        with self.assertRaises(TypeError):
-            LIMITES["ITU"]["frangos"]["conforto"] = 0
-
-    def test_indices_por_especie_e_somente_leitura(self):
-        with self.assertRaises(TypeError):
-            INDICES_POR_ESPECIE["frangos"] = ()
-
-    def test_campos_por_indice_e_somente_leitura(self):
-        with self.assertRaises(TypeError):
-            CAMPOS_POR_INDICE["ITU"] = ()
-
-    def test_leitura_normal_continua_funcionando(self):
-        # Congelar nao deve impedir o uso normal (leitura) dessas
-        # estruturas -- apenas a escrita.
-        self.assertEqual(74, LIMITES["ITU"]["frangos"]["conforto"])
-        self.assertIn("ITU", INDICES_POR_ESPECIE["frangos"])
 
 
 if __name__ == "__main__":

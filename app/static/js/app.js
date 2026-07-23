@@ -411,7 +411,7 @@ function coletarConfig() {
     smtpPorta: lerNumeroConfiguracao("cfg-smtp-porta", 587, 1),
     smtpUsuario: document.getElementById("cfg-smtp-usuario")?.value || "",
     // Campo somente-escrita: o servidor nunca devolve a senha real (ver
-    // web._configuracoes_publicas), entao so enviamos algo aqui quando o
+    // coletor.rotas._configuracoes_publicas), entao so enviamos algo aqui quando o
     // usuario de fato digitou uma senha nova nesta sessao. Deixar em
     // branco significa "nao mexer na senha ja salva" - tratado do lado do
     // servidor em database.salvar_configuracoes.
@@ -4237,10 +4237,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("cfg-altitude").addEventListener("input", atualizarCamposCalculados);
   document.getElementById("cfg-smtp-host")?.addEventListener("input", refletirStatusSmtp);
   document.getElementById("cfg-smtp-senha")?.addEventListener("input", refletirStatusSmtp);
-  // Fase 1: os campos tecnicos (sensores, banco, SMTP, calculos) migraram
-  // da aba Configuracoes para a aba Sistema (ver templates/index.html). O
-  // seletor abaixo precisa cobrir as duas secoes, senao um campo movido
-  // para Sistema deixaria de salvar sozinho ao ser alterado.
+  // Configuracoes de uso e de sistema sao persistidas automaticamente.
   document
     .querySelectorAll(
       "#aba-configuracoes input, #aba-configuracoes select, " +

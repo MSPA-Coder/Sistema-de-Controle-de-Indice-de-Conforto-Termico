@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-"""Lancador do processo COLETOR (fala Modbus, calcula o indice, grava no
-banco) -- FASE 1 da separacao coletor/dashboard (ver `agents.md`).
+"""Lancador do processo COLETOR (fala Modbus, calcula o indice e grava no
+banco).
 
 Para rodar:
     python run_coletor.py

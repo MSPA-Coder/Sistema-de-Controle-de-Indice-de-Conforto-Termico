@@ -14,6 +14,7 @@ import os
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 
 import scripts.criar_usuario_admin as script
 from app import database as db
@@ -36,7 +37,11 @@ class TestCriarUsuarioAdmin(unittest.TestCase):
     def _rodar(self, *args, entrada_stdin: str = ""):
         sys.argv = ["scripts/criar_usuario_admin.py", *args]
         sys.stdin = io.StringIO(entrada_stdin)
-        return script.main()
+        saida = io.StringIO()
+        with redirect_stdout(saida), redirect_stderr(saida):
+            codigo = script.main()
+        self.saida = saida.getvalue()
+        return codigo
 
     def test_cria_primeiro_administrador_sem_pedir_confirmacao(self):
         codigo = self._rodar("--nome", "Ana Admin", "--login", "ana", "--senha", "senha-forte-123")

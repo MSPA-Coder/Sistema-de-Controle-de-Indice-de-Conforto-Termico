@@ -2,9 +2,8 @@
 """
 auth.py
 ========
-Fase 2 (autenticacao e controle de acesso por PESSOA, nao so por processo
-coletor/dashboard -- ver `app_factory.py` para a distincao). Este modulo e
-o UNICO lugar do sistema que:
+Autenticacao e controle de acesso por pessoa, complementar aos papeis de
+processo coletor/dashboard. Este modulo e o unico lugar do sistema que:
 
 - Sabe como transformar uma senha em texto puro num hash (`werkzeug.security`,
   scrypt por padrao nesta versao do Werkzeug) e como conferir uma senha
@@ -15,8 +14,7 @@ o UNICO lugar do sistema que:
   README.md, secao "Organizacao das abas por papel de uso") esse perfil
   pode acessar.
 - Registra os dois hooks `before_request` que aplicam essa decisao a TODA
-  rota do app (`registrar_autenticacao`), inclusive a pagina inicial: a
-  Fase 2 bloqueia tudo sem excecao, nao so os botoes de escrita.
+  rota do app (`registrar_autenticacao`), inclusive a pagina inicial.
 
 A separacao de areas e so a metade "isso e permitido" da decisao. A outra
 metade -- "o template so MOSTRA o botao/aba que a pessoa pode usar" -- fica
@@ -199,14 +197,6 @@ AREA_POR_ENDPOINT: dict[str, str | tuple[str, ...]] = {
     "dados_entrada.excluir_medicoes": "dados_entrada",
     "dados_entrada.copiar_para_historico": "dados_entrada",
     "dados_entrada.apagar_historico": "dados_entrada",
-    # --- coletor_bp: fluxo legado pre-zona (sem botao na interface atual,
-    # herdado da "Area 02" da dissertacao -- ver coletor/rotas.py) ---
-    "coletor.calcular": "operacao",
-    "coletor.sensor_simulado": "operacao",
-    "coletor.historico": "operacao",
-    "coletor.historico_todos": "operacao",
-    "coletor.historico_grafico": "operacao",
-    "coletor.historico_grafico_todos": "operacao",
     # "Limpar historico" (botao btn-limpar, hoje na aba Sistema > Banco de
     # dados): apaga TODAS as leituras de TODAS as zonas de uma vez, por
     # isso fica em "sistema" (tecnico/administrador) e nao em "operacao".
@@ -269,8 +259,7 @@ def _negar_acesso():
 
 def registrar_autenticacao(app: Flask) -> None:
     """Registra os hooks que exigem login em QUALQUER rota (inclusive a
-    pagina inicial -- Fase 2 optou por bloquear tudo, sem excecao para o
-    Dashboard) e que conferem a area exigida por endpoint, quando houver
+    pagina inicial) e que conferem a area exigida por endpoint, quando houver
     uma em AREA_POR_ENDPOINT/PERFIS_EXTRA_POR_ENDPOINT."""
 
     @app.before_request

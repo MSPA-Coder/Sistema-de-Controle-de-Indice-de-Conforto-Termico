@@ -8,12 +8,9 @@ completo de uma zona (ler sensores, calcular o indice, acionar
 ventilador/nebulizador) antes de haver hardware Modbus de verdade
 conectado -- ou simplesmente para ambientes de desenvolvimento/demonstracao.
 
-Deliberadamente "nada sofisticado": reaproveita a MESMA logica de geracao
-de valores plausiveis e resfriamento gradual ja usada pelo sensor simulado
-da aba Principal (`services.SensorSimuladoService` /
-`services.GeradorLeituraAleatoria` / `services.EstrategiaResfriamento`),
-apenas com um estado independente por zona -- e o "modo automatico" de
-hoje, so que aplicado a cada zona em vez de a uma unica estacao.
+Reaproveita as estrategias de geracao de valores plausiveis e
+resfriamento gradual de `services.SensorSimuladoService`, com estado
+independente para cada zona.
 
 Uma zona em modo simulado usa esta classe no lugar de
 `modbus_client.ler_valor` / `escrever_valor` / `testar_conexao` (ver
@@ -46,9 +43,7 @@ class SimuladorModbusZonas:
         self._ttl = ttl_cache_segundos
         # Um SensorSimuladoService por zona: cada zona tem seu proprio
         # estado de "ultima leitura" para o resfriamento gradual (5% por
-        # ciclo ate voltar ao Conforto) funcionar de forma independente
-        # entre zonas, exatamente como o Resfriamento ja funciona por zona
-        # em ZonaService.
+        # ciclo ate voltar ao Conforto) funcionar de forma independente.
         self._geradores: dict[int, SensorSimuladoService] = {}
         self._cache_leitura: dict[int, tuple[float, dict[str, float]]] = {}
         self._estado_atuadores: dict[int, bool] = {}

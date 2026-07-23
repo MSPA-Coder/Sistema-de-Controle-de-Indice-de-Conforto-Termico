@@ -143,8 +143,11 @@ class TestLeituraComClienteFalso(unittest.TestCase):
             def read_holding_registers(self, *a, **k):
                 raise RuntimeError("falha de rede simulada")
 
-        with patch.object(modbus_client, "ModbusTcpClient", return_value=ClienteQuebrado()):
+        with patch.object(
+            modbus_client, "ModbusTcpClient", return_value=ClienteQuebrado()
+        ), patch.object(modbus_client.logger, "exception") as registrar_erro:
             self.assertIsNone(modbus_client.ler_valor(_equipamento_tcp()))
+        registrar_erro.assert_called_once()
 
     def test_sem_host_tcp_devolve_none_sem_criar_cliente(self):
         self.assertIsNone(modbus_client.ler_valor(_equipamento_tcp(host="")))
@@ -188,9 +191,12 @@ class TestEscritaComClienteFalso(unittest.TestCase):
             def write_register(self, *a, **k):
                 raise RuntimeError("falha de rede simulada")
 
-        with patch.object(modbus_client, "ModbusTcpClient", return_value=ClienteQuebrado()):
+        with patch.object(
+            modbus_client, "ModbusTcpClient", return_value=ClienteQuebrado()
+        ), patch.object(modbus_client.logger, "exception") as registrar_erro:
             resultado = modbus_client.escrever_valor(_equipamento_tcp(), True)
         self.assertFalse(resultado)
+        registrar_erro.assert_called_once()
 
     def test_confirmacao_de_coil_le_estado_real(self):
         cliente = _ClienteFalso(resposta_leitura=_RespostaFalsa(bits=[True]))

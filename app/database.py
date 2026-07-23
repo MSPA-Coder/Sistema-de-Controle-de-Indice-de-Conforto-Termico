@@ -48,8 +48,8 @@ MODOS_OPERACAO = ("desligado", "manual", "automatico", "manutencao")
 MODO_OPERACAO_PADRAO = "manual"
 _NAO_INFORMADO = object()
 
-# Perfis de usuario (Fase 2 -- autenticacao e controle de acesso por
-# pessoa). O MAPEAMENTO perfil -> areas da interface liberadas fica em
+# Perfis de usuario e controle de acesso por pessoa. O mapeamento entre
+# perfil e areas da interface liberadas fica em
 # `auth.py` (AREAS_POR_PERFIL), perto da logica de sessao/login que o
 # consome -- aqui so a lista de valores aceitos na coluna `usuarios.perfil`,
 # para nao criar um import circular (`auth.py` ja importa este modulo para
@@ -183,7 +183,7 @@ def iniciar_banco() -> None:
             """
         )
 
-        # --- Usuarios (Fase 2: autenticacao e perfil por pessoa) ----------
+        # --- Usuarios (autenticacao e perfil por pessoa) -----------------
         # `login` com COLLATE NOCASE: compara/unifica sem diferenciar
         # maiusculas de minusculas diretamente no indice UNIQUE, para que
         # "Joao" e "joao" nao virem duas contas por descuido de digitacao.
@@ -250,8 +250,8 @@ def iniciar_banco() -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_equipamentos_zona_id ON equipamentos (zona_id)"
         )
-        # Usado por `listar_zonas(apenas_ativas=True)` (calculo automatico e
-        # manual, que so processam zonas ativas -- ver web.py).
+        # Usado por `listar_zonas(apenas_ativas=True)` nos calculos
+        # automaticos e manuais, que processam somente zonas ativas.
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_zonas_ativa ON zonas (ativa)"
         )
@@ -1329,7 +1329,7 @@ class ZonaInvalidaError(ValueError):
 
 class ZonaNaoEncontradaError(ZonaInvalidaError):
     """Subclasse especifica para "zona_id nao existe", usada por
-    `criar_equipamento`. Existe para que a camada HTTP (web.py) saiba
+    `criar_equipamento`. Existe para que a camada HTTP saiba
     devolver 404 (em vez de 400) SEM precisar refazer a consulta "a zona
     existe?" -- que ja foi respondida, atomicamente, dentro da mesma
     transacao que tentou a operacao (ver `criar_equipamento`)."""
@@ -2359,7 +2359,7 @@ def salvar_configuracoes(configuracoes: dict) -> dict:
     configuracoes = dict(configuracoes or {})
 
     # `smtpSenha` e um campo "somente escrita": a API nunca devolve a senha
-    # real de volta ao navegador (ver web._configuracoes_publicas), entao um
+    # real de volta ao navegador (ver `coletor.rotas`), entao um
     # valor em branco aqui significa "o usuario nao mudou a senha", nao
     # "apague a senha". Sem este tratamento, salvar QUALQUER outro campo
     # (ex.: marcar uma checkbox) apagaria silenciosamente a senha SMTP ja
@@ -2399,7 +2399,7 @@ def salvar_configuracoes(configuracoes: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Usuarios (Fase 2: autenticacao e perfil por pessoa). Este modulo nunca
+# Usuarios (autenticacao e perfil por pessoa). Este modulo nunca
 # calcula nem confere hash de senha -- `senha_hash` chega aqui ja pronto
 # (ver `auth.py`, unico lugar que conhece `werkzeug.security`). Manter o
 # hashing fora de `database.py` e deliberado: a senha em texto puro nunca

@@ -4,10 +4,9 @@ coletor/rotas.py
 ==================
 Rotas que falam Modbus, calculam o indice e gravam no banco: cadastro de
 zonas e equipamentos, disparo do ciclo de leitura+calculo+acionamento,
-configuracao do sistema, e o fluxo de demonstracao sem zona (aba
-"Dashboard", herdado da dissertacao original -- "Area 02 - Coletar
-Dados"). Registradas via `coletor_bp`, montado em `app_factory.criar_app`
-quando `papel_app` e `None` ou `"coletor"`.
+configuracao do sistema e manutencao do historico. Registradas via
+`coletor_bp`, montado em `app_factory.criar_app` quando `papel_app` e
+`None` ou `"coletor"`.
 """
 
 from __future__ import annotations
@@ -23,118 +22,13 @@ from ..app_factory import MENSAGEM_ERRO_INTERNO
 from ..models import Email, formatar_linhas_entradas
 from ..zona_service import ZonaCalculoError
 from .estado import (
-    _resfriador,
-    calculo_ict_service,
     gerenciador_controle,
-    historico_grafico_service,
-    sensor_simulado_service,
     zona_service,
     zona_simulador,
 )
 from .controle import ModoOperacaoError, ZonaOcupadaError
 
 coletor_bp = Blueprint("coletor", __name__)
-
-
-def _erro_especie_invalida(especie: str) -> tuple | None:
-    """Retorna uma tupla (payload, status) pronta para `jsonify` se a
-    especie for invalida, ou None se estiver tudo certo. Evita que uma
-    especie desconhecida caia silenciosamente numa lista vazia (o que
-    parece "sem historico ainda" quando na verdade e um parametro digitado
-    errado) -- prefere-se um 400 explicito e imediato."""
-    if especie not in ti.ESPECIES_VALIDAS:
-        return {"erro": f"Espécie inválida: '{especie}'."}, 400
-    return None
-
-
-def _erro_indice_invalido(especie: str, indice: str) -> tuple | None:
-    if not ti.indice_disponivel(especie, indice):
-        return {"erro": f"Índice inválido para a espécie '{especie}'."}, 400
-    return None
-
-
-@coletor_bp.route("/api/calcular", methods=["POST"])
-def calcular():
-    dados = request.get_json(force=True, silent=True) or {}
-    especie = dados.get("especie", "")
-    indice = dados.get("indice", "")
-    entradas = dados.get("entradas", {}) or {}
-    config = dados.get("config", {}) or {}
-
-    try:
-        resposta = calculo_ict_service.calcular(
-            especie, indice, entradas, config, current_app.logger
-        )
-    except ti.EntradaInvalidaError as erro:
-        return jsonify({"erro": str(erro)}), 400
-    return jsonify(resposta)
-
-
-@coletor_bp.route("/api/sensor")
-def sensor_simulado():
-    """Simula a leitura de um sensor remoto (Area 02 - opcao 'Coletar
-    Dados' da dissertacao, secao 3.4.3). Gera valores plausiveis dentro da
-    faixa validada no Capitulo IV (0-45°C / 0,01-5,00 m/s)."""
-    especie = request.args.get("especie", "frangos")
-    indice = request.args.get("indice", "")
-    erro = _erro_indice_invalido(especie, indice)
-    if erro:
-        return jsonify(erro[0]), erro[1]
-
-    leitura = sensor_simulado_service.gerar(
-        especie,
-        indice,
-        resfriamento_ativo=_resfriador.estado()["ativo"],
-    )
-    return jsonify(leitura)
-
-
-@coletor_bp.route("/api/historico")
-def historico():
-    especie = request.args.get("especie", "")
-    indice = request.args.get("indice", "")
-    erro = _erro_indice_invalido(especie, indice)
-    if erro:
-        return jsonify(erro[0]), erro[1]
-    return jsonify(db.obter_historico(especie, indice, limite=20))
-
-
-@coletor_bp.route("/api/historico-todos")
-def historico_todos():
-    especie = request.args.get("especie", "")
-    erro = _erro_especie_invalida(especie)
-    if erro:
-        return jsonify(erro[0]), erro[1]
-    return jsonify(
-        {
-            indice: db.obter_historico(especie, indice, limite=20)
-            for indice in ti.INDICES_POR_ESPECIE.get(especie, ())
-        }
-    )
-
-
-@coletor_bp.route("/api/historico-grafico")
-def historico_grafico():
-    especie = request.args.get("especie", "")
-    indice = request.args.get("indice", "")
-    erro = _erro_indice_invalido(especie, indice)
-    if erro:
-        return jsonify(erro[0]), erro[1]
-    return jsonify(historico_grafico_service.obter(especie, indice))
-
-
-@coletor_bp.route("/api/historico-grafico-todos")
-def historico_grafico_todos():
-    especie = request.args.get("especie", "")
-    erro = _erro_especie_invalida(especie)
-    if erro:
-        return jsonify(erro[0]), erro[1]
-    return jsonify(
-        {
-            indice: historico_grafico_service.obter(especie, indice)
-            for indice in ti.INDICES_POR_ESPECIE.get(especie, ())
-        }
-    )
 
 
 @coletor_bp.route("/api/backup-banco", methods=["POST"])
@@ -152,9 +46,8 @@ def _configuracoes_publicas(config: dict) -> dict:
     (`smtpSenhaConfigurada`) indicando se ja existe uma senha salva --
     suficiente para a interface mostrar "senha configurada" sem nunca
     reexibir o valor real. `database.obter_configuracoes()` (usado
-    internamente por `calculo_ict_service` para enviar e-mails de verdade)
-    continua recebendo o valor real; a mascara so se aplica aqui, no
-    limite HTTP."""
+    continua disponível para os serviços executados no servidor; a máscara
+    se aplica somente no limite HTTP."""
     publico = dict(config)
     publico["smtpSenhaConfigurada"] = bool(publico.get("smtpSenha"))
     publico["smtpSenha"] = ""
@@ -295,12 +188,9 @@ def reset():
     if indice is not None and indice not in ti.NOME_INDICE:
         return jsonify({"erro": f"Índice inválido: '{indice}'."}), 400
     db.limpar_historico(especie, indice)
-    historico_grafico_service.limpar(especie, indice)
-    sensor_simulado_service.limpar(especie, indice)
     if especie is None and indice is None:
         zona_service.limpar_historico_grafico()
         zona_service.limpar_resfriador()
-    _resfriador.desativar()
     return jsonify({"ok": True})
 
 

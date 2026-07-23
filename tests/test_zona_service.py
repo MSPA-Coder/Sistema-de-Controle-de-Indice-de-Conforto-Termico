@@ -376,14 +376,8 @@ class TestModoSimuladoZonaService(unittest.TestCase):
 
 
 class TestPersistenciaEstadoEquipamentos(unittest.TestCase):
-    """Testa que `ZonaService.calcular`/`calcular_manual` persistem o
-    estado ligado/desligado dos atuadores a cada ciclo via
-    `salvar_estado_equipamentos` (injetado no construtor). Esse hook
-    substitui o antigo `ZonaService.montar_painel_executivo`: agora o
-    "Painel executivo por zona" inteiro vive em `database.
-    obter_painel_zonas`, so leitura de banco (ver TestPainelExecutivoZonas
-    em test_database.py) -- o unico motivo de `ZonaService` ainda entrar
-    nessa historia e persistir o estado que so ELE conhece em tempo real."""
+    """O servico persiste o estado atual dos atuadores a cada calculo,
+    permitindo que o painel executivo seja montado a partir do banco."""
 
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
@@ -526,7 +520,7 @@ class TestPersistenciaEstadoEquipamentos(unittest.TestCase):
         # Depois de limpo, `resfriador_da_zona` recria um Resfriamento novo
         # (desligado) para o mesmo id -- essencial para que um zona_id
         # reaproveitado (zona excluida e uma nova criada com o mesmo id)
-        # nao herde o estado ligado da zona antiga.
+        # nao herde o estado ligado de uma instancia anterior.
         self.assertFalse(servico.resfriador_da_zona(zona["id"]).estado()["ativo"])
 
 

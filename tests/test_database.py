@@ -1061,9 +1061,8 @@ class TestEquipamentosCRUD(unittest.TestCase):
             db.criar_equipamento(9999, self._equipamento_base())
 
     def test_criar_equipamento_em_zona_inexistente_levanta_subclasse_especifica(self):
-        # ZonaNaoEncontradaError e subclasse de ZonaInvalidaError; web.py
-        # depende dela para devolver 404 (em vez de 400) sem precisar
-        # reconsultar o banco -- ver app/web.py:criar_equipamento.
+        # A subclasse especifica permite que a camada HTTP devolva 404
+        # sem interpretar mensagens nem reconsultar o banco.
         with self.assertRaises(db.ZonaNaoEncontradaError):
             db.criar_equipamento(9999, self._equipamento_base())
 
@@ -1169,7 +1168,7 @@ class TestConcorrenciaLeituraEscrita(unittest.TestCase):
 
 
 class TestUsuariosCRUD(unittest.TestCase):
-    """Fase 2 (autenticacao): CRUD de `usuarios` na camada de persistencia.
+    """CRUD de `usuarios` na camada de persistencia.
     Testes de sessao/login/HTTP ficam em test_auth.py; aqui so a logica de
     banco -- validacao, unicidade de login e as travas do ultimo
     administrador."""

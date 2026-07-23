@@ -4,27 +4,7 @@ import unittest
 
 from app import thermal_indices as ti
 from app.models import Resfriamento
-from app.services import EstadoSensor, EstrategiaResfriamento, HistoricoGraficoService
-
-
-class TestHistoricoGraficoService(unittest.TestCase):
-    def test_registra_e_limita_historico_visual(self):
-        service = HistoricoGraficoService(lambda especie, indice, limite: [], limite=2)
-
-        service.registrar("frangos", "ITU", 70.0, "Conforto", {"tbs": 25, "tbu": 20})
-        service.registrar("frangos", "ITU", 71.0, "Conforto", {"tbs": 26, "tbu": 21})
-        historico = service.registrar("frangos", "ITU", 72.0, "Conforto", {"tbs": 27, "tbu": 22})
-
-        self.assertEqual([71.0, 72.0], [item["valor"] for item in historico])
-
-    def test_retorna_copia_defensiva(self):
-        service = HistoricoGraficoService(lambda especie, indice, limite: [], limite=20)
-        service.registrar("frangos", "ITU", 70.0, "Conforto", {"tbs": 25, "tbu": 20})
-
-        historico = service.obter("frangos", "ITU")
-        historico[0]["entradas"]["tbs"] = 99
-
-        self.assertEqual(25, service.obter("frangos", "ITU")[0]["entradas"]["tbs"])
+from app.services import EstadoSensor, EstrategiaResfriamento
 
 
 class TestEstrategiaResfriamento(unittest.TestCase):

@@ -38,15 +38,14 @@ class ZonaCalculoError(ti.EntradaInvalidaError):
     """Erro ao calcular o indice de uma zona: zona inexistente/desativada,
     ou nenhum sensor respondeu com dados suficientes para o indice
     configurado. Subclasse de `EntradaInvalidaError` para reaproveitar o
-    mesmo tratamento de erro (400) ja usado na rota /api/calcular."""
+    tratamento HTTP de entradas invalidas (400)."""
 
 
 def _derivar_campos_calculaveis(entradas: dict, altitude: float) -> dict:
     """Deriva 'ur' e 'tpo' a partir de tbs+tbu quando a zona nao tem sensor
-    dedicado para esses campos -- mesma formula psicrometrica usada no
-    fluxo manual (`thermal_indices.calcular_umidade_relativa` /
-    `calcular_ponto_orvalho`). Diferente do fluxo manual (que tem um modo
-    "medido"/"calculado" configuravel por campo), aqui a regra e sempre
+    dedicado para esses campos usando
+    `thermal_indices.calcular_umidade_relativa` e
+    `thermal_indices.calcular_ponto_orvalho`. A regra por zona e sempre
     automatica: se ha sensor cadastrado para o campo, o valor medido vence;
     senao, deriva de tbs/tbu quando isso for possivel."""
     preparadas = dict(entradas)
@@ -130,7 +129,7 @@ class ZonaService:
         de resfriamento atual de uma zona, que so existe DEPOIS que este
         `ZonaService` ja foi criado (`resfriador_da_zona`). Por isso o
         simulador e injetado aqui, em vez de no construtor -- evita uma
-        dependencia circular na composicao (ver web.py)."""
+        dependencia circular na composicao (ver coletor/estado.py)."""
         self._simulador = simulador
 
     def limpar_historico_grafico(self, zona_id: int | None = None) -> None:
@@ -405,8 +404,7 @@ class ZonaService:
         if self._em_modo_simulado() and self._simulador:
             # Mantem o estado interno do simulador (resfriamento gradual)
             # em sincronia com o resultado real deste ciclo, exatamente
-            # como o sensor simulado da aba Principal faz apos cada
-            # calculo (ver services.CalculoIctService._calcular_indice).
+            # com o calculo mais recente da zona.
             self._simulador.registrar_calculo(
                 zona_id, zona["especie"], zona["indice"], entradas_historico, valor, status
             )

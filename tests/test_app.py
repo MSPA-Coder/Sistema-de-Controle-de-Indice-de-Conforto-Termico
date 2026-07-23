@@ -8,81 +8,22 @@ from unittest.mock import patch
 
 from app import app_factory
 from app import database as db
+from app.coletor import estado as coletor_estado
 from app import web as flask_app
 from tests.auth_test_utils import cliente_autenticado
 
 
-class TestHistoricoGraficoApi(unittest.TestCase):
+class TestConfiguracoesApi(unittest.TestCase):
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
         self.db_path_original = db.DB_PATH
         db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
         db.iniciar_banco()
-        flask_app.historico_grafico_service.limpar()
-        flask_app.sensor_simulado_service.limpar()
-        flask_app._resfriador.desativar()
         self.client = cliente_autenticado(flask_app.app)
 
     def tearDown(self):
-        flask_app.historico_grafico_service.limpar()
-        flask_app.sensor_simulado_service.limpar()
-        flask_app._resfriador.desativar()
         db.DB_PATH = self.db_path_original
         self.tempdir.cleanup()
-
-    def test_grafico_atualiza_toda_leitura_e_banco_respeita_um_minuto(self):
-        payload = {
-            "especie": "frangos",
-            "indice": "ITU",
-            "entradas": {"tbs": 25, "tbu": 20, "v": 1, "tgn": 25, "tpo": 12},
-            "config": {},
-        }
-
-        primeira = self.client.post("/api/calcular", json=payload)
-        segunda = self.client.post("/api/calcular", json=payload)
-
-        self.assertEqual(200, primeira.status_code)
-        self.assertEqual(200, segunda.status_code)
-        self.assertTrue(primeira.json["leitura_gravada"])
-        self.assertFalse(segunda.json["leitura_gravada"])
-        self.assertEqual(1, len(segunda.json["historico"]))
-        self.assertEqual(2, len(segunda.json["historico_grafico"]))
-        self.assertEqual({"ITU", "ITUV", "IGNU"}, set(segunda.json["indices"]))
-        self.assertFalse(segunda.json["indices"]["ITUV"]["leitura_gravada"])
-        self.assertFalse(segunda.json["indices"]["IGNU"]["leitura_gravada"])
-
-        resposta_grafico = self.client.get("/api/historico-grafico?especie=frangos&indice=ITU")
-        resposta_banco = self.client.get("/api/historico?especie=frangos&indice=ITU")
-        resposta_grafico_todos = self.client.get("/api/historico-grafico-todos?especie=frangos")
-        resposta_banco_todos = self.client.get("/api/historico-todos?especie=frangos")
-
-        self.assertEqual(2, len(resposta_grafico.json))
-        self.assertEqual(1, len(resposta_banco.json))
-        self.assertEqual(2, len(resposta_grafico_todos.json["ITU"]))
-        self.assertEqual(2, len(resposta_grafico_todos.json["ITUV"]))
-        self.assertEqual(2, len(resposta_grafico_todos.json["IGNU"]))
-        self.assertEqual(1, len(resposta_banco_todos.json["ITU"]))
-        self.assertEqual(1, len(resposta_banco_todos.json["ITUV"]))
-        self.assertEqual(1, len(resposta_banco_todos.json["IGNU"]))
-
-    def test_api_respeita_intervalo_de_gravacao_configurado(self):
-        payload = {
-            "especie": "frangos",
-            "indice": "ITU",
-            "entradas": {"tbs": 25, "tbu": 20, "v": 1, "tgn": 25, "tpo": 12},
-            "config": {"intervaloGravacaoMinutos": 0},
-        }
-
-        primeira = self.client.post("/api/calcular", json=payload)
-        segunda = self.client.post("/api/calcular", json=payload)
-
-        self.assertEqual(200, primeira.status_code)
-        self.assertEqual(200, segunda.status_code)
-        self.assertTrue(primeira.json["leitura_gravada"])
-        self.assertTrue(segunda.json["leitura_gravada"])
-        self.assertEqual(2, len(segunda.json["historico"]))
-        self.assertEqual(2, len(segunda.json["indices"]["ITUV"]["historico"]))
-        self.assertEqual(2, len(segunda.json["indices"]["IGNU"]["historico"]))
 
     def test_api_persiste_configuracoes(self):
         payload = {
@@ -149,296 +90,15 @@ class TestHistoricoGraficoApi(unittest.TestCase):
         self.assertEqual("bovinos", resposta.json["especie"])
         self.assertIn(resposta.json["indice"], ("ITU", "IGNU"))
 
-    def test_nao_calcula_indices_sem_campos_preenchidos(self):
-        resposta = self.client.post(
-            "/api/calcular",
-            json={
-                "especie": "frangos",
-                "indice": "ITU",
-                "entradas": {"tbs": 25, "tbu": 20},
-                "config": {},
-            },
-        )
-
-        self.assertEqual(200, resposta.status_code)
-        self.assertEqual({"ITU"}, set(resposta.json["indices"]))
-        self.assertEqual("ITU", resposta.json["indice"])
-
-    def test_calcula_indice_compartilhado_quando_campos_estao_preenchidos(self):
-        resposta = self.client.post(
-            "/api/calcular",
-            json={
-                "especie": "frangos",
-                "indice": "ITUV",
-                "entradas": {"tbs": 25, "tbu": 20, "v": 1},
-                "config": {},
-            },
-        )
-
-        self.assertEqual(200, resposta.status_code)
-        self.assertEqual({"ITU", "ITUV"}, set(resposta.json["indices"]))
-        self.assertNotIn("IGNU", resposta.json["indices"])
-
-    def test_indice_selecionado_continua_exigindo_campos(self):
-        resposta = self.client.post(
-            "/api/calcular",
-            json={
-                "especie": "frangos",
-                "indice": "IGNU",
-                "entradas": {"tgn": 25},
-                "config": {},
-            },
-        )
-
-        self.assertEqual(400, resposta.status_code)
-        self.assertIn("Preencha todos os campos exigidos", resposta.json["erro"])
-
-    def test_ignu_calcula_ponto_de_orvalho_por_tbs_tbu(self):
-        resposta = self.client.post(
-            "/api/calcular",
-            json={
-                "especie": "frangos",
-                "indice": "IGNU",
-                "entradas": {"tgn": 25, "tbs": 25, "tbu": 20},
-                "config": {"modoPontoOrvalho": "calculado", "altitudeMetros": 0},
-            },
-        )
-
-        self.assertEqual(200, resposta.status_code)
-        self.assertAlmostEqual(17.5, resposta.json["entradas"]["tpo"], places=1)
-        self.assertAlmostEqual(63.0, resposta.json["entradas"]["ur"], places=1)
-        self.assertAlmostEqual(62.8, resposta.json["valor"], places=1)
-
-    def test_nao_toca_som_quando_indice_selecionado_esta_em_conforto(self):
-        resposta = self.client.post(
-            "/api/calcular",
-            json={
-                "especie": "frangos",
-                "indice": "ITU",
-                "entradas": {"tbs": 25, "tbu": 20, "v": 1, "tgn": 25, "tpo": 12},
-                "config": {"habilitarSons": True},
-            },
-        )
-
-        self.assertEqual(200, resposta.status_code)
-        self.assertEqual("Conforto", resposta.json["status"])
-        self.assertFalse(resposta.json["tocarSom"])
-
-    def test_email_da_api_inclui_dados_usados_no_calculo(self):
-        resposta = self.client.post(
-            "/api/calcular",
-            json={
-                "especie": "frangos",
-                "indice": "ITUV",
-                "entradas": {"tbs": 30, "tbu": 24, "v": 1.5},
-                "config": {
-                    "enviarEmails": True,
-                    "emailDestino": "produtor@fazenda.com.br",
-                },
-            },
-        )
-
-        self.assertEqual(200, resposta.status_code)
-        conteudo = resposta.json["email"]["conteudo"]
-        self.assertIn("Dados usados no cálculo:", conteudo)
-        self.assertIn("Temperatura de Bulbo Seco / Ambiente (tbs): 30.0", conteudo)
-        self.assertIn("Temperatura de Bulbo Úmido (tbu): 24.0", conteudo)
-        self.assertIn("Velocidade do Ar (v): 1.5 m/s", conteudo)
-
-    def test_email_da_api_respeita_status_minimo_configurado(self):
-        abaixo_do_limiar = self.client.post(
-            "/api/calcular",
-            json={
-                "especie": "frangos",
-                "indice": "ITUV",
-                "entradas": {"tbs": 30, "tbu": 24, "v": 1.5},
-                "config": {
-                    "enviarEmails": True,
-                    "emailDestino": "produtor@fazenda.com.br",
-                    "statusMinimoEmail": "perigo",
-                },
-            },
-        )
-        acima_do_limiar = self.client.post(
-            "/api/calcular",
-            json={
-                "especie": "frangos",
-                "indice": "ITU",
-                "entradas": {"tbs": 35, "tbu": 30},
-                "config": {
-                    "enviarEmails": True,
-                    "emailDestino": "produtor@fazenda.com.br",
-                    "statusMinimoEmail": "perigo",
-                },
-            },
-        )
-
-        self.assertEqual(200, abaixo_do_limiar.status_code)
-        self.assertEqual("Alerta", abaixo_do_limiar.json["status"])
-        self.assertIsNone(abaixo_do_limiar.json["email"])
-
-        self.assertEqual(200, acima_do_limiar.status_code)
-        self.assertEqual("Emergência", acima_do_limiar.json["status"])
-        self.assertIsNotNone(acima_do_limiar.json["email"])
-
-    def test_nebulizador_nao_liga_acima_do_limite_de_umidade(self):
-        resposta = self.client.post(
-            "/api/calcular",
-            json={
-                "especie": "frangos",
-                "indice": "ITU",
-                "entradas": {"tbs": 35, "tbu": 33},
-                "config": {
-                    "habilitarEquipamentos": True,
-                    "limiteUmidadeNebulizador": 70,
-                },
-            },
-        )
-
-        self.assertEqual(200, resposta.status_code)
-        self.assertEqual("Emergência", resposta.json["status"])
-        self.assertGreater(resposta.json["entradas"]["ur"], 70)
-        self.assertTrue(resposta.json["equipamento"]["ventilador"])
-        self.assertFalse(resposta.json["equipamento"]["nebulizador"])
-
-    def test_nebulizador_liga_quando_umidade_esta_no_limite(self):
-        resposta = self.client.post(
-            "/api/calcular",
-            json={
-                "especie": "frangos",
-                "indice": "ITU",
-                "entradas": {"tbs": 35, "tbu": 30},
-                "config": {
-                    "habilitarEquipamentos": True,
-                    "limiteUmidadeNebulizador": 70,
-                },
-            },
-        )
-
-        self.assertEqual(200, resposta.status_code)
-        self.assertEqual("Emergência", resposta.json["status"])
-        self.assertLessEqual(resposta.json["entradas"]["ur"], 70)
-        self.assertTrue(resposta.json["equipamento"]["ventilador"])
-        self.assertTrue(resposta.json["equipamento"]["nebulizador"])
-
-    def test_umidade_relativa_medida_nao_e_recalculada(self):
-        resposta = self.client.post(
-            "/api/calcular",
-            json={
-                "especie": "frangos",
-                "indice": "ITU",
-                "entradas": {"tbs": 35, "tbu": 33, "ur": 50},
-                "config": {
-                    "habilitarEquipamentos": True,
-                    "modoUmidadeRelativa": "medido",
-                    "limiteUmidadeNebulizador": 70,
-                },
-            },
-        )
-
-        self.assertEqual(200, resposta.status_code)
-        self.assertEqual(50.0, resposta.json["entradas"]["ur"])
-        self.assertTrue(resposta.json["equipamento"]["ventilador"])
-        self.assertTrue(resposta.json["equipamento"]["nebulizador"])
-
-    def test_sensor_resfria_leituras_ate_voltar_ao_conforto(self):
-        payload = {
-            "especie": "frangos",
-            "indice": "ITU",
-            "entradas": {"tbs": 40, "tbu": 30, "v": 1, "tgn": 25, "tpo": 12},
-            "config": {"habilitarEquipamentos": True},
-        }
-
-        primeira = self.client.post("/api/calcular", json=payload)
-        self.assertEqual("Emergência", primeira.json["status"])
-        self.assertTrue(primeira.json["equipamento"]["ativo"])
-
-        base_entradas = {"v": 1, "tgn": 25, "tpo": 12}
-        leitura = self.client.get("/api/sensor?especie=frangos&indice=ITU").json
-        self.assertAlmostEqual(38.0, leitura["tbs"])
-        self.assertAlmostEqual(28.5, leitura["tbu"])
-
-        status = None
-        for _ in range(20):
-            resposta = self.client.post(
-                "/api/calcular",
-                json={
-                    "especie": "frangos",
-                    "indice": "ITU",
-                    "entradas": {**base_entradas, **leitura},
-                    "config": {"habilitarEquipamentos": True},
-                },
-            )
-            status = resposta.json["status"]
-            if status == "Conforto":
-                break
-            leitura = self.client.get("/api/sensor?especie=frangos&indice=ITU").json
-
-        self.assertEqual("Conforto", status)
-        self.assertTrue(resposta.json["equipamento"]["ativo"])
-        self.assertEqual(1, resposta.json["equipamento"]["leituras_conforto_consecutivas"])
-
-        leitura_conforto_2 = self.client.get("/api/sensor?especie=frangos&indice=ITU").json
-        self.assertLess(leitura_conforto_2["tbs"], resposta.json["entradas"]["tbs"])
-        self.assertLess(leitura_conforto_2["tbu"], resposta.json["entradas"]["tbu"])
-        segunda_conforto = self.client.post(
-            "/api/calcular",
-            json={
-                "especie": "frangos",
-                "indice": "ITU",
-                "entradas": {**base_entradas, **leitura_conforto_2},
-                "config": {"habilitarEquipamentos": True},
-            },
-        )
-        self.assertEqual("Conforto", segunda_conforto.json["status"])
-        self.assertTrue(segunda_conforto.json["equipamento"]["ativo"])
-        self.assertEqual(2, segunda_conforto.json["equipamento"]["leituras_conforto_consecutivas"])
-
-        leitura_conforto_3 = self.client.get("/api/sensor?especie=frangos&indice=ITU").json
-        self.assertLess(leitura_conforto_3["tbs"], segunda_conforto.json["entradas"]["tbs"])
-        self.assertLess(leitura_conforto_3["tbu"], segunda_conforto.json["entradas"]["tbu"])
-        terceira_conforto = self.client.post(
-            "/api/calcular",
-            json={
-                "especie": "frangos",
-                "indice": "ITU",
-                "entradas": {**base_entradas, **leitura_conforto_3},
-                "config": {"habilitarEquipamentos": True},
-            },
-        )
-        self.assertEqual("Conforto", terceira_conforto.json["status"])
-        self.assertFalse(terceira_conforto.json["equipamento"]["ativo"])
-
-        with patch("conforto_termico.services.random.uniform", side_effect=[22.0, 18.0]):
-            leitura_aleatoria = self.client.get("/api/sensor?especie=frangos&indice=ITU").json
-        self.assertEqual({"tbs": 22.0, "tbu": 18.0}, leitura_aleatoria)
-
-    def test_sensor_aumenta_velocidade_do_ar_no_ituv(self):
-        payload = {
-            "especie": "frangos",
-            "indice": "ITUV",
-            "entradas": {"tbs": 35, "tbu": 30, "v": 1, "tgn": 25, "tpo": 12},
-            "config": {"habilitarEquipamentos": True},
-        }
-
-        resposta = self.client.post("/api/calcular", json=payload)
-        self.assertNotEqual("Conforto", resposta.json["status"])
-        self.assertTrue(resposta.json["equipamento"]["ativo"])
-
-        leitura = self.client.get("/api/sensor?especie=frangos&indice=ITUV").json
-        self.assertLess(leitura["tbs"], 35)
-        self.assertLess(leitura["tbu"], 30)
-        self.assertGreater(leitura["v"], 1)
-
 
 class TestServidorLocal(unittest.TestCase):
     def test_servidor_local_nao_usa_reloader_e_debug_comeca_desligado(self):
         """O runner passa por AppConfig; por padrao (sem variaveis de
         ambiente CONFORTO_*), o debug deve vir DESLIGADO -- ver a nota de
-        seguranca no topo de web.py sobre o console interativo do
+        seguranca em `app_factory.py` sobre o console interativo do
         Werkzeug. Passar uma AppConfig explicita torna o teste
         deterministico, sem depender do ambiente de quem roda a suite."""
-        config = flask_app.AppConfig(
+        config = app_factory.AppConfig(
             debug=False, host="127.0.0.1", port=5000, threaded=True, max_content_length=1_000_000
         )
         with patch.object(flask_app.app, "run") as run:
@@ -449,7 +109,7 @@ class TestServidorLocal(unittest.TestCase):
         )
 
     def test_servidor_local_respeita_config_explicita(self):
-        config = flask_app.AppConfig(
+        config = app_factory.AppConfig(
             debug=True, host="0.0.0.0", port=8080, threaded=False, max_content_length=1_000_000
         )
         with patch.object(flask_app.app, "run") as run:
@@ -466,7 +126,7 @@ class TestServidorLocal(unittest.TestCase):
             if not chave.startswith("CONFORTO_")
         }
         with patch.dict(os.environ, ambiente_limpo, clear=True):
-            config = flask_app.AppConfig.from_env()
+            config = app_factory.AppConfig.from_env()
 
         self.assertFalse(config.debug)
         self.assertEqual("127.0.0.1", config.host)
@@ -493,8 +153,8 @@ class TestServidorLocal(unittest.TestCase):
 
             with patch.object(app_factory, "CONFIG_SERVIDOR_PATH", config_path):
                 with patch.dict(os.environ, ambiente_limpo, clear=True):
-                    coletor = flask_app.AppConfig.from_env("coletor")
-                    dashboard = flask_app.AppConfig.from_env("dashboard")
+                    coletor = app_factory.AppConfig.from_env("coletor")
+                    dashboard = app_factory.AppConfig.from_env("dashboard")
 
         self.assertEqual(5100, coletor.port)
         self.assertEqual(5101, dashboard.port)
@@ -507,7 +167,7 @@ class TestServidorLocal(unittest.TestCase):
             "CONFORTO_THREADED": "0",
         }
         with patch.dict(os.environ, variaveis):
-            config = flask_app.AppConfig.from_env()
+            config = app_factory.AppConfig.from_env()
 
         self.assertTrue(config.debug)
         self.assertEqual("0.0.0.0", config.host)
@@ -515,7 +175,7 @@ class TestServidorLocal(unittest.TestCase):
         self.assertFalse(config.threaded)
 
 
-class TestValidacaoDeParametros(unittest.TestCase):
+class TestManutencaoApi(unittest.TestCase):
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
         self.db_path_original = db.DB_PATH
@@ -526,28 +186,6 @@ class TestValidacaoDeParametros(unittest.TestCase):
     def tearDown(self):
         db.DB_PATH = self.db_path_original
         self.tempdir.cleanup()
-
-    def test_historico_rejeita_especie_desconhecida(self):
-        resposta = self.client.get("/api/historico?especie=marciano&indice=ITU")
-        self.assertEqual(400, resposta.status_code)
-        self.assertIn("erro", resposta.json)
-
-    def test_historico_rejeita_indice_incompativel_com_especie(self):
-        # ITUV so existe para frangos, nao para bovinos.
-        resposta = self.client.get("/api/historico?especie=bovinos&indice=ITUV")
-        self.assertEqual(400, resposta.status_code)
-
-    def test_historico_todos_rejeita_especie_desconhecida(self):
-        resposta = self.client.get("/api/historico-todos?especie=marciano")
-        self.assertEqual(400, resposta.status_code)
-
-    def test_historico_grafico_todos_rejeita_especie_desconhecida(self):
-        resposta = self.client.get("/api/historico-grafico-todos?especie=marciano")
-        self.assertEqual(400, resposta.status_code)
-
-    def test_sensor_rejeita_indice_incompativel_com_especie(self):
-        resposta = self.client.get("/api/sensor?especie=suinos&indice=ITUV")
-        self.assertEqual(400, resposta.status_code)
 
     def test_reset_rejeita_especie_desconhecida(self):
         resposta = self.client.post("/api/reset", json={"especie": "marciano"})
@@ -569,11 +207,6 @@ class TestValidacaoDeParametros(unittest.TestCase):
         self.assertTrue(os.path.exists(caminho))
         self.assertEqual(os.path.dirname(db.DB_PATH), os.path.dirname(caminho))
 
-    def test_historico_com_parametros_validos_continua_funcionando(self):
-        resposta = self.client.get("/api/historico?especie=frangos&indice=ITU")
-        self.assertEqual(200, resposta.status_code)
-        self.assertEqual([], resposta.json)
-
 
 class TestCabecalhosDeSeguranca(unittest.TestCase):
     def setUp(self):
@@ -594,11 +227,7 @@ class TestCabecalhosDeSeguranca(unittest.TestCase):
         self.assertEqual("no-referrer", resposta.headers.get("Referrer-Policy"))
         self.assertEqual("no-store", resposta.headers.get("Cache-Control"))
 
-    def test_pagina_inicial_carrega_com_dicionarios_congelados(self):
-        # thermal_indices.py congela seus dicts com MappingProxyType; esta
-        # rota depende do ProvedorJSON customizado para serializar
-        # `| tojson` corretamente. Um regressao aqui quebraria a pagina
-        # inteira com um TypeError silencioso no lado do servidor.
+    def test_pagina_inicial_renderiza_configuracao_dos_indices(self):
         resposta = self.client.get("/")
         self.assertEqual(200, resposta.status_code)
         self.assertIn(b"indicesPorEspecie", resposta.data)
@@ -617,23 +246,25 @@ class TestErroInternoNaoVazaDetalhe(unittest.TestCase):
         self.tempdir.cleanup()
 
     def test_excecao_inesperada_nao_vaza_mensagem_original(self):
+        zona = self.client.post(
+            "/api/zonas",
+            json={"nome": "Zona de teste", "especie": "frangos", "indice": "ITU"},
+        ).json
         segredo = "detalhe-interno-sensivel-do-servidor"
         with patch.object(
-            flask_app.calculo_ict_service, "calcular", side_effect=RuntimeError(segredo)
-        ):
+            coletor_estado.gerenciador_controle,
+            "calcular_manual",
+            side_effect=RuntimeError(segredo),
+        ), patch.object(flask_app.app.logger, "exception") as registrar_erro:
             resposta = self.client.post(
-                "/api/calcular",
-                json={
-                    "especie": "frangos",
-                    "indice": "ITU",
-                    "entradas": {"tbs": 25, "tbu": 20},
-                    "config": {},
-                },
+                f"/api/zonas/{zona['id']}/calcular",
+                json={"entradas": {"tbs": 25, "tbu": 20}},
             )
 
         self.assertEqual(500, resposta.status_code)
         self.assertNotIn(segredo, resposta.json["erro"])
-        self.assertEqual(flask_app.MENSAGEM_ERRO_INTERNO, resposta.json["erro"])
+        self.assertEqual(app_factory.MENSAGEM_ERRO_INTERNO, resposta.json["erro"])
+        registrar_erro.assert_called_once()
 
 
 class TestZonasApi(unittest.TestCase):
@@ -642,13 +273,13 @@ class TestZonasApi(unittest.TestCase):
         self.db_path_original = db.DB_PATH
         db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
         db.iniciar_banco()
-        flask_app.zona_service.limpar_historico_grafico()
-        flask_app.zona_service.limpar_resfriador()
+        coletor_estado.zona_service.limpar_historico_grafico()
+        coletor_estado.zona_service.limpar_resfriador()
         self.client = cliente_autenticado(flask_app.app)
 
     def tearDown(self):
-        flask_app.zona_service.limpar_historico_grafico()
-        flask_app.zona_service.limpar_resfriador()
+        coletor_estado.zona_service.limpar_historico_grafico()
+        coletor_estado.zona_service.limpar_resfriador()
         db.DB_PATH = self.db_path_original
         self.tempdir.cleanup()
 
@@ -861,7 +492,7 @@ class TestZonasApi(unittest.TestCase):
         # teste ser rapido e deterministico -- o objetivo aqui e validar o
         # tratamento de erro da rota, nao o cliente Modbus em si (isso ja
         # e coberto em test_modbus_client.py).
-        with patch.object(flask_app.zona_service, "_ler_modbus", return_value=None):
+        with patch.object(coletor_estado.zona_service, "_ler_modbus", return_value=None):
             resposta = self.client.post(f"/api/zonas/{zona_id}/calcular")
         self.assertEqual(400, resposta.status_code)
         self.assertIn("erro", resposta.json)
@@ -951,7 +582,7 @@ class TestZonasApi(unittest.TestCase):
                 return 25.0 if equipamento["campo_medido"] == "tbs" else 20.0
             return 35.0 if equipamento["campo_medido"] == "tbs" else 30.0
 
-        with patch.object(flask_app.zona_service, "_ler_modbus", side_effect=ler_modbus):
+        with patch.object(coletor_estado.zona_service, "_ler_modbus", side_effect=ler_modbus):
             resposta = self.client.post("/api/zonas/calcular-ativas")
 
         self.assertEqual(200, resposta.status_code)
@@ -994,7 +625,7 @@ class TestZonasApi(unittest.TestCase):
         def ler_modbus(equipamento):
             return 25.0 if equipamento["campo_medido"] == "tbs" else 20.0
 
-        with patch.object(flask_app.zona_service, "_ler_modbus", side_effect=ler_modbus):
+        with patch.object(coletor_estado.zona_service, "_ler_modbus", side_effect=ler_modbus):
             resposta = self.client.post("/api/zonas/calcular-ativas")
 
         self.assertEqual(200, resposta.status_code)
@@ -1026,7 +657,7 @@ class TestZonasApi(unittest.TestCase):
             valores = {"tbs": 25.0, "tbu": 20.0, "v": -0.27}
             return valores[equipamento["campo_medido"]]
 
-        with patch.object(flask_app.zona_service, "_ler_modbus", side_effect=ler_modbus):
+        with patch.object(coletor_estado.zona_service, "_ler_modbus", side_effect=ler_modbus):
             resposta = self.client.post("/api/zonas/calcular-ativas")
 
         self.assertEqual(200, resposta.status_code)
@@ -1164,7 +795,7 @@ class TestZonasApi(unittest.TestCase):
             chamadas.append(equipamento["campo_medido"])
             return ciclos[ciclo][equipamento["campo_medido"]]
 
-        with patch.object(flask_app.zona_service, "_ler_modbus", side_effect=ler_modbus):
+        with patch.object(coletor_estado.zona_service, "_ler_modbus", side_effect=ler_modbus):
             primeira = self.client.post(f"/api/zonas/{zona_id}/calcular")
             segunda = self.client.post(f"/api/zonas/{zona_id}/calcular")
 

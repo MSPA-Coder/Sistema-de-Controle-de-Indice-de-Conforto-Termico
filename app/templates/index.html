@@ -13,9 +13,7 @@
 
 <div class="app-shell">
 
-  <!-- Fase 2 (autenticacao): quem esta logado e por onde sair/administrar
-  -- contas. `usuario_atual` e `areas_permitidas` vem de `rotas_comuns.index`
-  -- (ver `auth.py`). -->
+  <!-- Identificacao da sessao e atalhos de administracao. -->
   <header class="app-topo-sessao">
     <span class="app-topo-sessao-usuario">
       Logado como <strong>{{ usuario_atual.nome }}</strong>
@@ -31,15 +29,12 @@
     </span>
   </header>
 
-  <!-- Fase 1 (reorganizacao de UI): as abas sao agrupadas por area de uso -->
-  <!-- (Monitoramento / Operacao / Administracao / Dados) em vez de uma lista -->
-  <!-- plana -- ver README.md, secao "Organizacao das abas por papel de uso". -->
+  <!-- Abas agrupadas por area de uso. -->
   <!-- Cada `div.abas-grupo` e `role="presentation"`: existe so para agrupar -->
   <!-- visualmente: o `role="tablist"` continua em `nav.abas-app` e os -->
   <!-- botoes continuam `role="tab"`, preservando a arvore de acessibilidade. -->
-  <!-- Fase 2 (autenticacao): cada botao agora tambem exige a area
-  -- correspondente em `areas_permitidas` (perfil da sessao logada -- ver
-  -- `auth.py` e `rotas_comuns.index`). Um botao só aparece quando as DUAS
+  <!-- Cada botao exige a area correspondente em `areas_permitidas`. Ele
+  -- aparece somente quando as DUAS
   -- condicoes valem: o processo tem a rota (papel_app) E o perfil tem a
   -- area. Isso e so a metade visual do controle de acesso -- a metade que
   -- realmente importa (bloquear a chamada de API) esta nos hooks

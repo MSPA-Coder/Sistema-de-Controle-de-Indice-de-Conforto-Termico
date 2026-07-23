@@ -2,14 +2,8 @@
 """
 auth_test_utils.py
 =====================
-Utilitario de teste (Fase 2 -- autenticacao). A maioria dos testes em
-test_app.py, test_app_factory.py e test_dados_entrada.py foi escrita ANTES
-de existir autenticacao por perfil, e assume acesso irrestrito a qualquer
-rota -- exatamente o que o perfil "administrador" tem hoje (ver
-AREAS_POR_PERFIL em auth.py). Por isso o padrao aqui e autenticar como
-administrador; testes que examinam especificamente o controle de acesso
-por perfil (ver test_auth.py) chamam `cliente_autenticado` com um perfil
-explicito.
+Autentica clientes de teste. O padrao e usar o perfil administrador;
+testes especificos de controle de acesso informam o perfil explicitamente.
 """
 
 from __future__ import annotations

@@ -5,7 +5,7 @@ app_factory.py
 Monta o app Flask a partir das pecas compartilhadas (blueprints +
 configuracao), parametrizado por `papel_app`:
 
-- `papel_app=None`         -> tudo num processo so (Fase 0 -- ver web.py)
+- `papel_app=None`         -> coletor e dashboard no mesmo processo
 - `papel_app="coletor"`    -> so as rotas que falam Modbus, calculam o
   indice e gravam no banco (ver `coletor/rotas.py`)
 - `papel_app="dashboard"`  -> so as rotas de leitura/analise, sem Modbus
@@ -60,7 +60,7 @@ from . import database as db
 MENSAGEM_ERRO_INTERNO = "Erro interno inesperado. Consulte o log do servidor para detalhes."
 
 # Os tres papeis validos de app (ver docstring do modulo). `None` so existe
-# para a composicao "tudo num processo so" da Fase 0 (`web.py`).
+# para a composicao que executa coletor e dashboard no mesmo processo.
 PAPEIS_APP = (None, "coletor", "dashboard")
 CONFIG_SERVIDOR_PATH = Path(__file__).resolve().parents[1] / "config" / "servidor.json"
 
@@ -181,15 +181,13 @@ def criar_app(papel_app: str | None = None, config: AppConfig | None = None) -> 
     app = Flask(__name__)
     app.json = ProvedorJSON(app)
     app.config["MAX_CONTENT_LENGTH"] = config.max_content_length
-    # Guardados em `app.config` (nao num global do modulo) porque, na Fase
-    # 1, mais de um app (coletor e dashboard) pode existir no mesmo
-    # interpretador Python durante os testes -- cada um precisa do seu
-    # proprio papel/flag de debug, sem vazar para o outro.
+    # Guardados em `app.config` para que mais de um app possa existir no
+    # mesmo interpretador sem compartilhar papel ou flag de debug.
     app.config["CONFORTO_PAPEL_APP"] = papel_app
     app.config["CONFORTO_DEBUG"] = config.debug
 
-    # Fase 2 (autenticacao): a chave de sessao e por-processo (nao muda com
-    # `papel_app`), e coletor/dashboard compartilham o MESMO
+    # A chave de sessao e por processo (nao muda com `papel_app`), e
+    # coletor/dashboard compartilham o MESMO
     # `instance/historico.db` -- logo, tambem compartilham a mesma tabela
     # `usuarios` e podem compartilhar a mesma chave persistida em
     # `instance/secret_key.txt` sem problema (ver `auth.py`).
