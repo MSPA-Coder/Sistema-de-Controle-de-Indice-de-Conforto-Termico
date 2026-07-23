@@ -303,13 +303,7 @@ def _analisar_cobertura(
     inicio_utc: datetime.datetime,
     fim_utc_exclusivo: datetime.datetime,
 ) -> tuple[bool, datetime.datetime | None]:
-    """Confere cobertura horaria a partir de uma serie ja parseada.
-
-    Nucleo de `_avaliar_cobertura_clima`, extraido para aceitar `tempos`/
-    `series` ja parseados por `_serie_clima` -- em vez de receber o dict
-    bruto e reparsea-lo -- para que `obter_clima_horario` faca esse parse
-    uma unica vez por chamada (cache ou rede) e nao duas.
-    """
+    """Confere a cobertura horaria de uma serie ja parseada."""
     if not tempos or any(len(serie) != len(tempos) for serie in series.values()):
         return False, None
 
@@ -330,30 +324,6 @@ def _analisar_cobertura(
             return False, ultima_hora
         cursor += datetime.timedelta(hours=1)
     return True, ultima_hora
-
-
-def _avaliar_cobertura_clima(
-    bruto: dict,
-    inicio_utc: datetime.datetime,
-    fim_utc_exclusivo: datetime.datetime,
-) -> tuple[bool, datetime.datetime | None]:
-    """Confirma que cada hora necessária possui todas as variáveis reais.
-
-    A hora do fim exclusivo também é exigida como âncora para interpolar o
-    último ponto sub-horário. Respostas futuras preenchidas com ``null`` não
-    são aceitas nem armazenadas no cache.
-
-    Mantida (em vez de removida) para uso direto sobre uma resposta bruta
-    ainda não parseada -- ex.: chamadas isoladas e testes que só têm o dict
-    do ERA5 em mãos. Internamente delega para `_analisar_cobertura` depois
-    de um único parse; `obter_clima_horario` chama `_analisar_cobertura`
-    diretamente, pois já parseou a série por conta própria.
-    """
-    try:
-        tempos, series = _serie_clima(bruto)
-    except (KeyError, TypeError, ValueError):
-        return False, None
-    return _analisar_cobertura(tempos, series, inicio_utc, fim_utc_exclusivo)
 
 
 def _posicao_interpolacao(
@@ -398,10 +368,6 @@ def _interpolar_na_posicao(
         return esquerda, interpolado
     valor = esquerda + (direita - esquerda) * fracao
     return valor, interpolado
-
-
-def _interpolar(tempos: list[datetime.datetime], serie: list, alvo: datetime.datetime) -> tuple[float, bool]:
-    return _interpolar_na_posicao(serie, _posicao_interpolacao(tempos, alvo))
 
 
 def _clima_no_instante(

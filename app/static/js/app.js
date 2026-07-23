@@ -396,9 +396,6 @@ function coletarConfig() {
     habilitarEquipamentos: document.getElementById("cfg-equipamentos").checked,
     emailDestino: document.getElementById("email-destino").value,
     statusMinimoEmail: document.getElementById("cfg-status-minimo-email")?.value || "conforto",
-    // Mantido no contrato de configuracao apenas para migrar instalacoes
-    // antigas. O agendamento automatico agora pertence ao backend.
-    modoAutomatico: false,
     intervaloLeituraSegundos: lerNumeroConfiguracao("cfg-intervalo-leitura", 1, 1),
     intervaloGravacaoMinutos: lerNumeroConfiguracao("cfg-intervalo-gravacao", 1, 0),
     modoPontoOrvalho: document.getElementById("cfg-ponto-orvalho").value,
@@ -456,7 +453,6 @@ function aplicarConfiguracoes(config) {
   definirValorConfiguracao("cfg-equipamentos", config.habilitarEquipamentos);
   definirValorConfiguracao("email-destino", config.emailDestino);
   definirValorConfiguracao("cfg-status-minimo-email", config.statusMinimoEmail);
-  definirValorConfiguracao("cfg-auto", config.modoAutomatico);
   definirValorConfiguracao("cfg-intervalo-leitura", config.intervaloLeituraSegundos);
   definirValorConfiguracao("cfg-intervalo-gravacao", config.intervaloGravacaoMinutos);
   definirValorConfiguracao("cfg-ponto-orvalho", config.modoPontoOrvalho);

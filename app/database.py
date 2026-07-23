@@ -46,7 +46,6 @@ TIMEOUT_CONEXAO_SEGUNDOS = 30.0
 
 MODOS_OPERACAO = ("desligado", "manual", "automatico", "manutencao")
 MODO_OPERACAO_PADRAO = "manual"
-_NAO_INFORMADO = object()
 
 # Perfis de usuario e controle de acesso por pessoa. O mapeamento entre
 # perfil e areas da interface liberadas fica em
@@ -70,7 +69,6 @@ CONFIGURACOES_PADRAO = {
     "habilitarEquipamentos": False,
     "emailDestino": "produtor@fazenda.com.br",
     "statusMinimoEmail": "conforto",
-    "modoAutomatico": False,
     "intervaloLeituraSegundos": 1,
     "intervaloGravacaoMinutos": 1,
     "modoPontoOrvalho": "medido",
@@ -182,6 +180,9 @@ def iniciar_banco() -> None:
             )
             """
         )
+        # A ativação automática passou a ser definida por zona em
+        # `controle_zonas`; a antiga chave global não tem mais consumidor.
+        conn.execute("DELETE FROM configuracoes WHERE chave = 'modoAutomatico'")
 
         # --- Usuarios (autenticacao e perfil por pessoa) -----------------
         # `login` com COLLATE NOCASE: compara/unifica sem diferenciar
@@ -422,8 +423,8 @@ def iniciar_banco() -> None:
         # MIGRACAO: `zona_id` foi adicionado depois que a tabela `leituras`
         # ja existia em instalacoes anteriores (recurso de Zonas Modbus).
         # SQLite nao tem "ADD COLUMN IF NOT EXISTS", entao checamos manual.
-        # Nulo para leituras existentes sem zona associada e para qualquer
-        # leitura fora do fluxo de zonas.
+        # Leituras anteriores à migração permanecem sem zona. Novas
+        # gravações exigem uma zona válida em `salvar_leitura`.
         if not _coluna_existe(conn, "leituras", "zona_id"):
             conn.execute(
                 "ALTER TABLE leituras ADD COLUMN zona_id INTEGER "
@@ -464,31 +465,33 @@ def salvar_leitura(
     status: str,
     entradas: dict,
     intervalo_minutos: float | int | str | None = None,
-    zona_id: int | None = None,
+    *,
+    zona_id: int,
 ) -> bool:
-    """Grava uma leitura no historico. `zona_id` e opcional (None para o
-    fluxo manual/simulado original -- Principal). Quando informado, o
-    intervalo minimo entre gravacoes e verificado por (zona_id, indice),
-    nao por (especie, indice): duas zonas com a mesma especie/indice nao
-    devem se bloquear mutuamente, e uma leitura manual feita entre duas
-    leituras automaticas da zona tambem nao deve interferir no intervalo
-    da zona (por isso o fluxo manual so olha para linhas com
-    `zona_id IS NULL` ao checar seu proprio intervalo)."""
+    """Grava uma leitura de zona no historico.
+
+    O intervalo minimo e verificado por ``(zona_id, indice)`` para que
+    zonas com a mesma especie e indice nao se bloqueiem mutuamente.
+    """
     agora = datetime.datetime.now().replace(microsecond=0)
     intervalo_minimo = _intervalo_minimo_leituras(intervalo_minutos)
     with _conexao() as conn:
-        if zona_id is not None:
-            ultima = conn.execute(
-                "SELECT criado_em FROM leituras WHERE zona_id = ? AND indice = ? "
-                "ORDER BY id DESC LIMIT 1",
-                (zona_id, indice),
-            ).fetchone()
-        else:
-            ultima = conn.execute(
-                "SELECT criado_em FROM leituras WHERE especie = ? AND indice = ? "
-                "AND zona_id IS NULL ORDER BY id DESC LIMIT 1",
-                (especie, indice),
-            ).fetchone()
+        zona = conn.execute(
+            "SELECT especie, indice FROM zonas WHERE id = ?",
+            (zona_id,),
+        ).fetchone()
+        if zona is None:
+            raise ZonaNaoEncontradaError(f"Zona {zona_id} nao encontrada.")
+        if zona["especie"] != especie or zona["indice"] != indice:
+            raise ZonaInvalidaError(
+                "A espécie e o índice da leitura devem corresponder ao cadastro da zona."
+            )
+
+        ultima = conn.execute(
+            "SELECT criado_em FROM leituras WHERE zona_id = ? AND indice = ? "
+            "ORDER BY id DESC LIMIT 1",
+            (zona_id, indice),
+        ).fetchone()
         if ultima:
             ultima_data = datetime.datetime.fromisoformat(ultima["criado_em"])
             if agora - ultima_data < intervalo_minimo:
@@ -510,25 +513,8 @@ def salvar_leitura(
     return True
 
 
-def obter_historico(especie: str, indice: str, limite: int = 20) -> list[dict]:
-    with _conexao(escrita=False) as conn:
-        linhas = conn.execute(
-            "SELECT * FROM leituras WHERE especie = ? AND indice = ? "
-            "ORDER BY id DESC LIMIT ?",
-            (especie, indice, limite),
-        ).fetchall()
-    dados = [dict(linha) for linha in linhas]
-    dados.reverse()  # ordem cronologica (mais antigo -> mais recente) para os graficos
-    for item in dados:
-        item["entradas"] = json.loads(item["entradas"])
-    return dados
-
-
 def obter_historico_por_zona(zona_id: int, limite: int = 20) -> list[dict]:
-    """Mesma consulta de `obter_historico`, mas filtrando pela zona (em vez
-    de por especie/indice) -- usado pela aba Zonas para mostrar o
-    historico de uma zona especifica, isolado de leituras manuais/de
-    outras zonas que porventura compartilhem a mesma especie/indice."""
+    """Devolve o historico de uma zona, em ordem cronologica."""
     with _conexao(escrita=False) as conn:
         linhas = conn.execute(
             "SELECT * FROM leituras WHERE zona_id = ? ORDER BY id DESC LIMIT ?",
@@ -747,34 +733,12 @@ def obter_historico_leituras(
     }
 
 
-def limpar_historico(especie: str | None = None, indice: str | None = None) -> None:
+def limpar_historico() -> None:
     with _conexao() as conn:
-        if especie and indice:
-            conn.execute(
-                "DELETE FROM leituras WHERE especie = ? AND indice = ?", (especie, indice)
-            )
-            conn.execute(
-                "DELETE FROM leituras_recentes_zona WHERE especie = ? AND indice = ?",
-                (especie, indice),
-            )
-            conn.execute(
-                "DELETE FROM agregados_15min WHERE especie = ? AND indice = ?",
-                (especie, indice),
-            )
-            conn.execute(
-                "DELETE FROM resumos_horarios WHERE especie = ? AND indice = ?",
-                (especie, indice),
-            )
-        elif especie:
-            conn.execute("DELETE FROM leituras WHERE especie = ?", (especie,))
-            conn.execute("DELETE FROM leituras_recentes_zona WHERE especie = ?", (especie,))
-            conn.execute("DELETE FROM agregados_15min WHERE especie = ?", (especie,))
-            conn.execute("DELETE FROM resumos_horarios WHERE especie = ?", (especie,))
-        else:
-            conn.execute("DELETE FROM leituras")
-            conn.execute("DELETE FROM leituras_recentes_zona")
-            conn.execute("DELETE FROM agregados_15min")
-            conn.execute("DELETE FROM resumos_horarios")
+        conn.execute("DELETE FROM leituras")
+        conn.execute("DELETE FROM leituras_recentes_zona")
+        conn.execute("DELETE FROM agregados_15min")
+        conn.execute("DELETE FROM resumos_horarios")
 
 
 # ---------------------------------------------------------------------------
@@ -1062,29 +1026,17 @@ def salvar_estado_equipamentos(
     ventilador_ligado: bool,
     nebulizador_ligado: bool,
     intensidade: str | None,
-    ventilador_desejado=_NAO_INFORMADO,
-    nebulizador_desejado=_NAO_INFORMADO,
-    ventilador_confirmado=_NAO_INFORMADO,
-    nebulizador_confirmado=_NAO_INFORMADO,
-    falhas: list[str] | None = None,
-    qualidade: str = "boa",
+    ventilador_desejado: bool,
+    nebulizador_desejado: bool,
+    ventilador_confirmado: bool | None,
+    nebulizador_confirmado: bool | None,
+    falhas: list[str],
+    qualidade: str,
 ) -> None:
     """Persiste estado desejado, confirmado e qualidade do ultimo ciclo.
 
-    Os quatro primeiros argumentos preservam o contrato anterior. Quando os
-    novos campos nao sao informados, o estado legado e tratado como desejado
-    e confirmado; quando a confirmacao e explicitamente ``None``, a interface
-    mostra que houve comando sem realimentacao disponivel.
+    Uma confirmação ``None`` indica comando sem realimentação disponível.
     """
-    if ventilador_desejado is _NAO_INFORMADO:
-        ventilador_desejado = bool(ventilador_ligado)
-    if nebulizador_desejado is _NAO_INFORMADO:
-        nebulizador_desejado = bool(nebulizador_ligado)
-    if ventilador_confirmado is _NAO_INFORMADO:
-        ventilador_confirmado = bool(ventilador_ligado)
-    if nebulizador_confirmado is _NAO_INFORMADO:
-        nebulizador_confirmado = bool(nebulizador_ligado)
-
     def _bool_sql(valor):
         return None if valor is None else int(bool(valor))
 
@@ -2309,7 +2261,6 @@ def _sanitizar_configuracoes(configuracoes: dict) -> dict:
             padrao["statusMinimoEmail"],
             tuple(ti.STATUS_PESO.keys()),
         ),
-        "modoAutomatico": _coagir_booleano(bruto["modoAutomatico"], padrao["modoAutomatico"]),
         "intervaloLeituraSegundos": _coagir_numero(
             bruto["intervaloLeituraSegundos"], padrao["intervaloLeituraSegundos"], 1, 3600
         ),

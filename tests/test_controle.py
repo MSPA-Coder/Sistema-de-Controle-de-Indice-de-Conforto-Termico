@@ -10,6 +10,7 @@ from app.coletor.controle import (
     GerenciadorControleZonas,
     ZonaOcupadaError,
 )
+from app.zona_service import ZonaCalculoError
 
 
 class _ZonaServiceFalso:
@@ -61,6 +62,30 @@ class TestGerenciadorControleZonas(unittest.TestCase):
         self.assertNotIn(zona_manual, self.servico.calculadas)
         self.assertIsNotNone(db.obter_status_coletor()["ultimo_ciclo_em"])
         self.assertTrue(db.listar_eventos_operacao(zona_automatica))
+
+    def test_falha_em_uma_zona_nao_interrompe_as_demais(self):
+        zona_com_falha = self._criar_zona("Com falha")
+        zona_saudavel = self._criar_zona("Saudável")
+        for zona_id in (zona_com_falha, zona_saudavel):
+            db.salvar_controle_zona(zona_id, {"modo": "automatico"})
+
+        calcular_original = self.servico.calcular
+
+        def calcular(zona_id, logger=None):
+            if zona_id == zona_com_falha:
+                raise ZonaCalculoError("sensor indisponível")
+            return calcular_original(zona_id, logger)
+
+        self.servico.calcular = calcular
+        resultados = self.gerenciador.executar_ciclo_automatico()
+
+        self.assertEqual(zona_com_falha, resultados[0]["zona_id"])
+        self.assertEqual("sensor indisponível", resultados[0]["erro"])
+        self.assertEqual(zona_saudavel, resultados[1]["zona_id"])
+        self.assertIn(zona_saudavel, self.servico.calculadas)
+        falhas = db.listar_eventos_operacao(zona_com_falha)
+        self.assertEqual("falha", falhas[0]["acao"])
+        self.assertEqual("sensor indisponível", falhas[0]["detalhes"]["erro"])
 
     def test_lock_impede_dois_ciclos_simultaneos_na_mesma_zona(self):
         zona_id = self._criar_zona("Concorrente")

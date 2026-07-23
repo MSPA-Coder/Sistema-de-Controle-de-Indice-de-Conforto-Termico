@@ -10,7 +10,6 @@ from __future__ import annotations
 import random
 import threading
 from dataclasses import dataclass
-from typing import Callable
 
 from . import thermal_indices as ti
 
@@ -110,10 +109,9 @@ class SensorSimuladoService:
         especie: str,
         indice: str,
         resfriamento_ativo: bool,
-        ao_atingir_conforto: Callable[[], None] | None = None,
     ) -> dict[str, float]:
         if resfriamento_ativo:
-            leitura_resfriada = self._gerar_com_resfriamento(especie, indice, ao_atingir_conforto)
+            leitura_resfriada = self._gerar_com_resfriamento(especie, indice)
             if leitura_resfriada is not None:
                 return leitura_resfriada
         return self._gerador_aleatorio.gerar(indice)
@@ -122,7 +120,6 @@ class SensorSimuladoService:
         self,
         especie: str,
         indice: str,
-        ao_atingir_conforto: Callable[[], None] | None,
     ) -> dict[str, float] | None:
         chave = (especie, indice)
         with self._lock:
@@ -132,25 +129,8 @@ class SensorSimuladoService:
             return None
 
         novo_estado = self._estrategia_resfriamento.aplicar(especie, indice, estado)
-        if novo_estado is None:
-            if ao_atingir_conforto:
-                ao_atingir_conforto()
-            return None
 
         with self._lock:
             self._estados[chave] = novo_estado
 
-        if novo_estado.status == "Conforto" and ao_atingir_conforto:
-            ao_atingir_conforto()
         return dict(novo_estado.entradas)
-
-    def limpar(self, especie: str | None = None, indice: str | None = None) -> None:
-        with self._lock:
-            if especie and indice:
-                self._estados.pop((especie, indice), None)
-            elif especie:
-                for chave in list(self._estados):
-                    if chave[0] == especie:
-                        self._estados.pop(chave, None)
-            else:
-                self._estados.clear()

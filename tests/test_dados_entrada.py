@@ -146,17 +146,20 @@ class TestDadosEntrada(unittest.TestCase):
                 1,
             )
 
-    def test_recusa_lacuna_em_vez_de_repetir_ultimo_valor(self):
-        tempos = [
-            datetime.datetime(2024, 1, 1, hora, tzinfo=datetime.timezone.utc)
-            for hora in range(3)
-        ]
-        with self.assertRaisesRegex(gerador.GeracaoDadosError, "lacuna"):
-            gerador._interpolar(
-                tempos,
-                [20.0, None, None],
-                datetime.datetime(2024, 1, 1, 1, tzinfo=datetime.timezone.utc),
-            )
+    def test_recusa_fonte_com_lacuna_no_periodo_solicitado(self):
+        inicio = datetime.datetime(2024, 1, 10, tzinfo=datetime.timezone.utc)
+        fim = inicio + datetime.timedelta(days=1)
+        resposta = self._clima_falso(
+            "https://exemplo.test?start_date=2024-01-09&end_date=2024-01-12"
+        )
+        resposta["hourly"]["temperature_2m"][25] = None
+
+        with patch.object(gerador, "_baixar_json", return_value=resposta):
+            with self.assertRaisesRegex(
+                gerador.GeracaoDadosError,
+                "não consolidou todo o período",
+            ):
+                gerador.obter_clima_horario(-23.55, -46.63, inicio, fim)
 
     def test_cache_incompleto_e_descartado_e_fonte_e_consultada_novamente(self):
         self._configurar_zona()
@@ -173,11 +176,10 @@ class TestDadosEntrada(unittest.TestCase):
         with patch.object(gerador, "_baixar_json", side_effect=self._clima_falso) as baixar:
             resultado = gerador.obter_clima_horario(-23.55, -46.63, inicio, fim)
         self.assertTrue(baixar.called)
-        completa, _ = gerador._avaliar_cobertura_clima(resultado.bruto, inicio, fim)
-        self.assertTrue(completa)
-        # A serie ja vem parseada uma unica vez junto com o bruto (evita que
-        # `gerar` precise reparsear a mesma resposta por zona).
-        self.assertEqual(resultado.tempos, gerador._serie_clima(resultado.bruto)[0])
+        self.assertIn(inicio, resultado.tempos)
+        self.assertIn(fim, resultado.tempos)
+        self.assertEqual(len(resultado.tempos), len(resultado.series["tbs"]))
+        self.assertNotIn(None, resultado.series["tbs"])
 
     def test_cache_malformado_e_descartado_sem_lancar_excecao(self):
         self._configurar_zona()

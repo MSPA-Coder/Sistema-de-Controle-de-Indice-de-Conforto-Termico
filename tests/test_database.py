@@ -16,6 +16,9 @@ class TestIntervaloMinimoLeituras(unittest.TestCase):
         self.db_path_original = db.DB_PATH
         db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
         db.iniciar_banco()
+        self.zona_frangos = db.criar_zona(
+            {"nome": "Aviário", "especie": "frangos", "indice": "ITU"}
+        )
 
     def tearDown(self):
         db.DB_PATH = self.db_path_original
@@ -24,68 +27,156 @@ class TestIntervaloMinimoLeituras(unittest.TestCase):
     def test_nao_salva_mesmo_indice_antes_de_um_minuto(self):
         entradas = {"tbs": 25, "tbu": 20}
 
-        self.assertTrue(db.salvar_leitura("frangos", "ITU", 70.0, "Conforto", entradas))
-        self.assertFalse(db.salvar_leitura("frangos", "ITU", 71.0, "Conforto", entradas))
+        self.assertTrue(
+            db.salvar_leitura(
+                "frangos",
+                "ITU",
+                70.0,
+                "Conforto",
+                entradas,
+                zona_id=self.zona_frangos["id"],
+            )
+        )
+        self.assertFalse(
+            db.salvar_leitura(
+                "frangos",
+                "ITU",
+                71.0,
+                "Conforto",
+                entradas,
+                zona_id=self.zona_frangos["id"],
+            )
+        )
 
-        historico = db.obter_historico("frangos", "ITU")
+        historico = db.obter_historico_por_zona(self.zona_frangos["id"])
         self.assertEqual(1, len(historico))
         self.assertEqual(70.0, historico[0]["valor"])
 
     def test_salva_mesmo_indice_depois_de_um_minuto(self):
         entradas = {"tbs": 25, "tbu": 20}
 
-        self.assertTrue(db.salvar_leitura("frangos", "ITU", 70.0, "Conforto", entradas))
+        self.assertTrue(
+            db.salvar_leitura(
+                "frangos",
+                "ITU",
+                70.0,
+                "Conforto",
+                entradas,
+                zona_id=self.zona_frangos["id"],
+            )
+        )
         criado_em_antigo = (
             datetime.datetime.now() - datetime.timedelta(seconds=61)
         ).isoformat(timespec="seconds")
 
         with db._conexao() as conn:
             conn.execute(
-                "UPDATE leituras SET criado_em = ? WHERE especie = ? AND indice = ?",
-                (criado_em_antigo, "frangos", "ITU"),
+                "UPDATE leituras SET criado_em = ? WHERE zona_id = ?",
+                (criado_em_antigo, self.zona_frangos["id"]),
             )
 
-        self.assertTrue(db.salvar_leitura("frangos", "ITU", 71.0, "Conforto", entradas))
-        self.assertEqual(2, len(db.obter_historico("frangos", "ITU")))
+        self.assertTrue(
+            db.salvar_leitura(
+                "frangos",
+                "ITU",
+                71.0,
+                "Conforto",
+                entradas,
+                zona_id=self.zona_frangos["id"],
+            )
+        )
+        self.assertEqual(
+            2, len(db.obter_historico_por_zona(self.zona_frangos["id"]))
+        )
 
-    def test_intervalo_e_independente_por_especie_e_indice(self):
+    def test_intervalo_e_independente_por_zona(self):
         entradas = {"tbs": 25, "tbu": 20}
+        outra_zona = db.criar_zona(
+            {"nome": "Outro aviário", "especie": "frangos", "indice": "ITU"}
+        )
 
-        self.assertTrue(db.salvar_leitura("frangos", "ITU", 70.0, "Conforto", entradas))
-        self.assertTrue(db.salvar_leitura("bovinos", "ITU", 70.0, "Conforto", entradas))
-        self.assertTrue(db.salvar_leitura("frangos", "IGNU", 70.0, "Conforto", entradas))
+        self.assertTrue(
+            db.salvar_leitura(
+                "frangos",
+                "ITU",
+                70.0,
+                "Conforto",
+                entradas,
+                zona_id=self.zona_frangos["id"],
+            )
+        )
+        self.assertTrue(
+            db.salvar_leitura(
+                "frangos",
+                "ITU",
+                70.0,
+                "Conforto",
+                entradas,
+                zona_id=outra_zona["id"],
+            )
+        )
+
+    def test_rejeita_leitura_incompativel_com_o_cadastro_da_zona(self):
+        with self.assertRaisesRegex(db.ZonaInvalidaError, "corresponder"):
+            db.salvar_leitura(
+                "bovinos",
+                "ITU",
+                70.0,
+                "Conforto",
+                {"tbs": 25, "tbu": 20},
+                zona_id=self.zona_frangos["id"],
+            )
+
+    def test_rejeita_leitura_para_zona_inexistente(self):
+        with self.assertRaises(db.ZonaNaoEncontradaError):
+            db.salvar_leitura(
+                "frangos",
+                "ITU",
+                70.0,
+                "Conforto",
+                {"tbs": 25, "tbu": 20},
+                zona_id=999999,
+            )
 
     def test_intervalo_zero_salva_todas_as_leituras(self):
         entradas = {"tbs": 25, "tbu": 20}
 
         self.assertTrue(
             db.salvar_leitura(
-                "frangos", "ITU", 70.0, "Conforto", entradas, intervalo_minutos=0
+                "frangos",
+                "ITU",
+                70.0,
+                "Conforto",
+                entradas,
+                intervalo_minutos=0,
+                zona_id=self.zona_frangos["id"],
             )
         )
         self.assertTrue(
             db.salvar_leitura(
-                "frangos", "ITU", 71.0, "Conforto", entradas, intervalo_minutos=0
+                "frangos",
+                "ITU",
+                71.0,
+                "Conforto",
+                entradas,
+                intervalo_minutos=0,
+                zona_id=self.zona_frangos["id"],
             )
         )
 
-        self.assertEqual(2, len(db.obter_historico("frangos", "ITU")))
-
-    def test_limpa_historico_por_especie(self):
-        entradas = {"tbs": 25, "tbu": 20}
-
-        db.salvar_leitura("frangos", "ITU", 70.0, "Conforto", entradas)
-        db.salvar_leitura("frangos", "IGNU", 70.0, "Conforto", entradas)
-        db.salvar_leitura("bovinos", "ITU", 70.0, "Conforto", entradas)
-
-        db.limpar_historico("frangos")
-
-        self.assertEqual([], db.obter_historico("frangos", "ITU"))
-        self.assertEqual([], db.obter_historico("frangos", "IGNU"))
-        self.assertEqual(1, len(db.obter_historico("bovinos", "ITU")))
+        self.assertEqual(
+            2, len(db.obter_historico_por_zona(self.zona_frangos["id"]))
+        )
 
     def test_cria_backup_no_mesmo_diretorio_do_banco(self):
-        db.salvar_leitura("frangos", "ITU", 70.0, "Conforto", {"tbs": 25, "tbu": 20})
+        db.salvar_leitura(
+            "frangos",
+            "ITU",
+            70.0,
+            "Conforto",
+            {"tbs": 25, "tbu": 20},
+            zona_id=self.zona_frangos["id"],
+        )
 
         backup = db.criar_backup_banco()
 
@@ -102,6 +193,7 @@ class TestIntervaloMinimoLeituras(unittest.TestCase):
             "Conforto",
             {"tbs": 25, "tbu": 20},
             intervalo_minutos=0,
+            zona_id=self.zona_frangos["id"],
         )
         db.salvar_leitura(
             "frangos",
@@ -240,6 +332,21 @@ class TestIntervaloMinimoLeituras(unittest.TestCase):
         self.assertEqual("calculado", configuracoes["modoUmidadeRelativa"])
         self.assertEqual(70, configuracoes["limiteUmidadeNebulizador"])
         self.assertEqual("conforto", configuracoes["statusMinimoEmail"])
+
+    def test_inicializacao_remove_configuracao_automatica_global_obsoleta(self):
+        with db._conexao() as conn:
+            conn.execute(
+                "INSERT INTO configuracoes (chave, valor, atualizado_em) "
+                "VALUES ('modoAutomatico', 'true', '2024-01-01T00:00:00')"
+            )
+
+        db.iniciar_banco()
+
+        with db._conexao(escrita=False) as conn:
+            linha = conn.execute(
+                "SELECT 1 FROM configuracoes WHERE chave = 'modoAutomatico'"
+            ).fetchone()
+        self.assertIsNone(linha)
 
     def test_salva_e_recupera_configuracoes(self):
         db.salvar_configuracoes(
@@ -541,14 +648,6 @@ class TestEstatisticasZonas(unittest.TestCase):
         self.assertEqual("ITUV", stats["indice"])
         self.assertEqual(1, stats["total_leituras"])
         self.assertEqual(20.0, stats["media"])
-
-    def test_ignora_leituras_sem_zona(self):
-        db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
-        db.salvar_leitura("frangos", "ITU", 70.0, "Conforto", {"tbs": 25, "tbu": 20}, intervalo_minutos=0)
-
-        [stats] = db.obter_estatisticas_zonas()
-
-        self.assertEqual(0, stats["total_leituras"])
 
     def test_uma_entrada_por_zona_na_ordem_de_id(self):
         zona_b = db.criar_zona({"nome": "Zona B", "especie": "frangos", "indice": "ITU"})
@@ -929,7 +1028,18 @@ class TestPainelExecutivoZonas(unittest.TestCase):
             },
         )
 
-        db.salvar_estado_equipamentos(zona["id"], True, False, "media")
+        db.salvar_estado_equipamentos(
+            zona["id"],
+            True,
+            False,
+            "media",
+            True,
+            False,
+            True,
+            False,
+            [],
+            "boa",
+        )
 
         [painel] = db.obter_painel_zonas()
 
@@ -947,8 +1057,12 @@ class TestPainelExecutivoZonas(unittest.TestCase):
     def test_salvar_estado_equipamentos_faz_upsert_sem_duplicar_linha(self):
         zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
 
-        db.salvar_estado_equipamentos(zona["id"], True, True, "alta")
-        db.salvar_estado_equipamentos(zona["id"], False, False, None)
+        db.salvar_estado_equipamentos(
+            zona["id"], True, True, "alta", True, True, True, True, [], "boa"
+        )
+        db.salvar_estado_equipamentos(
+            zona["id"], False, False, None, False, False, False, False, [], "boa"
+        )
 
         with db._conexao() as conn:
             linhas = conn.execute(
@@ -1122,7 +1236,7 @@ class TestConcorrenciaLeituraEscrita(unittest.TestCase):
         self.assertTrue(escrita_em_andamento.wait(timeout=2), "escrita não começou a tempo")
 
         inicio = time.monotonic()
-        db.obter_historico("frangos", "ITU")
+        db.obter_historico_leituras()
         duracao = time.monotonic() - inicio
 
         pode_liberar_escrita.set()
@@ -1131,7 +1245,7 @@ class TestConcorrenciaLeituraEscrita(unittest.TestCase):
         self.assertLess(
             duracao, 0.5,
             "uma leitura esperou por uma escrita em andamento; "
-            "verifique se obter_historico ainda usa escrita=False",
+            "verifique se a consulta do histórico ainda usa escrita=False",
         )
 
     def test_duas_escritas_continuam_serializadas(self):

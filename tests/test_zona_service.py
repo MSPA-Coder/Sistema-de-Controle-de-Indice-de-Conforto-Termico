@@ -43,6 +43,7 @@ class TestZonaService(unittest.TestCase):
             obter_configuracoes=db.obter_configuracoes,
             obter_historico=db.obter_historico_por_zona,
             salvar_estado_equipamentos=_ignorar_estado_equipamentos,
+            obter_controle_zona=db.obter_controle_zona,
             ler_modbus_real=ler_mock,
             escrever_modbus_real=escrever_mock,
         )
@@ -183,6 +184,10 @@ class TestZonaService(unittest.TestCase):
 
     def test_atuadores_sao_acionados_conforme_status(self):
         zona = self._criar_zona_com_sensores()
+        db.salvar_configuracoes({"habilitarEquipamentos": True})
+        db.salvar_controle_zona(
+            zona["id"], {"modo": "manual", "acionamento_habilitado": True}
+        )
         self._equipamento_sensor(zona["id"], "TBS-A", "tbs")
         self._equipamento_sensor(zona["id"], "TBU-A", "tbu")
         db.criar_equipamento(zona["id"], {
@@ -216,6 +221,10 @@ class TestZonaService(unittest.TestCase):
 
     def test_falha_ao_acionar_atuador_nao_impede_o_calculo(self):
         zona = self._criar_zona_com_sensores()
+        db.salvar_configuracoes({"habilitarEquipamentos": True})
+        db.salvar_controle_zona(
+            zona["id"], {"modo": "manual", "acionamento_habilitado": True}
+        )
         self._equipamento_sensor(zona["id"], "TBS-A", "tbs")
         self._equipamento_sensor(zona["id"], "TBU-A", "tbu")
         db.criar_equipamento(zona["id"], {
@@ -262,12 +271,11 @@ class TestModoSimuladoZonaService(unittest.TestCase):
             obter_configuracoes=db.obter_configuracoes,
             obter_historico=db.obter_historico_por_zona,
             salvar_estado_equipamentos=_ignorar_estado_equipamentos,
+            obter_controle_zona=db.obter_controle_zona,
             ler_modbus_real=ler_real,
         )
         # mesmo com modoSimuladoZonas=True (padrao) persistido, sem
         # simulador injetado o servico nao tem como simular -- usa real.
-        self.assertFalse(servico._em_modo_simulado())
-
         zona = db.criar_zona({"nome": "Z", "especie": "frangos", "indice": "ITU"})
         db.criar_equipamento(zona["id"], {
             "tipo": "sensor", "nome": "TBS", "modo_conexao": "tcp", "host": "1",
@@ -310,10 +318,10 @@ class TestModoSimuladoZonaService(unittest.TestCase):
             obter_configuracoes=db.obter_configuracoes,
             obter_historico=db.obter_historico_por_zona,
             salvar_estado_equipamentos=_ignorar_estado_equipamentos,
+            obter_controle_zona=db.obter_controle_zona,
             ler_modbus_real=ler_real,
         )
         servico.definir_simulador(simulador)
-        self.assertTrue(servico._em_modo_simulado())
 
         zona = db.criar_zona({"nome": "Z", "especie": "frangos", "indice": "ITU"})
         db.criar_equipamento(zona["id"], {
@@ -355,10 +363,10 @@ class TestModoSimuladoZonaService(unittest.TestCase):
             obter_configuracoes=db.obter_configuracoes,
             obter_historico=db.obter_historico_por_zona,
             salvar_estado_equipamentos=_ignorar_estado_equipamentos,
+            obter_controle_zona=db.obter_controle_zona,
             ler_modbus_real=ler_real,
         )
         servico.definir_simulador(SimuladorFalso())
-        self.assertFalse(servico._em_modo_simulado())
 
         zona = db.criar_zona({"nome": "Z", "especie": "frangos", "indice": "ITU"})
         db.criar_equipamento(zona["id"], {
@@ -394,9 +402,31 @@ class TestPersistenciaEstadoEquipamentos(unittest.TestCase):
         def escrever_mock(equipamento, ligar):
             return True
 
-        def salvar_estado_mock(zona_id, ventilador_ligado, nebulizador_ligado, intensidade):
+        def salvar_estado_mock(
+            zona_id,
+            ventilador_ligado,
+            nebulizador_ligado,
+            intensidade,
+            ventilador_desejado,
+            nebulizador_desejado,
+            ventilador_confirmado,
+            nebulizador_confirmado,
+            falhas,
+            qualidade,
+        ):
             self.chamadas_estado.append(
-                (zona_id, ventilador_ligado, nebulizador_ligado, intensidade)
+                (
+                    zona_id,
+                    ventilador_ligado,
+                    nebulizador_ligado,
+                    intensidade,
+                    ventilador_desejado,
+                    nebulizador_desejado,
+                    ventilador_confirmado,
+                    nebulizador_confirmado,
+                    falhas,
+                    qualidade,
+                )
             )
 
         self.servico = ZonaService(
@@ -404,6 +434,7 @@ class TestPersistenciaEstadoEquipamentos(unittest.TestCase):
             salvar_leitura=db.salvar_leitura,
             obter_configuracoes=db.obter_configuracoes,
             obter_historico=db.obter_historico_por_zona,
+            obter_controle_zona=db.obter_controle_zona,
             ler_modbus_real=ler_mock,
             escrever_modbus_real=escrever_mock,
             salvar_estado_equipamentos=salvar_estado_mock,
@@ -451,7 +482,9 @@ class TestPersistenciaEstadoEquipamentos(unittest.TestCase):
         resultado = self.servico.calcular(zona["id"])
 
         self.assertEqual(1, len(self.chamadas_estado))
-        zona_id, ventilador_ligado, nebulizador_ligado, intensidade = self.chamadas_estado[0]
+        zona_id, ventilador_ligado, nebulizador_ligado, intensidade, *_ = (
+            self.chamadas_estado[0]
+        )
         self.assertEqual(zona["id"], zona_id)
         self.assertEqual(resultado["equipamento"]["ativo"], ventilador_ligado)
         self.assertEqual(resultado["equipamento"]["nebulizador"], nebulizador_ligado)
@@ -492,6 +525,7 @@ class TestPersistenciaEstadoEquipamentos(unittest.TestCase):
             salvar_leitura=db.salvar_leitura,
             obter_configuracoes=db.obter_configuracoes,
             obter_historico=db.obter_historico_por_zona,
+            obter_controle_zona=db.obter_controle_zona,
             ler_modbus_real=lambda equipamento: {"TBS-A": 25.0, "TBU-A": 20.0}.get(
                 equipamento["nome"]
             ),
@@ -511,6 +545,7 @@ class TestPersistenciaEstadoEquipamentos(unittest.TestCase):
             obter_configuracoes=db.obter_configuracoes,
             obter_historico=db.obter_historico_por_zona,
             salvar_estado_equipamentos=_ignorar_estado_equipamentos,
+            obter_controle_zona=db.obter_controle_zona,
         )
         servico.resfriador_da_zona(zona["id"]).registrar_leitura("Perigo")
         self.assertTrue(servico.resfriador_da_zona(zona["id"]).estado()["ativo"])

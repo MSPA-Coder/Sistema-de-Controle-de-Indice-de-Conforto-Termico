@@ -73,8 +73,8 @@ class ZonaService:
         salvar_leitura: Callable,
         obter_configuracoes: Callable,
         obter_historico: Callable,
-        salvar_estado_equipamentos: Callable[[int, bool, bool, str], None],
-        obter_controle_zona: Callable[[int], dict | None] | None = None,
+        salvar_estado_equipamentos: Callable[..., None],
+        obter_controle_zona: Callable[[int], dict | None],
         ler_modbus_real: Callable = modbus_client.ler_valor,
         escrever_modbus_real: Callable = modbus_client.escrever_valor,
         ler_estado_atuador_real: Callable | None = None,
@@ -206,25 +206,16 @@ class ZonaService:
 
     def _ler_estado_atuador(self, equipamento: dict) -> bool | None:
         if self._em_modo_simulado() and self._simulador:
-            leitor = getattr(self._simulador, "ler_estado_atuador", None)
-            return leitor(equipamento) if leitor else None
+            return self._simulador.ler_estado_atuador(equipamento)
         if not self._ler_estado_atuador_real:
             return None
         return self._ler_estado_atuador_real(equipamento)
 
     def _controle_da_zona(self, zona_id: int) -> dict:
-        if not self._obter_controle_zona:
-            return {"modo": "manual", "acionamento_habilitado": True}
         controle = self._obter_controle_zona(zona_id)
         return controle or {"modo": "desligado", "acionamento_habilitado": False}
 
     def _permissao_acionamento(self, zona_id: int) -> tuple[bool, str | None]:
-        # Integracoes antigas instanciavam o servico sem a camada de
-        # controle operacional. Mantemos esse contrato nos testes e em
-        # consumidores legados; a composicao de producao sempre injeta
-        # ``obter_controle_zona`` e, portanto, aplica as duas travas.
-        if not self._obter_controle_zona:
-            return True, None
         controle = self._controle_da_zona(zona_id)
         modo = controle.get("modo")
         if modo in ("desligado", "manutencao"):
@@ -388,13 +379,7 @@ class ZonaService:
                 sensores_com_falha + atuadores_com_falha,
                 qualidade,
             )
-            try:
-                self._salvar_estado_equipamentos(*argumentos_estado)
-            except TypeError:
-                # Compatibilidade com integracoes antigas que implementam o
-                # callback de persistencia com apenas os quatro argumentos
-                # originais.
-                self._salvar_estado_equipamentos(*argumentos_estado[:4])
+            self._salvar_estado_equipamentos(*argumentos_estado)
         except Exception:
             if logger:
                 logger.exception(
@@ -517,7 +502,7 @@ class ZonaService:
             raise ZonaCalculoError(f"A zona '{zona['nome']}' esta desativada.")
 
         controle = self._controle_da_zona(zona_id)
-        if self._obter_controle_zona and controle.get("modo") != "manual":
+        if controle.get("modo") != "manual":
             raise ZonaCalculoError("Comandos diretos so sao aceitos no modo manual.")
 
         permitido, bloqueio = self._permissao_acionamento(zona_id)

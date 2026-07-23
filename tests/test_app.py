@@ -33,7 +33,6 @@ class TestConfiguracoesApi(unittest.TestCase):
             "habilitarEquipamentos": True,
             "emailDestino": "teste@fazenda.com.br",
             "statusMinimoEmail": "perigo",
-            "modoAutomatico": True,
             "intervaloLeituraSegundos": 4,
             "intervaloGravacaoMinutos": 2,
             "modoPontoOrvalho": "calculado",
@@ -187,17 +186,23 @@ class TestManutencaoApi(unittest.TestCase):
         db.DB_PATH = self.db_path_original
         self.tempdir.cleanup()
 
-    def test_reset_rejeita_especie_desconhecida(self):
-        resposta = self.client.post("/api/reset", json={"especie": "marciano"})
-        self.assertEqual(400, resposta.status_code)
-
-    def test_reset_aceita_ausencia_de_especie_e_indice(self):
+    def test_reset_limpa_o_historico(self):
         resposta = self.client.post("/api/reset", json={})
         self.assertEqual(200, resposta.status_code)
         self.assertTrue(resposta.json["ok"])
 
     def test_backup_banco_cria_arquivo_no_mesmo_diretorio(self):
-        db.salvar_leitura("frangos", "ITU", 70.0, "Conforto", {"tbs": 25, "tbu": 20})
+        zona = db.criar_zona(
+            {"nome": "Zona backup", "especie": "frangos", "indice": "ITU"}
+        )
+        db.salvar_leitura(
+            "frangos",
+            "ITU",
+            70.0,
+            "Conforto",
+            {"tbs": 25, "tbu": 20},
+            zona_id=zona["id"],
+        )
 
         resposta = self.client.post("/api/backup-banco")
 
@@ -545,124 +550,6 @@ class TestZonasApi(unittest.TestCase):
         self.assertIn("Dados usados no cálculo:", conteudo)
         self.assertIn("Temperatura de Bulbo Seco / Ambiente (tbs): 25.0", conteudo)
         self.assertIn("Temperatura de Bulbo Úmido (tbu): 20.0", conteudo)
-
-    def test_email_das_zonas_respeita_status_minimo_configurado(self):
-        self.client.post(
-            "/api/configuracoes",
-            json={
-                "enviarEmails": True,
-                "emailDestino": "produtor@fazenda.com.br",
-                "statusMinimoEmail": "perigo",
-            },
-        )
-        zona_conforto = self._criar_zona(nome="Zona Conforto").json["id"]
-        zona_emergencia = self._criar_zona(nome="Zona Emergencia").json["id"]
-
-        for zona_id in (zona_conforto, zona_emergencia):
-            self.client.put(
-                f"/api/zonas/{zona_id}/controle", json={"modo": "automatico"}
-            )
-            for campo in ("tbs", "tbu"):
-                self.client.post(
-                    f"/api/zonas/{zona_id}/equipamentos",
-                    json={
-                        "tipo": "sensor",
-                        "nome": f"Sensor {campo.upper()} {zona_id}",
-                        "modo_conexao": "tcp",
-                        "host": "127.0.0.1",
-                        "porta": 502,
-                        "tipo_registrador": "input",
-                        "endereco_registrador": 1,
-                        "campo_medido": campo,
-                    },
-                )
-
-        def ler_modbus(equipamento):
-            if equipamento["zona_id"] == zona_conforto:
-                return 25.0 if equipamento["campo_medido"] == "tbs" else 20.0
-            return 35.0 if equipamento["campo_medido"] == "tbs" else 30.0
-
-        with patch.object(coletor_estado.zona_service, "_ler_modbus", side_effect=ler_modbus):
-            resposta = self.client.post("/api/zonas/calcular-ativas")
-
-        self.assertEqual(200, resposta.status_code)
-        por_zona = {item["zona_id"]: item for item in resposta.json["resultados"]}
-        self.assertEqual("Conforto", por_zona[zona_conforto]["status"])
-        self.assertNotIn("email", por_zona[zona_conforto])
-
-        self.assertEqual("Emergência", por_zona[zona_emergencia]["status"])
-        self.assertNotIn("email", por_zona[zona_emergencia])
-
-        self.assertIn("email", resposta.json)
-        self.assertEqual([zona_emergencia], resposta.json["email"]["zonas"])
-        conteudo = resposta.json["email"]["conteudo"]
-        self.assertIn("Zona: Zona Emergencia", conteudo)
-        self.assertNotIn("Zona: Zona Conforto", conteudo)
-
-    def test_calcular_zonas_ativas_usa_sensores_de_todas_as_ativas(self):
-        zona_a = self._criar_zona(nome="Zona A").json["id"]
-        zona_b = self._criar_zona(nome="Zona B").json["id"]
-        zona_inativa = self._criar_zona(nome="Zona Inativa", ativa=False).json["id"]
-        for zona_id in (zona_a, zona_b, zona_inativa):
-            self.client.put(
-                f"/api/zonas/{zona_id}/controle", json={"modo": "automatico"}
-            )
-            for campo in ("tbs", "tbu"):
-                self.client.post(
-                    f"/api/zonas/{zona_id}/equipamentos",
-                    json={
-                        "tipo": "sensor",
-                        "nome": f"Sensor {campo.upper()} {zona_id}",
-                        "modo_conexao": "tcp",
-                        "host": "127.0.0.1",
-                        "porta": 502,
-                        "tipo_registrador": "input",
-                        "endereco_registrador": 1,
-                        "campo_medido": campo,
-                    },
-                )
-
-        def ler_modbus(equipamento):
-            return 25.0 if equipamento["campo_medido"] == "tbs" else 20.0
-
-        with patch.object(coletor_estado.zona_service, "_ler_modbus", side_effect=ler_modbus):
-            resposta = self.client.post("/api/zonas/calcular-ativas")
-
-        self.assertEqual(200, resposta.status_code)
-        ids = {item["zona_id"] for item in resposta.json["resultados"]}
-        self.assertEqual({zona_a, zona_b}, ids)
-        self.assertNotIn(zona_inativa, ids)
-
-    def test_calcular_zonas_ativas_nao_derruba_rota_com_entrada_invalida(self):
-        zona_id = self._criar_zona(nome="Zona ITUV", indice="ITUV").json["id"]
-        self.client.put(
-            f"/api/zonas/{zona_id}/controle", json={"modo": "automatico"}
-        )
-        for campo in ("tbs", "tbu", "v"):
-            self.client.post(
-                f"/api/zonas/{zona_id}/equipamentos",
-                json={
-                    "tipo": "sensor",
-                    "nome": f"Sensor {campo.upper()}",
-                    "modo_conexao": "tcp",
-                    "host": "127.0.0.1",
-                    "porta": 502,
-                    "tipo_registrador": "input",
-                    "endereco_registrador": 1,
-                    "campo_medido": campo,
-                },
-            )
-
-        def ler_modbus(equipamento):
-            valores = {"tbs": 25.0, "tbu": 20.0, "v": -0.27}
-            return valores[equipamento["campo_medido"]]
-
-        with patch.object(coletor_estado.zona_service, "_ler_modbus", side_effect=ler_modbus):
-            resposta = self.client.post("/api/zonas/calcular-ativas")
-
-        self.assertEqual(200, resposta.status_code)
-        self.assertEqual(zona_id, resposta.json["resultados"][0]["zona_id"])
-        self.assertIn("fora da faixa esperada", resposta.json["resultados"][0]["erro"])
 
     def test_historico_de_zona_inexistente_devolve_404(self):
         resposta = self.client.get("/api/zonas/9999/historico")

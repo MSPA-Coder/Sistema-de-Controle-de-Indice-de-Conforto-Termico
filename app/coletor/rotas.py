@@ -11,15 +11,13 @@ configuracao do sistema e manutencao do historico. Registradas via
 
 from __future__ import annotations
 
-import datetime
-
 from flask import Blueprint, current_app, jsonify, request
 
 from .. import database as db
 from .. import modbus_client
 from .. import thermal_indices as ti
 from ..app_factory import MENSAGEM_ERRO_INTERNO
-from ..models import Email, formatar_linhas_entradas
+from ..models import Email
 from ..zona_service import ZonaCalculoError
 from .estado import (
     gerenciador_controle,
@@ -45,9 +43,9 @@ def _configuracoes_publicas(config: dict) -> dict:
     vazio para o cliente HTTP, acompanhado de uma flag booleana
     (`smtpSenhaConfigurada`) indicando se ja existe uma senha salva --
     suficiente para a interface mostrar "senha configurada" sem nunca
-    reexibir o valor real. `database.obter_configuracoes()` (usado
-    continua disponível para os serviços executados no servidor; a máscara
-    se aplica somente no limite HTTP."""
+    reexibir o valor real. `database.obter_configuracoes()` continua
+    disponível para os serviços executados no servidor; a máscara se
+    aplica somente no limite HTTP."""
     publico = dict(config)
     publico["smtpSenhaConfigurada"] = bool(publico.get("smtpSenha"))
     publico["smtpSenha"] = ""
@@ -105,67 +103,6 @@ def _aplicar_notificacoes_zona(resposta: dict, config: dict) -> dict:
     return resposta
 
 
-def _formatar_entradas_email(entradas: dict | None) -> str:
-    return "\n".join(formatar_linhas_entradas(entradas))
-
-
-def _montar_conteudo_email_zonas(resultados: list[dict], status_minimo: str) -> str:
-    agora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-    linhas = [
-        "Alerta de zonas",
-        f"Data: {agora}",
-        f"Enviar a partir do status: {status_minimo}",
-        "",
-    ]
-    for resultado in resultados:
-        linhas.extend(
-            [
-                f"Zona: {resultado.get('zona_nome')} (ID {resultado.get('zona_id')})",
-                f"Status: {resultado.get('status')}",
-                f"Valor do {resultado.get('indice')}: {resultado.get('valor')}",
-                _formatar_entradas_email(resultado.get("entradas")),
-                f"Mensagem: {resultado.get('mensagem')}",
-                "-" * 40,
-            ]
-        )
-    linhas.extend(
-        [
-            "*" * 75,
-            "Você está recebendo esse e-mail por estar cadastrado na lista de "
-            "usuários do Sistema de Controle dos Índices de Conforto Térmico. "
-            "Em caso de dúvida contate o administrador do sistema.",
-            "Obrigado.",
-        ]
-    )
-    return "\n".join(linha for linha in linhas if linha is not None)
-
-
-def _montar_email_zonas_ativas(resultados: list[dict], config: dict) -> dict | None:
-    qualificadas = [
-        resultado
-        for resultado in resultados
-        if not resultado.get("erro") and _deve_enviar_email_zona(resultado, config)
-    ]
-    if not qualificadas:
-        return None
-
-    try:
-        status_minimo = config.get("statusMinimoEmail", "conforto")
-        conteudo = _montar_conteudo_email_zonas(qualificadas, status_minimo)
-        destino = (config.get("emailDestino") or "produtor@fazenda.com.br").strip()
-        email = Email(destino, conteudo)
-        enviado_de_verdade = email.enviar(_smtp_config_atual(config))
-        return {
-            "destino": destino,
-            "conteudo": conteudo,
-            "enviado_de_verdade": enviado_de_verdade,
-            "zonas": [resultado.get("zona_id") for resultado in qualificadas],
-        }
-    except Exception:
-        current_app.logger.exception("Falha ao montar/enviar e-mail consolidado das zonas")
-        return None
-
-
 @coletor_bp.route("/api/configuracoes", methods=["GET"])
 def obter_configuracoes():
     return jsonify(_configuracoes_publicas(db.obter_configuracoes()))
@@ -180,17 +117,9 @@ def salvar_configuracoes():
 
 @coletor_bp.route("/api/reset", methods=["POST"])
 def reset():
-    dados = request.get_json(force=True, silent=True) or {}
-    especie = dados.get("especie")
-    indice = dados.get("indice")
-    if especie is not None and especie not in ti.ESPECIES_VALIDAS:
-        return jsonify({"erro": f"Espécie inválida: '{especie}'."}), 400
-    if indice is not None and indice not in ti.NOME_INDICE:
-        return jsonify({"erro": f"Índice inválido: '{indice}'."}), 400
-    db.limpar_historico(especie, indice)
-    if especie is None and indice is None:
-        zona_service.limpar_historico_grafico()
-        zona_service.limpar_resfriador()
+    db.limpar_historico()
+    zona_service.limpar_historico_grafico()
+    zona_service.limpar_resfriador()
     return jsonify({"ok": True})
 
 
@@ -309,23 +238,6 @@ def calcular_zona(zona_id):
         ZonaOcupadaError,
     ) as erro:
         return jsonify({"erro": str(erro)}), 400
-
-
-@coletor_bp.route("/api/zonas/calcular-ativas", methods=["POST"])
-def calcular_zonas_ativas():
-    config = db.obter_configuracoes()
-    resultados = gerenciador_controle.executar_ciclo_automatico(
-        logger=current_app.logger
-    )
-    resultados = [
-        _aplicar_som_zona(resposta, config) if not resposta.get("erro") else resposta
-        for resposta in resultados
-    ]
-    payload = {"resultados": resultados}
-    email_info = _montar_email_zonas_ativas(resultados, config)
-    if email_info:
-        payload["email"] = email_info
-    return jsonify(payload)
 
 
 @coletor_bp.route("/api/zonas/<int:zona_id>/controle", methods=["PUT"])

@@ -216,12 +216,6 @@ AREA_POR_ENDPOINT: dict[str, str | tuple[str, ...]] = {
     "coletor.testar_conexao_equipamento": "cadastro",
     # --- coletor_bp: Operacao -----------------------------------------
     "coletor.calcular_zona": "operacao",
-    # Disparo manual do MESMO ciclo que a thread de fundo do modo
-    # automatico ja executa sozinha (`coletor/controle.py:iniciar`, uma
-    # `threading.Thread` interna ao processo -- nunca chama esta rota via
-    # HTTP). Exposta aqui so para testes/gatilho manual; gate-la por
-    # "operacao" NAO afeta o modo automatico de producao.
-    "coletor.calcular_zonas_ativas": "operacao",
     "coletor.alterar_controle_zona": "operacao",
     "coletor.comandar_atuador_zona": "operacao",
     # --- usuarios_bp (pagina de administracao, fora da SPA) -----------

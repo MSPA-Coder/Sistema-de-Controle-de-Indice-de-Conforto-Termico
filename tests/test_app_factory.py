@@ -81,7 +81,6 @@ class TestCriarAppPorPapel(unittest.TestCase):
 
         # nada que fale Modbus, calcule ou grave
         self.assertNotIn("/api/zonas/<int:zona_id>/calcular", rotas_post)
-        self.assertNotIn("/api/zonas/calcular-ativas", rotas_post)
         self.assertNotIn("/api/configuracoes", rotas_post)
         self.assertNotIn("/api/backup-banco", rotas_post)
         self.assertNotIn("/api/zonas", rotas_post)  # criar zona e do coletor
