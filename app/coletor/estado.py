@@ -43,3 +43,22 @@ zona_simulador = SimuladorModbusZonas(
 )
 zona_service.definir_simulador(zona_simulador)
 gerenciador_controle = GerenciadorControleZonas(zona_service)
+
+
+def testar_conexao_equipamento(equipamento: dict) -> dict:
+    """Confere se um equipamento responde no barramento Modbus (ou no
+    simulador, conforme `modoSimuladoZonas`). Chamada exclusivamente pela
+    API HTTP interna do coletor; o ICT nunca importa este módulo."""
+    modo_simulado = bool(db.obter_configuracoes().get("modoSimuladoZonas", True))
+    if modo_simulado:
+        return {"conectado": zona_simulador.testar_conexao(equipamento), "modo_simulado": True}
+
+    conectado = modbus_client.testar_conexao(equipamento)
+    resposta = {"conectado": conectado, "modo_simulado": False}
+    if not modbus_client.PYMODBUS_DISPONIVEL:
+        resposta["aviso"] = (
+            "A biblioteca pymodbus não está instalada neste servidor "
+            "(pip install pymodbus). Sem ela, nenhuma zona consegue ler ou "
+            "acionar equipamentos de verdade."
+        )
+    return resposta

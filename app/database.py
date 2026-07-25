@@ -2,8 +2,9 @@
 """
 database.py
 ============
-Persistencia SQLite do historico de leituras, configuracoes, zonas Modbus e
-equipamentos.
+Persistencia do historico de leituras, configuracoes, zonas Modbus e
+equipamentos. PostgreSQL e usado quando ``DATABASE_URL`` esta definida;
+SQLite permanece como backend local e de testes.
 
 Todas as operacoes passam por `_conexao()`, que serializa o acesso no processo,
 ativa WAL, aplica timeout de lock, garante commit/rollback e fecha a conexao.
@@ -19,11 +20,13 @@ import json
 import os
 import re
 import sqlite3
+import subprocess
 import threading
 from contextlib import contextmanager, nullcontext
 from typing import Iterator
 
 from . import thermal_indices as ti
+from . import db_backend
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INSTANCE_DIR = os.path.join(PROJECT_ROOT, "instance")
@@ -104,7 +107,7 @@ _EMAIL_REGEX = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 
 @contextmanager
-def _conexao(*, escrita: bool = True) -> Iterator[sqlite3.Connection]:
+def _conexao(*, escrita: bool = True) -> Iterator:
     """Abre uma conexao SQLite, garante commit em caso de sucesso (ou
     rollback em caso de excecao) e SEMPRE fecha a conexao ao final.
 
@@ -121,6 +124,18 @@ def _conexao(*, escrita: bool = True) -> Iterator[sqlite3.Connection]:
     `listar_*`, `contar_*`): elas dispensam o lock, permitindo que varias
     leituras concorrentes (ex.: o dashboard consultando o historico enquanto
     o modo automatico grava uma leitura) rodem em paralelo de verdade."""
+    if db_backend.postgres_ativo():
+        conn = db_backend.abrir_conexao_postgres("historico")
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+        return
+
     lock = _write_lock if escrita else _SEM_LOCK
     with lock:
         diretorio_banco = os.path.dirname(DB_PATH)
@@ -146,17 +161,33 @@ _TABELAS_CONHECIDAS = frozenset(
 )
 
 
-def _coluna_existe(conn: sqlite3.Connection, tabela: str, coluna: str) -> bool:
+def _coluna_existe(conn, tabela: str, coluna: str) -> bool:
     # `tabela` nunca vem de entrada externa hoje, mas o allowlist evita que
     # um uso futuro descuidado (ex.: nome de tabela vindo de uma variavel
     # nao confiavel) abra uma brecha de injecao de SQL via f-string.
     if tabela not in _TABELAS_CONHECIDAS:
         raise ValueError(f"Tabela desconhecida: {tabela!r}")
+    if db_backend.postgres_ativo():
+        linha = conn.execute(
+            """
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'historico' AND table_name = ? AND column_name = ?
+            """,
+            (tabela, coluna),
+        ).fetchone()
+        return linha is not None
     linhas = conn.execute(f"PRAGMA table_info({tabela})").fetchall()
     return any(linha["name"] == coluna for linha in linhas)
 
 
 def iniciar_banco() -> None:
+    if db_backend.postgres_ativo():
+        # O esquema PostgreSQL é versionado pelo Alembic e aplicado pelo
+        # entrypoint do contêiner antes de iniciar o Flask.
+        with _conexao() as conn:
+            conn.execute("DELETE FROM configuracoes WHERE chave = 'modoAutomatico'")
+        return
+
     with _conexao() as conn:
         conn.execute(
             """
@@ -641,10 +672,10 @@ def obter_historico_leituras(
                 parametros.extend(valores_encontrados)
 
         where = ("WHERE " + " AND ".join(filtros)) if filtros else ""
-        (total,) = conn.execute(
+        total = conn.execute(
             f"SELECT COUNT(*) FROM leituras l {where}",
             parametros,
-        ).fetchone()
+        ).fetchone()[0]
 
         linhas_extremos_indices = conn.execute(
             f"""
@@ -655,22 +686,40 @@ def obter_historico_leituras(
             """,
             parametros,
         ).fetchall()
-        where_entradas = (
-            where + " AND j.type IN ('integer', 'real')"
-            if where
-            else "WHERE j.type IN ('integer', 'real')"
-        )
+        if db_backend.postgres_ativo():
+            where_entradas = (
+                where + " AND jsonb_typeof((l.entradas::jsonb) -> j.key) = 'number'"
+                if where
+                else "WHERE jsonb_typeof((l.entradas::jsonb) -> j.key) = 'number'"
+            )
+            sql_extremos_entradas = f"""
+                SELECT
+                    j.key AS campo,
+                    MIN(CAST(j.value AS DOUBLE PRECISION)) AS minimo,
+                    MAX(CAST(j.value AS DOUBLE PRECISION)) AS maximo
+                FROM leituras l
+                CROSS JOIN LATERAL jsonb_each_text(l.entradas::jsonb) AS j(key, value)
+                {where_entradas}
+                GROUP BY j.key
+            """
+        else:
+            where_entradas = (
+                where + " AND j.type IN ('integer', 'real')"
+                if where
+                else "WHERE j.type IN ('integer', 'real')"
+            )
+            sql_extremos_entradas = f"""
+                SELECT
+                    j.key AS campo,
+                    MIN(CAST(j.value AS REAL)) AS minimo,
+                    MAX(CAST(j.value AS REAL)) AS maximo
+                FROM leituras l
+                JOIN json_each(l.entradas) AS j
+                {where_entradas}
+                GROUP BY j.key
+            """
         linhas_extremos_entradas = conn.execute(
-            f"""
-            SELECT
-                j.key AS campo,
-                MIN(CAST(j.value AS REAL)) AS minimo,
-                MAX(CAST(j.value AS REAL)) AS maximo
-            FROM leituras l
-            JOIN json_each(l.entradas) AS j
-            {where_entradas}
-            GROUP BY j.key
-            """,
+            sql_extremos_entradas,
             parametros,
         ).fetchall()
         minimos_indices = {
@@ -764,10 +813,7 @@ def janelas_15min_pendentes(zona_id: int, indice: str) -> list[str]:
     with _conexao(escrita=False) as conn:
         linhas = conn.execute(
             """
-            SELECT DISTINCT
-                (strftime('%Y-%m-%dT%H:', criado_em) ||
-                 printf('%02d', (CAST(strftime('%M', criado_em) AS INTEGER) / 15) * 15) ||
-                 ':00') AS janela
+            SELECT criado_em
             FROM leituras
             WHERE zona_id = ? AND indice = ?
             """,
@@ -778,10 +824,14 @@ def janelas_15min_pendentes(zona_id: int, indice: str) -> list[str]:
             (zona_id, indice),
         ).fetchall()
     feitas = {linha["janela_inicio"] for linha in ja_feitas}
-    pendentes = sorted(
-        linha["janela"]
+    janelas = {
+        _formatar_janela(datetime.datetime.fromisoformat(linha["criado_em"]), 15)
         for linha in linhas
-        if linha["janela"] not in feitas and linha["janela"] < janela_atual_aberta
+    }
+    pendentes = sorted(
+        janela
+        for janela in janelas
+        if janela not in feitas and janela < janela_atual_aberta
     )
     return pendentes
 
@@ -862,7 +912,7 @@ def horas_pendentes(zona_id: int, indice: str) -> list[str]:
     with _conexao(escrita=False) as conn:
         linhas = conn.execute(
             """
-            SELECT DISTINCT (strftime('%Y-%m-%dT%H:00:00', janela_inicio)) AS hora
+            SELECT janela_inicio
             FROM agregados_15min
             WHERE zona_id = ? AND indice = ?
             """,
@@ -873,10 +923,16 @@ def horas_pendentes(zona_id: int, indice: str) -> list[str]:
             (zona_id, indice),
         ).fetchall()
     feitas = {linha["hora_inicio"] for linha in ja_feitas}
-    return sorted(
-        linha["hora"]
+    horas = {
+        datetime.datetime.fromisoformat(linha["janela_inicio"])
+        .replace(minute=0, second=0, microsecond=0)
+        .isoformat(timespec="seconds")
         for linha in linhas
-        if linha["hora"] not in feitas and linha["hora"] < hora_atual_aberta
+    }
+    return sorted(
+        hora
+        for hora in horas
+        if hora not in feitas and hora < hora_atual_aberta
     )
 
 
@@ -996,10 +1052,35 @@ def obter_resumos_horarios(
 
 
 def criar_backup_banco() -> dict:
-    """Cria um backup consistente do SQLite no mesmo diretorio do banco."""
+    """Cria um backup consistente no diretório de instância."""
     diretorio = os.path.dirname(DB_PATH)
     nome_base = os.path.splitext(os.path.basename(DB_PATH))[0] or "historico"
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+
+    if db_backend.postgres_ativo():
+        os.makedirs(diretorio, exist_ok=True)
+        caminho_backup = os.path.join(
+            diretorio, f"{nome_base}_backup_{timestamp}.dump"
+        )
+        url = db_backend.database_url().replace(
+            "postgresql+psycopg://", "postgresql://", 1
+        )
+        subprocess.run(
+            [
+                "pg_dump",
+                "--format=custom",
+                "--schema=historico",
+                f"--file={caminho_backup}",
+                url,
+            ],
+            check=True,
+        )
+        return {
+            "arquivo": os.path.basename(caminho_backup),
+            "caminho": caminho_backup,
+            "tamanho_bytes": os.path.getsize(caminho_backup),
+        }
+
     caminho_backup = os.path.join(diretorio, f"{nome_base}_backup_{timestamp}.db")
 
     # Usa o mesmo lock de escrita (nao `_conexao()`) porque `Connection.backup`
@@ -1251,7 +1332,7 @@ def listar_eventos_operacao(zona_id: int | None = None, limite: int = 30) -> lis
 def contar_leituras() -> int:
     """Utilitario de diagnostico: total de linhas gravadas na tabela."""
     with _conexao(escrita=False) as conn:
-        (total,) = conn.execute("SELECT COUNT(*) FROM leituras").fetchone()
+        total = conn.execute("SELECT COUNT(*) FROM leituras").fetchone()[0]
     return total
 
 

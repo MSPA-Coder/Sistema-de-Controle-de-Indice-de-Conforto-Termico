@@ -1,4 +1,16 @@
 Flask>=3.0,<4.0
+SQLAlchemy>=2.0,<3.0
+psycopg[binary]>=3.2,<4.0
+alembic>=1.14,<2.0
+# Servidor WSGI de producao. O servidor embutido do Flask (Werkzeug) e
+# voltado a desenvolvimento -- nao pensado para rodar dias/semanas sem
+# supervisao, como um servico do Windows precisa. waitress e puro Python
+# (sem compilacao) e funciona nativamente no Windows, ao contrario de
+# alternativas comuns como gunicorn. So entra em uso quando CONFORTO_DEBUG
+# esta desligado (ver app_factory.executar_servidor) -- em desenvolvimento
+# local com depuracao ligada, o servidor do Flask continua sendo usado, com
+# o debugger interativo disponivel.
+waitress>=3.0,<4.0
 # Base IANA de fusos horarios. Necessaria no Windows para ZoneInfo tratar
 # corretamente UTC, horario local e transicoes de horario de verao.
 tzdata>=2025.2

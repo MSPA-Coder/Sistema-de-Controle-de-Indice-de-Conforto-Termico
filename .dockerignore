@@ -1,0 +1,17 @@
+.git
+.idea
+.venv
+.vscode
+__pycache__
+*.py[cod]
+*.db
+*.db-*
+.env
+.env.*
+instance/*
+!instance/.gitkeep
+htmlcov
+.coverage
+.pytest_cache
+.mypy_cache
+.ruff_cache

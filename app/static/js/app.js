@@ -571,7 +571,7 @@ async function calcular(opcoes = {}) {
     mostrarErro(
       erro && erro.message && erro.message.includes("Flask")
         ? erro.message
-        : "Falha de comunicação com o servidor. Verifique se o Flask está em execução (python app.py) e se a página foi aberta em http://127.0.0.1:5000."
+        : "Falha de comunicação com o ICT. Verifique os contêineres com docker compose ps."
     );
     return;
   }
@@ -4029,7 +4029,7 @@ function renderizarExecucoesDadosEntrada(payload) {
       link.href = `/api/dados-entrada/exportar.csv?execucao_id=${execucao.id}`;
       link.textContent = "CSV";
       acoes.appendChild(link);
-      if (CONFIG_APP.papelApp !== "dashboard" && Number(execucao.medicoes_copiadas || 0) < Number(execucao.total_medicoes || 0)) {
+      if (Number(execucao.medicoes_copiadas || 0) < Number(execucao.total_medicoes || 0)) {
         const copiar = document.createElement("button");
         copiar.type = "button";
         copiar.className = "botao botao--primario botao--compacto";
@@ -4089,10 +4089,6 @@ async function carregarDadosEntrada() {
     ].join("-");
     dataFinal.max = iso;
     if (!dataFinal.value || dataFinal.value > iso) dataFinal.value = iso;
-  }
-  if (CONFIG_APP.papelApp === "dashboard") {
-    await carregarExecucoesDadosEntrada();
-    return;
   }
   await Promise.all([carregarConfiguracoesDadosEntrada(), carregarExecucoesDadosEntrada()]);
 }
@@ -4180,12 +4176,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   moverControlesParaConfiguracoes();
   inicializarAbas();
 
-  // Em `papel_app="dashboard"`, a aba inicial e "analises" (nao existe
-  // botao "Dashboard" nesse app para o clique de sempre disparar
-  // `carregarAnalises()` via `ativarAba` -- ver `rotas_comuns.index`).
-  if (window.CONFIG_APP && window.CONFIG_APP.abaInicial === "analises") {
-    carregarAnalises();
-  }
   inicializarHistorico();
   await carregarConfiguracoesPersistidas();
   atualizarEquipamento(null, null);

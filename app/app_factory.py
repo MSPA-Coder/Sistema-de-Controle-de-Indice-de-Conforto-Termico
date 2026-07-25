@@ -1,38 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-app_factory.py
-===============
-Monta o app Flask a partir das pecas compartilhadas (blueprints +
-configuracao), parametrizado por `papel_app`:
+Composição dos dois processos da aplicação.
 
-- `papel_app=None`         -> coletor e dashboard no mesmo processo
-- `papel_app="coletor"`    -> so as rotas que falam Modbus, calculam o
-  indice e gravam no banco (ver `coletor/rotas.py`)
-- `papel_app="dashboard"`  -> so as rotas de leitura/analise, sem Modbus
-  (ver `dashboard/rotas.py`)
+O ICT é a única interface HTTP pública: serve todas as abas, autentica
+pessoas, aplica permissões e persiste configurações de domínio. O coletor
+é um serviço privado e contínuo: executa a malha de controle e expõe
+somente uma API interna autenticada para ações que precisam do Modbus.
 
-`rotas_comuns.py` (pagina inicial, lista de zonas, historico de leituras,
-diagnostico) e registrado nos tres casos -- sao rotas somente leitura,
-uteis nos dois papeis, e por isso vivem num Blueprint proprio em vez de
-duplicadas: registrar a MESMA rota duas vezes no mesmo app (papel_app=None,
-quando os dois blueprints coexistem) quebraria o Flask.
-
-Os modulos `coletor.rotas` e `dashboard.rotas` so sao IMPORTADOS quando o
-papel correspondente e realmente usado -- import, nao so registro. Isso
-importa: `coletor.estado` importa `modbus_client`/`ZonaService`/etc.; um
-processo criado com `papel_app="dashboard"` nunca deve puxar esse modulo
-para dentro do seu espaco de processo. Um app de dashboard genuinamente
-NAO CONSEGUE falar Modbus, nem por engano -- nao so "a rota nao existe".
-
-NOTA DE SEGURANCA: o modo debug do Flask/Werkzeug expoe um console
-interativo capaz de executar codigo arbitrario a quem conseguir alcancar a
-pagina de erro. Isso e aceitavel apenas em desenvolvimento local, na
-maquina do proprio desenvolvedor. Por isso `AppConfig.from_env()` abaixo
-comeca DESLIGADO por padrao (`CONFORTO_DEBUG=0`) e so liga se o
-desenvolvedor pedir explicitamente. O host tambem e mantido em
-`127.0.0.1` por padrao (nao ouve a rede local nem a internet), tambem
-configuravel via variavel de ambiente para quem realmente precisa expor o
-servico propositalmente.
+As fábricas são deliberadamente distintas. Criar o ICT nunca importa
+``coletor.estado``, ``modbus_client`` ou ``ZonaService``; toda travessia
+para o hardware ocorre pela API interna do coletor.
 """
 
 from __future__ import annotations
@@ -50,27 +27,18 @@ from werkzeug.exceptions import HTTPException
 
 from . import auth
 from . import database as db
+from . import env_config
 
-# Mensagem generica devolvida ao cliente para qualquer excecao nao tratada.
-# O detalhe real (stack trace, tipo da excecao, mensagem interna) so vai
-# para o log do servidor via `app.logger.exception` -- nunca para a
-# resposta HTTP. Vazar `str(erro)` para o cliente e um vazamento de
-# informacao classico (pode incluir caminhos de arquivo, nomes de tabelas,
-# trechos de query, etc.) e nao ajuda um usuario final a fazer nada.
+# Útil para execução local. No Docker, as variáveis injetadas pelo Compose
+# têm precedência e pertencem à implantação, não à interface ICT.
+env_config.carregar()
+
 MENSAGEM_ERRO_INTERNO = "Erro interno inesperado. Consulte o log do servidor para detalhes."
-
-# Os tres papeis validos de app (ver docstring do modulo). `None` so existe
-# para a composicao que executa coletor e dashboard no mesmo processo.
-PAPEIS_APP = (None, "coletor", "dashboard")
+PROCESSOS_APP = ("ict", "coletor")
 CONFIG_SERVIDOR_PATH = Path(__file__).resolve().parents[1] / "config" / "servidor.json"
 
 
-def _ler_config_servidor(papel_app: str | None) -> dict:
-    """Le configuracoes locais versionadas para cada papel do servidor.
-
-    Variaveis de ambiente continuam tendo precedencia. Se o arquivo estiver
-    ausente ou malformado, os padroes seguros em codigo continuam valendo.
-    """
+def _ler_config_servidor(processo: str) -> dict:
     try:
         with CONFIG_SERVIDOR_PATH.open("r", encoding="utf-8") as arquivo:
             bruto = json.load(arquivo)
@@ -81,7 +49,7 @@ def _ler_config_servidor(papel_app: str | None) -> dict:
         return {}
 
     config = {}
-    for chave in ("padrao", papel_app):
+    for chave in ("padrao", processo):
         valores = bruto.get(chave)
         if isinstance(valores, dict):
             config.update(valores)
@@ -106,21 +74,16 @@ def _coagir_int(valor, padrao: int) -> int:
 
 
 def _ler_bool_env(nome: str, padrao: bool) -> bool:
-    valor = os.environ.get(nome)
-    return _coagir_bool(valor, padrao)
+    return _coagir_bool(os.environ.get(nome), padrao)
 
 
 def _ler_int_env(nome: str, padrao: int) -> int:
-    valor = os.environ.get(nome)
-    return _coagir_int(valor, padrao)
+    return _coagir_int(os.environ.get(nome), padrao)
 
 
 @dataclass(frozen=True)
 class AppConfig:
-    """Configuracao de execucao do servidor, centralizada num unico lugar
-    em vez de `os.environ.get(...)` espalhado pelo codigo. Todos os campos
-    tem um padrao seguro para uso local; nenhum exige variavel de ambiente
-    configurada para funcionar."""
+    """Configuração HTTP de um dos processos."""
 
     debug: bool
     host: str
@@ -129,22 +92,27 @@ class AppConfig:
     max_content_length: int
 
     @classmethod
-    def from_env(cls, papel_app: str | None = None) -> "AppConfig":
-        if papel_app not in PAPEIS_APP:
-            raise ValueError(f"papel_app invalido: {papel_app!r} (esperado um de {PAPEIS_APP})")
+    def from_env(cls, processo: str = "ict") -> "AppConfig":
+        if processo not in PROCESSOS_APP:
+            raise ValueError(
+                f"processo inválido: {processo!r} (esperado um de {PROCESSOS_APP})"
+            )
 
-        config_arquivo = _ler_config_servidor(papel_app)
+        config_arquivo = _ler_config_servidor(processo)
         return cls(
-            debug=_ler_bool_env("CONFORTO_DEBUG", _coagir_bool(config_arquivo.get("debug"), False)),
-            host=os.environ.get("CONFORTO_HOST", str(config_arquivo.get("host") or "127.0.0.1")),
-            port=_ler_int_env("CONFORTO_PORT", _coagir_int(config_arquivo.get("port"), 5000)),
-            threaded=_ler_bool_env(
-                "CONFORTO_THREADED", _coagir_bool(config_arquivo.get("threaded"), True)
+            debug=_ler_bool_env(
+                "CONFORTO_DEBUG", _coagir_bool(config_arquivo.get("debug"), False)
             ),
-            # 1 MiB e generoso para o payload JSON desta API (entradas de
-            # sensor e configuracoes sao poucas dezenas de campos numericos)
-            # e evita que uma requisicao com corpo gigante consuma memoria
-            # do processo desnecessariamente.
+            host=os.environ.get(
+                "CONFORTO_HOST", str(config_arquivo.get("host") or "127.0.0.1")
+            ),
+            port=_ler_int_env(
+                "CONFORTO_PORT", _coagir_int(config_arquivo.get("port"), 5000)
+            ),
+            threaded=_ler_bool_env(
+                "CONFORTO_THREADED",
+                _coagir_bool(config_arquivo.get("threaded"), True),
+            ),
             max_content_length=_ler_int_env(
                 "CONFORTO_MAX_CONTENT_LENGTH",
                 _coagir_int(config_arquivo.get("max_content_length"), 1_000_000),
@@ -153,15 +121,7 @@ class AppConfig:
 
 
 class ProvedorJSON(DefaultJSONProvider):
-    """Provedor JSON do Flask com suporte a `MappingProxyType`.
-
-    `thermal_indices.py` congela seus dicionarios de configuracao
-    compartilhada (especies, indices, limites, etc.) com
-    `types.MappingProxyType` para impedir mutacao acidental em tempo de
-    execucao (ver `_congelar` naquele modulo). O serializador JSON padrao
-    do Python nao sabe lidar com esse tipo -- sem este provedor, tanto
-    `jsonify(...)` quanto o filtro `| tojson` do Jinja levantariam
-    `TypeError` ao tentar renderizar a pagina inicial."""
+    """Serializador JSON com suporte às tabelas imutáveis do domínio."""
 
     @staticmethod
     def default(o):
@@ -170,93 +130,16 @@ class ProvedorJSON(DefaultJSONProvider):
         return DefaultJSONProvider.default(o)
 
 
-def criar_app(papel_app: str | None = None, config: AppConfig | None = None) -> Flask:
-    """Monta e devolve um app Flask pronto para uso. Ver docstring do
-    modulo para o significado de `papel_app`."""
-    if papel_app not in PAPEIS_APP:
-        raise ValueError(f"papel_app invalido: {papel_app!r} (esperado um de {PAPEIS_APP})")
-
-    config = config or AppConfig.from_env(papel_app)
-
+def _criar_app_base(processo: str, config: AppConfig) -> Flask:
     app = Flask(__name__)
     app.json = ProvedorJSON(app)
     app.config["MAX_CONTENT_LENGTH"] = config.max_content_length
-    # Guardados em `app.config` para que mais de um app possa existir no
-    # mesmo interpretador sem compartilhar papel ou flag de debug.
-    app.config["CONFORTO_PAPEL_APP"] = papel_app
+    app.config["CONFORTO_PROCESSO"] = processo
     app.config["CONFORTO_DEBUG"] = config.debug
-
-    # A chave de sessao e por processo (nao muda com `papel_app`), e
-    # coletor/dashboard compartilham o MESMO
-    # `instance/historico.db` -- logo, tambem compartilham a mesma tabela
-    # `usuarios` e podem compartilhar a mesma chave persistida em
-    # `instance/secret_key.txt` sem problema (ver `auth.py`).
-    app.secret_key = auth.obter_ou_criar_chave_secreta()
-    app.config["SESSION_COOKIE_HTTPONLY"] = True
-    app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-    # 12h: suficiente para um turno de trabalho sem precisar logar de novo,
-    # curto o bastante para nao deixar uma sessao esquecida aberta por dias
-    # num tablet compartilhado na fazenda. Nao substitui o habito de sair
-    # (`/logout`) ao encerrar o uso em um dispositivo compartilhado -- este
-    # projeto nao implementa protecao CSRF por token; o cookie
-    # SameSite=Lax acima cobre o caso comum (POST vindo de outro site), mas
-    # uma pessoa mal-intencionada com acesso FISICO a uma sessao aberta
-    # ainda consegue agir como o usuario logado.
-    app.permanent_session_lifetime = datetime.timedelta(hours=12)
-
     db.iniciar_banco()
-
-    from .rotas_comuns import comum_bp
-
-    app.register_blueprint(comum_bp)
-
-    # Login/logout e administracao de contas sao transversais a
-    # papel_app: registrados nos tres casos (None/coletor/dashboard) porque
-    # os dois processos apontam para o MESMO banco -- ver comentario acima
-    # sobre a chave de sessao.
-    app.register_blueprint(auth.auth_bp)
-    app.register_blueprint(auth.usuarios_bp)
-    auth.registrar_autenticacao(app)
-
-    # A aba de dados de entrada pode ser consultada nos dois papeis. As
-    # rotas de mutacao sao registradas somente no coletor logo abaixo.
-    from . import dados_entrada_db
-    from .dados_entrada_rotas import dados_entrada_leitura_bp
-
-    dados_entrada_db.iniciar_banco()
-    app.register_blueprint(dados_entrada_leitura_bp)
-
-    if papel_app in (None, "coletor"):
-        from .coletor.rotas import coletor_bp
-        from .dados_entrada_rotas import dados_entrada_bp
-
-        app.register_blueprint(coletor_bp)
-        app.register_blueprint(dados_entrada_bp)
-
-    if papel_app in (None, "dashboard"):
-        from .dashboard.rotas import dashboard_bp
-
-        app.register_blueprint(dashboard_bp)
 
     @app.after_request
     def _aplicar_cabecalhos_seguranca(resposta):
-        """Cabecalhos de defesa em profundidade. Nenhum deles muda o
-        comportamento funcional da aplicacao para um cliente legitimo;
-        todos reduzem a superficie de ataque para um cliente malicioso:
-
-        - X-Content-Type-Options: navegador nao deve "adivinhar" um tipo
-          de conteudo diferente do declarado (mitiga certos ataques de MIME
-          sniffing).
-        - X-Frame-Options: impede que a pagina seja carregada dentro de um
-          <iframe> de outro site (mitiga clickjacking).
-        - Referrer-Policy: nao vaza a URL completa desta aplicacao local
-          para terceiros ao seguir um link para fora dela.
-        - Cache-Control: respostas de /api/* carregam estado (leituras,
-          configuracoes) que muda a cada chamada; nunca devem ser
-          cacheadas pelo navegador ou por um proxy intermediario. Deixamos
-          os arquivos estaticos (JS/CSS) de fora dessa regra de proposito,
-          para nao perder o cache do navegador neles.
-        """
         resposta.headers.setdefault("X-Content-Type-Options", "nosniff")
         resposta.headers.setdefault("X-Frame-Options", "DENY")
         resposta.headers.setdefault("Referrer-Policy", "no-referrer")
@@ -266,22 +149,12 @@ def criar_app(papel_app: str | None = None, config: AppConfig | None = None) -> 
 
     @app.errorhandler(Exception)
     def tratar_erro_inesperado(erro):
-        """Rede de seguranca: qualquer excecao nao tratada em uma rota
-        /api/* ainda assim retorna JSON (nunca a pagina HTML padrao de
-        erro do Flask). Isso evita que o front-end, que sempre espera JSON
-        de /api/*, quebre ao tentar interpretar uma pagina de erro como se
-        fosse dado — o que antes aparecia disfarcado de "falha de
-        comunicacao com o servidor".
-
-        O detalhe da excecao e sempre logado no servidor via
-        `app.logger.exception`; a resposta ao cliente usa a mensagem
-        generica `MENSAGEM_ERRO_INTERNO` (ver nota no topo do modulo)."""
         if isinstance(erro, HTTPException):
             if request.path.startswith("/api/"):
                 return jsonify({"erro": erro.description}), erro.code or 500
             return erro
 
-        app.logger.exception("Erro nao tratado em %s", request.path)
+        app.logger.exception("Erro não tratado em %s", request.path)
         if request.path.startswith("/api/"):
             return jsonify({"erro": MENSAGEM_ERRO_INTERNO}), 500
         raise erro
@@ -289,28 +162,88 @@ def criar_app(papel_app: str | None = None, config: AppConfig | None = None) -> 
     return app
 
 
-def executar_servidor(app: Flask, config: AppConfig) -> None:
-    """Executa `app` localmente, sem o reloader do Werkzeug.
+def criar_app_ict(config: AppConfig | None = None) -> Flask:
+    """Cria a única aplicação acessada por pessoas e navegadores."""
 
-    O reloader cria um processo pai e um filho. Em execucoes locais pelo
-    PyCharm, terminal ou automacao, isso pode deixar processos Flask
-    aparentes depois que a janela principal foi encerrada."""
-    gerenciador = None
-    if app.config.get("CONFORTO_PAPEL_APP") in (None, "coletor"):
-        # Importacao deliberadamente tardia: o processo dashboard continua
-        # sem carregar qualquer codigo Modbus ou de acionamento.
-        from .coletor.estado import gerenciador_controle
+    config = config or AppConfig.from_env("ict")
+    app = _criar_app_base("ict", config)
 
-        gerenciador = gerenciador_controle
-        gerenciador.iniciar(app.logger)
-    try:
+    app.secret_key = auth.obter_ou_criar_chave_secreta()
+    app.config["SESSION_COOKIE_HTTPONLY"] = True
+    app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+    app.permanent_session_lifetime = datetime.timedelta(hours=12)
+
+    from . import dados_entrada_db
+    from .dados_entrada_rotas import dados_entrada_bp, dados_entrada_leitura_bp
+    from .ict.administracao import administracao_bp
+    from .ict.operacao import operacao_bp
+    from .ict.rotas import ict_bp
+    from .rotas_comuns import comum_bp
+
+    dados_entrada_db.iniciar_banco()
+    app.register_blueprint(comum_bp)
+    app.register_blueprint(auth.auth_bp)
+    app.register_blueprint(auth.usuarios_bp)
+    app.register_blueprint(dados_entrada_leitura_bp)
+    app.register_blueprint(dados_entrada_bp)
+    app.register_blueprint(ict_bp)
+    app.register_blueprint(administracao_bp)
+    app.register_blueprint(operacao_bp)
+    auth.registrar_autenticacao(app)
+    return app
+
+
+def criar_app_coletor(config: AppConfig | None = None) -> Flask:
+    """Cria o serviço privado que possui o cliente Modbus e a malha."""
+
+    config = config or AppConfig.from_env("coletor")
+    app = _criar_app_base("coletor", config)
+
+    # Importação deliberadamente exclusiva desta fábrica.
+    from .coletor.rotas import coletor_bp
+
+    app.register_blueprint(coletor_bp)
+    return app
+
+
+def _servir(app: Flask, config: AppConfig) -> None:
+    if config.debug:
         app.run(
-            debug=config.debug,
+            debug=True,
             host=config.host,
             port=config.port,
             threaded=config.threaded,
             use_reloader=False,
         )
+        return
+
+    from waitress import serve
+
+    serve(
+        app,
+        host=config.host,
+        port=config.port,
+        threads=8 if config.threaded else 1,
+    )
+
+
+def executar_ict(app: Flask, config: AppConfig) -> None:
+    """Executa somente a interface ICT."""
+
+    _servir(app, config)
+
+
+def executar_coletor(app: Flask, config: AppConfig) -> None:
+    """Executa a API interna e a malha contínua do coletor."""
+
+    from . import notificacoes
+    from .coletor.estado import gerenciador_controle
+
+    fila = notificacoes.fila_notificacoes
+    fila.iniciar(app.logger)
+    gerenciador_controle.iniciar(app.logger)
+    try:
+        _servir(app, config)
     finally:
-        if gerenciador:
-            gerenciador.parar()
+        gerenciador_controle.parar()
+        fila.parar()

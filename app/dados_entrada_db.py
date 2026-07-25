@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """Persistencia isolada para geracao de dados de entrada.
 
-As series nascem em ``instance/dados_entrada.db`` e so sao copiadas para
-``historico.db`` por uma acao explicita, transacional e idempotente.
+As series usam o schema PostgreSQL ``dados_entrada`` quando ``DATABASE_URL``
+esta definida. No modo local e de testes, usam ``instance/dados_entrada.db``.
+A copia para o historico e explicita, transacional e idempotente.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from typing import Iterator
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from . import database as historico_db
+from . import db_backend
 from .dados_entrada_cidades import (
     CATEGORIAS_DENSIDADE,
     CIDADES_POR_ESPECIE,
@@ -39,7 +41,19 @@ def caminho_banco() -> str:
 
 
 @contextmanager
-def _conexao(*, escrita: bool = True) -> Iterator[sqlite3.Connection]:
+def _conexao(*, escrita: bool = True) -> Iterator:
+    if db_backend.postgres_ativo():
+        conn = db_backend.abrir_conexao_postgres("dados_entrada")
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+        return
+
     lock = _write_lock if escrita else _SemLock()
     with lock:
         caminho = caminho_banco()
@@ -90,6 +104,14 @@ def sessao_geracao() -> Iterator["_SessaoGeracao"]:
     descarta o lote em andamento, e o `DELETE` em `falhar_execucao` remove
     os lotes de outras zonas ja confirmados.
     """
+    if db_backend.postgres_ativo():
+        conn = db_backend.abrir_conexao_postgres("dados_entrada")
+        try:
+            yield _SessaoGeracao(conn)
+        finally:
+            conn.close()
+        return
+
     caminho = caminho_banco()
     os.makedirs(os.path.dirname(caminho), exist_ok=True)
     with _write_lock:
@@ -115,7 +137,7 @@ class _SessaoGeracao:
 
     __slots__ = ("_conn",)
 
-    def __init__(self, conn: sqlite3.Connection) -> None:
+    def __init__(self, conn) -> None:
         self._conn = conn
 
     def inserir_medicoes(self, medicoes: list[dict]) -> None:
@@ -131,6 +153,10 @@ class _SessaoGeracao:
 
 
 def iniciar_banco() -> None:
+    if db_backend.postgres_ativo():
+        # O Alembic cria e versiona este schema antes de o Flask iniciar.
+        return
+
     with _conexao() as conn:
         conn.executescript(
             """
@@ -536,7 +562,7 @@ def _serializar_json_coluna(valor):
     return valor if isinstance(valor, str) else json.dumps(valor, ensure_ascii=False)
 
 
-def _inserir_medicoes_na_conexao(conn: sqlite3.Connection, medicoes: list[dict]) -> None:
+def _inserir_medicoes_na_conexao(conn, medicoes: list[dict]) -> None:
     if not medicoes:
         return
     placeholders = ",".join("?" for _ in _COLUNAS_MEDICAO)
@@ -662,6 +688,71 @@ def copiar_medicoes_para_historico(execucao_id: int) -> dict:
     portanto uma falha nunca deixa uma copia parcial marcada como concluida.
     """
     iniciar_banco()
+    if db_backend.postgres_ativo():
+        with _conexao() as conn:
+            execucao = conn.execute(
+                "SELECT status, total_medicoes FROM execucoes WHERE id=?",
+                (execucao_id,),
+            ).fetchone()
+            if execucao is None:
+                raise ConfiguracaoDadosEntradaError(
+                    f"Execução {execucao_id} não encontrada."
+                )
+            if execucao["status"] != "concluida":
+                raise ConfiguracaoDadosEntradaError(
+                    "Somente uma geração concluída pode ser copiada."
+                )
+
+            pendentes = int(conn.execute(
+                """
+                SELECT COUNT(*)
+                FROM medicoes m
+                LEFT JOIN historico_exportado he ON he.medicao_id = m.id
+                WHERE m.execucao_id=? AND he.medicao_id IS NULL
+                """,
+                (execucao_id,),
+            ).fetchone()[0])
+            agora = _agora()
+            if pendentes:
+                conn.execute(
+                    """
+                    INSERT INTO historico.leituras
+                        (especie, indice, valor, status, entradas, criado_em, zona_id)
+                    SELECT m.especie, m.indice, m.valor_indice,
+                           m.status_termico, m.entradas_indice,
+                           substr(m.timestamp_local, 1, 16), m.zona_id
+                    FROM medicoes m
+                    LEFT JOIN historico_exportado he ON he.medicao_id = m.id
+                    WHERE m.execucao_id=? AND he.medicao_id IS NULL
+                    ORDER BY m.zona_id, m.timestamp_utc
+                    """,
+                    (execucao_id,),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO historico_exportado (medicao_id, copiado_em)
+                    SELECT m.id, ?
+                    FROM medicoes m
+                    LEFT JOIN historico_exportado he ON he.medicao_id = m.id
+                    WHERE m.execucao_id=? AND he.medicao_id IS NULL
+                    """,
+                    (agora, execucao_id),
+                )
+            total_copiado = int(conn.execute(
+                """
+                SELECT COUNT(*) FROM historico_exportado he
+                JOIN medicoes m ON m.id = he.medicao_id
+                WHERE m.execucao_id=?
+                """,
+                (execucao_id,),
+            ).fetchone()[0])
+        return {
+            "execucao_id": execucao_id,
+            "novas_copiadas": pendentes,
+            "total_copiado": total_copiado,
+            "arquivo_destino": "PostgreSQL (schema historico)",
+        }
+
     with _write_lock:
         conn = sqlite3.connect(caminho_banco(), timeout=TIMEOUT_CONEXAO_SEGUNDOS)
         conn.row_factory = sqlite3.Row

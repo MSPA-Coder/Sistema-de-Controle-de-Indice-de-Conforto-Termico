@@ -1,25 +1,18 @@
 # -*- coding: utf-8 -*-
-"""Lancador do processo COLETOR (fala Modbus, calcula o indice e grava no
-banco).
+"""Lançador do serviço privado COLETOR.
 
 Para rodar:
     python run_coletor.py
 
-Por padrao sobe em http://127.0.0.1:5000, conforme `config/servidor.json`.
-Os mesmos `CONFORTO_*` de sempre continuam valendo (`CONFORTO_PORT`,
-`CONFORTO_HOST`, etc.; ver `app_factory.AppConfig`) e sobrescrevem o
-arquivo quando definidos.
+Executa a malha contínua e uma API HTTP interna autenticada. Não serve
+interface de usuário e não deve publicar sua porta fora da rede Docker.
+"""
 
-Os dois processos apontam para o mesmo arquivo `instance/historico.db`
-por padrao (nenhuma variavel extra necessaria) -- o WAL + timeout de
-`database._conexao` ja cobre dois processos escrevendo/lendo o mesmo
-arquivo ao mesmo tempo."""
-
-from app.app_factory import AppConfig, criar_app, executar_servidor
+from app.app_factory import AppConfig, criar_app_coletor, executar_coletor
 
 config = AppConfig.from_env("coletor")
-app = criar_app(papel_app="coletor", config=config)
+app = criar_app_coletor(config)
 
 
 if __name__ == "__main__":
-    executar_servidor(app, config)
+    executar_coletor(app, config)

@@ -33,32 +33,28 @@
   <!-- Cada `div.abas-grupo` e `role="presentation"`: existe so para agrupar -->
   <!-- visualmente: o `role="tablist"` continua em `nav.abas-app` e os -->
   <!-- botoes continuam `role="tab"`, preservando a arvore de acessibilidade. -->
-  <!-- Cada botao exige a area correspondente em `areas_permitidas`. Ele
-  -- aparece somente quando as DUAS
-  -- condicoes valem: o processo tem a rota (papel_app) E o perfil tem a
-  -- area. Isso e so a metade visual do controle de acesso -- a metade que
-  -- realmente importa (bloquear a chamada de API) esta nos hooks
-  -- `before_request` registrados por `auth.registrar_autenticacao`. -->
+  <!-- Cada botão exige a área correspondente em `areas_permitidas`. Essa é
+  -- a metade visual; a autorização real também é aplicada pelo servidor. -->
   <nav class="abas-app" role="tablist" aria-label="Navegação do app">
     <div class="abas-grupo" role="presentation">
       <span class="abas-grupo-rotulo">Monitoramento</span>
       {% if "dashboard" in areas_permitidas %}
       <button class="aba-botao{{ ' ativo' if aba_inicial == 'principal' else '' }}" type="button" role="tab" data-aba="principal" aria-controls="aba-principal" aria-selected="{{ 'true' if aba_inicial == 'principal' else 'false' }}">Dashboard</button>
       {% endif %}
-      {% if papel_app in (none, "dashboard") and "analises" in areas_permitidas %}
+      {% if "analises" in areas_permitidas %}
       <button class="aba-botao{{ ' ativo' if aba_inicial == 'analises' else '' }}" type="button" role="tab" data-aba="analises" aria-controls="aba-analises" aria-selected="{{ 'true' if aba_inicial == 'analises' else 'false' }}">Análises</button>
       {% endif %}
-      {% if papel_app in (none, "dashboard") and "historico" in areas_permitidas %}
+      {% if "historico" in areas_permitidas %}
       <button class="aba-botao" type="button" role="tab" data-aba="historico" aria-controls="aba-historico" aria-selected="false">Histórico</button>
       {% endif %}
     </div>
-    {% if papel_app in (none, "coletor") and "operacao" in areas_permitidas %}
+    {% if "operacao" in areas_permitidas %}
     <div class="abas-grupo" role="presentation">
       <span class="abas-grupo-rotulo">Operação</span>
       <button class="aba-botao" type="button" role="tab" data-aba="operacao" aria-controls="aba-operacao" aria-selected="false">Operação</button>
     </div>
     {% endif %}
-    {% if papel_app in (none, "coletor") and ("cadastro" in areas_permitidas or "configuracoes" in areas_permitidas or "sistema" in areas_permitidas) %}
+    {% if "cadastro" in areas_permitidas or "configuracoes" in areas_permitidas or "sistema" in areas_permitidas %}
     <div class="abas-grupo" role="presentation">
       <span class="abas-grupo-rotulo">Administração</span>
       {% if "cadastro" in areas_permitidas %}
@@ -151,8 +147,6 @@
 
   </main>
 
-  <!-- Renderizada nos dois papeis para manter um DOM unico; o dashboard nao tem -->
-  <!-- botao de navegacao nem rotas de escrita, portanto permanece inacessivel. -->
   <section id="aba-operacao" class="grade aba-conteudo oculto" data-aba-conteudo="operacao" role="tabpanel">
     <section class="painel operacao-painel">
       <div class="operacao-cabecalho">
@@ -322,12 +316,8 @@
         <a href="https://open-meteo.com/en/docs/historical-weather-api" target="_blank" rel="noreferrer">documentação da fonte meteorológica</a>
         · rankings municipais: PPM 2024/IBGE-SIDRA
       </p>
-      {% if papel_app == "dashboard" %}
-      <p class="dados-entrada-ajuda">Neste dashboard a aba é somente leitura. Use o coletor para gerar, configurar, copiar ou apagar dados.</p>
-      {% endif %}
     </section>
 
-    {% if papel_app in (none, "coletor") %}
     <section class="painel dados-entrada-parametros">
       <h3 class="grafico-titulo">Período e resolução</h3>
       <form id="form-dados-entrada-gerar">
@@ -387,7 +377,6 @@
       </div>
       <p id="dados-entrada-arquivo-status" class="smtp-status oculto" role="status"></p>
     </section>
-    {% endif %}
 
     <section class="painel dados-entrada-execucoes-painel">
       <div class="tabela-cabecalho">
@@ -397,9 +386,7 @@
         </div>
         <div class="acao-linha">
           <a class="botao botao--fantasma botao--compacto" href="/api/dados-entrada/exportar.csv">Exportar todas em CSV</a>
-          {% if papel_app in (none, "coletor") %}
           <button id="btn-apagar-dados-gerados" class="botao botao--perigo botao--compacto" type="button">Apagar dados gerados</button>
-          {% endif %}
         </div>
       </div>
       <div class="tabela-scroll">
@@ -508,6 +495,7 @@
         </div>
         <p id="banco-status" class="smtp-status oculto"></p>
       </section>
+
     </div>
 
     <div class="configuracoes-coluna">
@@ -682,7 +670,6 @@
     nomeIndice: {{ nome_indice | tojson }},
     camposPorIndice: {{ campos_por_indice | tojson }},
     campoMetadados: {{ campo_metadados | tojson }},
-    papelApp: {{ papel_app | tojson }},
     abaInicial: {{ aba_inicial | tojson }}
   };
 </script>

@@ -9,9 +9,14 @@ historico_backup_*.db
 .venv/
 venv/
 .idea/
-.vscode/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/settings.json
+!.vscode/tasks.json
 .env
 .env.*
+!.env.docker.example
 *.log
 .coverage
 htmlcov/
@@ -31,3 +36,5 @@ instance/*
 *.db-journal
 *.db-shm
 *.db-wal
+migration_report*.json
+.certs/*

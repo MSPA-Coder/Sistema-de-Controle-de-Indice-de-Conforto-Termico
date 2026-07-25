@@ -2,7 +2,7 @@
 
 ## Objetivo do repositório
 
-Este projeto é uma aplicação Flask para cálculo e monitoramento de índices de conforto térmico na produção animal. Ele combina regras científicas de domínio, persistência SQLite, autenticação por perfil, simulação e integração opcional com equipamentos Modbus.
+Este projeto é uma aplicação Flask para cálculo e monitoramento de índices de conforto térmico na produção animal. Ele combina regras científicas de domínio, persistência PostgreSQL no ambiente Docker (com SQLite para testes e migração), autenticação por perfil, simulação e integração opcional com equipamentos Modbus.
 
 Antes de alterar uma área, identifique o contrato atual no código e nos testes relacionados. O `README.md` descreve instalação, operação e arquitetura em alto nível.
 
@@ -26,8 +26,8 @@ Durante o desenvolvimento, execute primeiro os testes diretamente relacionados �
 
 - `app/thermal_indices.py`: fórmulas, limites, espécies, índices e validações de domínio.
 - `app/app_factory.py`: configuração do servidor, composição da aplicação e tratamento global de erros.
-- `app/coletor/`: aquisição, comandos, configuração e estado do processo coletor.
-- `app/dashboard/`: consultas e análises do papel dashboard.
+- `app/coletor/`: malha contínua e API interna autenticada para ações Modbus.
+- `app/ict/`: consultas, análises, administração e proxy das ações operacionais.
 - `app/rotas_comuns.py`: rotas de leitura compartilhadas.
 - `app/services.py`: estratégias de geração e resfriamento usadas pelo simulador.
 - `app/zona_service.py`: leitura, cálculo e controle de zonas Modbus.
@@ -76,9 +76,12 @@ Respeite essas fronteiras quando elas mantiverem a responsabilidade clara. Uma r
 
 ### Papéis da aplicação
 
-- O coletor pode ler sensores, comandar equipamentos e gravar dados.
-- O dashboard é uma composição de consulta e análise, sem dependência do cliente Modbus.
-- A aplicação completa pode combinar os dois papéis no mesmo processo.
+- O ICT é a única interface pública. Todas as abas e APIs do navegador pertencem a ele; sua visibilidade e autorização dependem somente do perfil autenticado.
+- O coletor é um serviço privado, sem páginas nem login. Ele fala Modbus, mantém o estado da malha e expõe somente `/health` e rotas `/api/interno/*` autenticadas por `CONFORTO_INTERNO_TOKEN`.
+- Cálculo manual, mudança de modo, comando de atuador e teste de conexão entram no ICT, são autorizados pela sessão e então atravessam por HTTP interno até o coletor.
+- `criar_app_ict()` nunca deve importar `app.coletor.estado`, `app.modbus_client` ou `app.zona_service`.
+- Parâmetros alteráveis pelas abas ficam no banco. `.env` e `.env.docker` são parâmetros de implantação somente leitura para a aplicação.
+- Excluir uma zona não limpa mais, na hora, o estado em memória do coletor referente a ela (histórico do gráfico, histerese) -- isso acontece no próximo ciclo automático (`GerenciadorControleZonas._reconciliar_zonas_removidas`).
 
 Se o desenho dos papéis mudar, trate isso como decisão arquitetural e ajuste rotas, autorização, lançadores e documentação em conjunto.
 
@@ -87,7 +90,7 @@ Se o desenho dos papéis mudar, trate isso como decisão arquitetural e ajuste r
 - Use Python 3.10+ e siga o estilo já adotado no módulo alterado.
 - Prefira funções pequenas e puras para cálculo, classificação e validação.
 - Mantenha orquestração com estado em serviços, não em funções de rota.
-- Centralize acesso ao SQLite nos módulos de persistência.
+- Centralize o acesso ao banco nos módulos de persistência e mantenha as diferenças de dialeto no adaptador de backend.
 - Reutilize abstrações existentes quando elas representam o mesmo conceito; crie novas abstrações apenas quando houver uma responsabilidade distinta.
 - Evite dependências ou frameworks adicionais para resolver comportamento local simples.
 - Não misture refatoração ampla com mudança funcional sem necessidade.

@@ -5,7 +5,7 @@ chcp 65001 >NUL
 set "ROOT_DIR=%~dp0.."
 for %%I in ("%ROOT_DIR%") do set "ROOT_DIR=%%~fI"
 
-set "APP_FILE=%ROOT_DIR%\app.py"
+set "APP_FILE=%ROOT_DIR%\run_ict.py"
 set "VENV_PY=%ROOT_DIR%\.venv\Scripts\python.exe"
 if exist "%VENV_PY%" (
     set "PYTHON_EXE=%VENV_PY%"

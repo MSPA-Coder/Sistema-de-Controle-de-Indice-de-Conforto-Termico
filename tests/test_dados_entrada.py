@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, urlparse
 from app import database as db
 from app import dados_entrada_db as dados_db
 from app import gerador_dados as gerador
-from app.app_factory import AppConfig, criar_app
+from app.app_factory import criar_app_ict
 from app.dados_entrada_cidades import referencias_publicas
 from tests.auth_test_utils import cliente_autenticado
 
@@ -245,12 +245,12 @@ class TestDadosEntrada(unittest.TestCase):
                 [{**base, "ordenhas_dia": 1}], [suinos]
             )
 
-    def test_dashboard_consulta_mas_nao_registra_rotas_de_mutacao(self):
-        app = criar_app("dashboard", AppConfig.from_env("dashboard"))
+    def test_ict_registra_leitura_e_mutacao_de_dados_de_entrada(self):
+        app = criar_app_ict()
         cliente = cliente_autenticado(app)
         self.assertEqual(200, cliente.get("/api/dados-entrada/execucoes").status_code)
         self.assertEqual(200, cliente.get("/api/dados-entrada/referencias").status_code)
-        self.assertEqual(404, cliente.post("/api/dados-entrada/gerar", json={}).status_code)
+        self.assertNotEqual(404, cliente.post("/api/dados-entrada/gerar", json={}).status_code)
 
     def test_copia_geracao_para_historico_de_forma_idempotente(self):
         self._configurar_zona()

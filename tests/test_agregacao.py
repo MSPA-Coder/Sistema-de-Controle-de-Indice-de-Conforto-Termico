@@ -64,7 +64,10 @@ class TestAgregacao15minEHora(unittest.TestCase):
     def test_janela_em_andamento_nao_e_consolidada(self):
         # Leitura de "agora" cai numa janela de 15min ainda ABERTA -- nao
         # deve ser consolidada ate a janela fechar.
-        _inserir_leitura_bruta(self.zona["id"], 70.0, self._agora_menos(seconds=5))
+        # Use o instante atual: subtrair alguns segundos torna o teste
+        # intermitente quando ele começa logo após a virada de um quarto de
+        # hora, pois a leitura cai corretamente na janela recém-fechada.
+        _inserir_leitura_bruta(self.zona["id"], 70.0, self._agora_menos(seconds=0))
         resultado = agregacao.executar_para_zona(self.zona)
         self.assertEqual(0, resultado["janelas_15min_consolidadas"])
         self.assertEqual([], db.obter_agregados_15min(self.zona["id"]))

@@ -13,9 +13,9 @@ from . import dados_entrada_db as dados_db
 from .app_factory import MENSAGEM_ERRO_INTERNO
 from .dados_entrada_cidades import referencias_publicas
 
-# Registrado em coletor e dashboard: exclusivamente GET.
+# Consultas da aba Dados de entrada.
 dados_entrada_leitura_bp = Blueprint("dados_entrada_leitura", __name__)
-# Registrado apenas no coletor: toda mutacao permanece fora do dashboard.
+# Mutações pertencem ao ICT; o coletor não gera dados climáticos.
 dados_entrada_bp = Blueprint("dados_entrada", __name__)
 
 
@@ -25,9 +25,8 @@ def _confirmado(dados: dict) -> bool:
 
 @dados_entrada_leitura_bp.route("/api/dados-entrada/configuracoes", methods=["GET"])
 def obter_configuracoes():
-    somente_leitura = current_app.config.get("CONFORTO_PAPEL_APP") == "dashboard"
     return jsonify(dados_db.obter_configuracoes_zonas(
-        db.listar_zonas(apenas_ativas=True), sincronizar=not somente_leitura
+        db.listar_zonas(apenas_ativas=True), sincronizar=True
     ))
 
 

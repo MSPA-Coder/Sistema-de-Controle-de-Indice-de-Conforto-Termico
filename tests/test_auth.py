@@ -4,8 +4,8 @@ test_auth.py
 =============
 Testa autenticacao e controle de acesso por perfil em `auth.py`:
 hashing de senha, login/logout, e o controle de acesso por AREA (por
-pessoa/perfil). Ver `test_app_factory.py` para o gating por PROCESSO
-(papel_app) e `test_database.py::TestUsuariosCRUD` para a persistencia
+pessoa/perfil). Ver `test_app_factory.py` para a separacao ICT/coletor e
+`test_database.py::TestUsuariosCRUD` para a persistencia
 pura de `usuarios`.
 """
 
@@ -14,10 +14,11 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from app import auth
 from app import database as db
-from app.app_factory import AppConfig, criar_app
+from app.app_factory import AppConfig, criar_app_ict
 from tests.auth_test_utils import SENHA_TESTE, cliente_autenticado
 
 
@@ -64,7 +65,7 @@ class BaseTestComApp(unittest.TestCase):
         self.db_path_original = db.DB_PATH
         db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
         db.iniciar_banco()
-        self.app = criar_app(papel_app=None, config=_config_teste())
+        self.app = criar_app_ict(config=_config_teste())
 
     def tearDown(self):
         db.DB_PATH = self.db_path_original
@@ -231,14 +232,15 @@ class TestControleDeAcessoPorArea(BaseTestComApp):
                 self.assertEqual(esperado, resposta.status_code)
 
     def test_area_operacao_comando(self):
-        for perfil in db.PERFIS_VALIDOS:
-            with self.subTest(perfil=perfil):
-                resposta = self._cliente(perfil).put(
-                    f"/api/zonas/{self.zona['id']}/controle",
-                    json={"modo": "manual", "acionamento_habilitado": False},
-                )
-                esperado = 200 if auth.area_permitida(perfil, "operacao") else 403
-                self.assertEqual(esperado, resposta.status_code)
+        with patch("app.ict.operacao.chamar_coletor", return_value=({}, 200)):
+            for perfil in db.PERFIS_VALIDOS:
+                with self.subTest(perfil=perfil):
+                    resposta = self._cliente(perfil).put(
+                        f"/api/zonas/{self.zona['id']}/controle",
+                        json={"modo": "manual", "acionamento_habilitado": False},
+                    )
+                    esperado = 200 if auth.area_permitida(perfil, "operacao") else 403
+                    self.assertEqual(esperado, resposta.status_code)
 
     def test_area_configuracoes_ou_sistema_libera_ler_configuracoes(self):
         for perfil in db.PERFIS_VALIDOS:

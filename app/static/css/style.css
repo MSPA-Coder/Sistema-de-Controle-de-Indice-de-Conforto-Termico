@@ -1066,6 +1066,12 @@ td.status-emergencia { color: var(--status-emergencia); }
   font-size: 0.8rem;
   line-height: 1.55;
 }
+.campo-config-ajuda {
+  margin: 0.45rem 0 0;
+  color: var(--cor-texto-mute);
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
 .dados-entrada-fonte {
   margin: 0.8rem 0 0;
   color: var(--cor-texto-mute);

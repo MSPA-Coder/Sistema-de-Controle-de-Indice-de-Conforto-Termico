@@ -14,6 +14,7 @@ from collections import defaultdict
 
 from .. import agregacao
 from .. import database as db
+from .. import notificacoes
 from .. import thermal_indices as ti
 from ..zona_service import ZonaCalculoError
 
@@ -34,6 +35,13 @@ class GerenciadorControleZonas:
         self._parar = threading.Event()
         self._thread: threading.Thread | None = None
         self._logger = None
+        # IDs de zona vistos no ultimo ciclo automatico -- usado por
+        # `_reconciliar_zonas_removidas` para descobrir quais zonas
+        # sumiram (excluidas por fora deste processo, ver
+        # `ict/administracao.py`) e limpar o estado em memoria
+        # correspondente. Comeca vazio de proposito: no PRIMEIRO ciclo,
+        # nao ha "zona que sumiu" ainda -- so uma baseline sendo criada.
+        self._zonas_conhecidas: set[int] = set()
 
     def _lock_zona(self, zona_id: int) -> threading.Lock:
         with self._locks_guard:
@@ -104,8 +112,38 @@ class GerenciadorControleZonas:
                     self._logger.exception("Falha no ciclo automatico de zonas")
                 db.salvar_status_coletor("online", erro=str(erro))
 
+    def _reconciliar_zonas_removidas(self) -> None:
+        """Limpa o estado em memoria (lock, historico do grafico,
+        histerese do resfriador -- ver `ZonaService`) de zonas que
+        sumiram de `db.listar_zonas()` desde o ciclo anterior.
+
+        Antes da separacao entre coletor e "outra parte" (ver
+        `ict/administracao.py`), excluir uma zona SEMPRE acontecia
+        no mesmo processo que mantem esse estado em memoria, e a rota de
+        exclusao chamava `limpar_historico_grafico`/`limpar_resfriador`
+        diretamente. Agora que o cadastro de zonas pode ser mutado por
+        outro processo, esse estado nao seria limpo sozinho -- ficaria
+        orfao (nunca mais lido, mas ocupando memoria) ate o processo
+        reiniciar. Sem isso tambem existe um segundo risco, mais sutil:
+        se uma zona NOVA reaproveitar o mesmo id de uma zona ja excluida
+        (o SQLite reaproveita ids de autoincrement em alguns cenarios),
+        ela herdaria silenciosamente o historico/histerese da zona
+        antiga. Rodar isto uma vez por ciclo (ja e chamado a cada
+        `intervaloLeituraSegundos`) resolve os dois problemas sem
+        precisar de um mecanismo de notificacao entre processos."""
+        ids_atuais = {zona["id"] for zona in db.listar_zonas()}
+        removidas = self._zonas_conhecidas - ids_atuais
+        for zona_id in removidas:
+            self.zona_service.limpar_historico_grafico(zona_id)
+            self.zona_service.limpar_resfriador(zona_id)
+            with self._locks_guard:
+                self._locks.pop(zona_id, None)
+        self._zonas_conhecidas = ids_atuais
+
     def executar_ciclo_automatico(self, logger=None) -> list[dict]:
         """Executa uma passagem apenas pelas zonas ativas em automatico."""
+        self._reconciliar_zonas_removidas()
+        config = db.obter_configuracoes()
         resultados: list[dict] = []
         for zona in db.listar_zonas(apenas_ativas=True):
             controle = zona.get("controle") or db.obter_controle_zona(zona["id"])
@@ -124,6 +162,7 @@ class GerenciadorControleZonas:
                 )
                 if resposta is None:
                     continue
+                notificacoes.notificar_zona_automatico(resposta, config, logger=logger)
                 resultados.append(resposta)
                 db.registrar_evento_operacao(
                     "ciclo_automatico",

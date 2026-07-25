@@ -2,8 +2,8 @@
 """
 auth.py
 ========
-Autenticacao e controle de acesso por pessoa, complementar aos papeis de
-processo coletor/dashboard. Este modulo e o unico lugar do sistema que:
+Autenticacao e controle de acesso por pessoa nas rotas publicas do ICT.
+Este modulo e o unico lugar do sistema que:
 
 - Sabe como transformar uma senha em texto puro num hash (`werkzeug.security`,
   scrypt por padrao nesta versao do Werkzeug) e como conferir uma senha
@@ -168,6 +168,46 @@ def obter_ou_criar_chave_secreta() -> str:
     return nova_chave
 
 
+def obter_ou_criar_token_interno() -> str:
+    """Segredo compartilhado entre ICT e coletor para toda a API interna.
+
+    O navegador nunca ve nem envia este token; ele nao e uma credencial
+    de pessoa.
+
+    Mesmo padrao de `obter_ou_criar_chave_secreta` acima, incluindo a
+    precedencia da variavel de ambiente: instalacoes em que coletor e
+    "outra parte" rodam em MAQUINAS diferentes (nao compartilham
+    `instance/`) precisam definir `CONFORTO_INTERNO_TOKEN` explicitamente
+    e IGUAL nos dois processos -- sem isso, cada lado geraria e
+    persistiria um token diferente e a chamada interna sempre falharia
+    com 403. Essa limitacao acompanha a mesma premissa ja documentada no
+    README para o proprio banco SQLite (arquitetura pensada para as duas
+    partes no MESMO host)."""
+    variavel_ambiente = os.environ.get("CONFORTO_INTERNO_TOKEN")
+    if variavel_ambiente:
+        return variavel_ambiente
+
+    caminho = Path(os.path.dirname(db.DB_PATH)) / "interno_token.txt"
+    try:
+        token_existente = caminho.read_text(encoding="utf-8").strip()
+        if token_existente:
+            return token_existente
+    except OSError:
+        pass
+
+    novo_token = secrets.token_hex(32)
+    try:
+        caminho.parent.mkdir(parents=True, exist_ok=True)
+        caminho.write_text(novo_token, encoding="utf-8")
+        try:
+            os.chmod(caminho, 0o600)
+        except OSError:
+            pass
+    except OSError:
+        pass
+    return novo_token
+
+
 # ---------------------------------------------------------------------------
 # Autorizacao por endpoint. Ver o modulo docstring: esta e a metade que
 # realmente impede uma chamada indevida (a outra metade, visual, fica no
@@ -176,7 +216,12 @@ def obter_ou_criar_chave_secreta() -> str:
 # podem exigir areas diferentes quando vem de blueprints diferentes.
 # ---------------------------------------------------------------------------
 
-ENDPOINTS_ISENTOS_DE_LOGIN = frozenset({"auth.login", "comum.favicon"})
+ENDPOINTS_ISENTOS_DE_LOGIN = frozenset(
+    {
+        "auth.login",
+        "comum.favicon",
+    }
+)
 
 # Um valor pode ser uma unica area (string) ou uma tupla de areas -- neste
 # ultimo caso, BASTA o perfil ter qualquer uma delas. Usado por
@@ -184,9 +229,9 @@ ENDPOINTS_ISENTOS_DE_LOGIN = frozenset({"auth.login", "comum.favicon"})
 # Configuracoes (veterinario) quanto a aba Sistema (tecnico) -- ver
 # README.md.
 AREA_POR_ENDPOINT: dict[str, str | tuple[str, ...]] = {
-    # --- dashboard_bp (aba Analises) ---------------------------------
-    "dashboard.obter_analises": "analises",
-    "dashboard.obter_painel_executivo": "analises",
+    # --- ict_bp (aba Analises) ---------------------------------------
+    "ict.obter_analises": "analises",
+    "ict.obter_painel_executivo": "analises",
     # --- dados_entrada_leitura_bp + dados_entrada_bp (aba Dados de entrada) --
     "dados_entrada_leitura.obter_configuracoes": "dados_entrada",
     "dados_entrada_leitura.obter_referencias": "dados_entrada",
@@ -200,24 +245,26 @@ AREA_POR_ENDPOINT: dict[str, str | tuple[str, ...]] = {
     # "Limpar historico" (botao btn-limpar, hoje na aba Sistema > Banco de
     # dados): apaga TODAS as leituras de TODAS as zonas de uma vez, por
     # isso fica em "sistema" (tecnico/administrador) e nao em "operacao".
-    "coletor.reset": "sistema",
-    # --- coletor_bp: Configuracoes + Sistema --------------------------
-    "coletor.obter_configuracoes": ("configuracoes", "sistema"),
-    "coletor.salvar_configuracoes": ("configuracoes", "sistema"),
-    "coletor.backup_banco": "sistema",
-    # --- coletor_bp: Cadastro (zonas/equipamentos, fiacao Modbus) -----
-    "coletor.criar_zona": "cadastro",
-    "coletor.obter_zona": "cadastro",
-    "coletor.atualizar_zona": "cadastro",
-    "coletor.excluir_zona": "cadastro",
-    "coletor.criar_equipamento": "cadastro",
-    "coletor.atualizar_equipamento": "cadastro",
-    "coletor.excluir_equipamento": "cadastro",
-    "coletor.testar_conexao_equipamento": "cadastro",
-    # --- coletor_bp: Operacao -----------------------------------------
-    "coletor.calcular_zona": "operacao",
-    "coletor.alterar_controle_zona": "operacao",
-    "coletor.comandar_atuador_zona": "operacao",
+    "administracao.reset": "sistema",
+    # --- administracao_bp: Configuracoes + Sistema ---------------------
+    # (nao toca Modbus -- ver docstring de ict/administracao.py
+    # sobre por que essas rotas saíram de coletor_bp)
+    "administracao.obter_configuracoes": ("configuracoes", "sistema"),
+    "administracao.salvar_configuracoes": ("configuracoes", "sistema"),
+    "administracao.backup_banco": "sistema",
+    # --- administracao_bp: Cadastro (zonas/equipamentos, fiacao Modbus) -
+    "administracao.criar_zona": "cadastro",
+    "administracao.obter_zona": "cadastro",
+    "administracao.atualizar_zona": "cadastro",
+    "administracao.excluir_zona": "cadastro",
+    "administracao.criar_equipamento": "cadastro",
+    "administracao.atualizar_equipamento": "cadastro",
+    "administracao.excluir_equipamento": "cadastro",
+    "administracao.testar_conexao_equipamento": "cadastro",
+    # --- operacao_bp: o ICT autoriza e encaminha ao coletor privado ---
+    "operacao.calcular_zona": "operacao",
+    "operacao.alterar_controle_zona": "operacao",
+    "operacao.comandar_atuador_zona": "operacao",
     # --- usuarios_bp (pagina de administracao, fora da SPA) -----------
     "usuarios.pagina_usuarios": "usuarios",
     "usuarios.criar_usuario_rota": "usuarios",

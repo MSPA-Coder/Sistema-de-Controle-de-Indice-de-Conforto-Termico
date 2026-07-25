@@ -7,10 +7,37 @@ from pathlib import Path
 from unittest.mock import patch
 
 from app import app_factory
+from app import auth
 from app import database as db
 from app.coletor import estado as coletor_estado
-from app import web as flask_app
+import run_ict as flask_app
 from tests.auth_test_utils import cliente_autenticado
+
+
+def _instalar_proxy_coletor(caso):
+    """Liga as rotas ICT a um coletor real em memória nos testes de API."""
+
+    app_coletor = app_factory.criar_app_coletor()
+    cliente_coletor = app_coletor.test_client()
+    token = auth.obter_ou_criar_token_interno()
+
+    def chamar(caminho, *, metodo, dados=None):
+        resposta = cliente_coletor.open(
+            caminho,
+            method=metodo,
+            json=dados or {},
+            headers={"X-Interno-Token": token},
+        )
+        return resposta.get_json(), resposta.status_code
+
+    patchers = (
+        patch("app.ict.operacao.chamar_coletor", side_effect=chamar),
+        patch("app.ict.administracao.chamar_coletor", side_effect=chamar),
+    )
+    for patcher in patchers:
+        patcher.start()
+        caso.addCleanup(patcher.stop)
+    caso.app_coletor = app_coletor
 
 
 class TestConfiguracoesApi(unittest.TestCase):
@@ -91,32 +118,35 @@ class TestConfiguracoesApi(unittest.TestCase):
 
 
 class TestServidorLocal(unittest.TestCase):
-    def test_servidor_local_nao_usa_reloader_e_debug_comeca_desligado(self):
-        """O runner passa por AppConfig; por padrao (sem variaveis de
-        ambiente CONFORTO_*), o debug deve vir DESLIGADO -- ver a nota de
-        seguranca em `app_factory.py` sobre o console interativo do
-        Werkzeug. Passar uma AppConfig explicita torna o teste
-        deterministico, sem depender do ambiente de quem roda a suite."""
+    def test_servidor_local_sem_debug_serve_com_waitress(self):
+        """Com `debug=False` (o padrao -- ver nota de seguranca em
+        `app_factory.py`), o servidor de producao (`waitress`) e quem
+        efetivamente escuta a porta -- nao o servidor de desenvolvimento
+        do Flask/Werkzeug, que nao foi pensado para rodar sem supervisao
+        por longos periodos (ver `app_factory.executar_servidor`)."""
         config = app_factory.AppConfig(
             debug=False, host="127.0.0.1", port=5000, threaded=True, max_content_length=1_000_000
         )
-        with patch.object(flask_app.app, "run") as run:
-            flask_app.executar_servidor_local(config)
+        with patch("waitress.serve") as serve, patch.object(flask_app.app, "run") as run:
+            app_factory.executar_ict(flask_app.app, config)
 
-        run.assert_called_once_with(
-            debug=False, host="127.0.0.1", port=5000, threaded=True, use_reloader=False
-        )
+        serve.assert_called_once_with(flask_app.app, host="127.0.0.1", port=5000, threads=8)
+        run.assert_not_called()
 
-    def test_servidor_local_respeita_config_explicita(self):
+    def test_servidor_local_com_debug_usa_o_servidor_do_flask(self):
+        """`debug=True` e so para desenvolvimento local -- continua usando
+        o servidor embutido do Flask, cujo debugger interativo depende
+        dele (ver `app_factory.executar_servidor`)."""
         config = app_factory.AppConfig(
             debug=True, host="0.0.0.0", port=8080, threaded=False, max_content_length=1_000_000
         )
-        with patch.object(flask_app.app, "run") as run:
-            flask_app.executar_servidor_local(config)
+        with patch("waitress.serve") as serve, patch.object(flask_app.app, "run") as run:
+            app_factory.executar_ict(flask_app.app, config)
 
         run.assert_called_once_with(
             debug=True, host="0.0.0.0", port=8080, threaded=False, use_reloader=False
         )
+        serve.assert_not_called()
 
     def test_app_config_from_env_usa_padroes_seguros_sem_variaveis(self):
         ambiente_limpo = {
@@ -131,15 +161,15 @@ class TestServidorLocal(unittest.TestCase):
         self.assertEqual("127.0.0.1", config.host)
         self.assertEqual(5000, config.port)
 
-    def test_app_config_from_env_usa_config_por_papel(self):
+    def test_app_config_from_env_usa_config_por_processo(self):
         with tempfile.TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "servidor.json"
             config_path.write_text(
                 """
 {
   "padrao": {"host": "127.0.0.1", "port": 5000},
-  "coletor": {"port": 5100},
-  "dashboard": {"port": 5101}
+  "coletor": {"port": 5101},
+  "ict": {"port": 5100}
 }
 """.strip(),
                 encoding="utf-8",
@@ -152,11 +182,11 @@ class TestServidorLocal(unittest.TestCase):
 
             with patch.object(app_factory, "CONFIG_SERVIDOR_PATH", config_path):
                 with patch.dict(os.environ, ambiente_limpo, clear=True):
+                    ict = app_factory.AppConfig.from_env("ict")
                     coletor = app_factory.AppConfig.from_env("coletor")
-                    dashboard = app_factory.AppConfig.from_env("dashboard")
 
-        self.assertEqual(5100, coletor.port)
-        self.assertEqual(5101, dashboard.port)
+        self.assertEqual(5100, ict.port)
+        self.assertEqual(5101, coletor.port)
 
     def test_app_config_from_env_le_variaveis_customizadas(self):
         variaveis = {
@@ -244,6 +274,7 @@ class TestErroInternoNaoVazaDetalhe(unittest.TestCase):
         self.db_path_original = db.DB_PATH
         db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
         db.iniciar_banco()
+        _instalar_proxy_coletor(self)
         self.client = cliente_autenticado(flask_app.app)
 
     def tearDown(self):
@@ -260,7 +291,7 @@ class TestErroInternoNaoVazaDetalhe(unittest.TestCase):
             coletor_estado.gerenciador_controle,
             "calcular_manual",
             side_effect=RuntimeError(segredo),
-        ), patch.object(flask_app.app.logger, "exception") as registrar_erro:
+        ), patch.object(self.app_coletor.logger, "exception") as registrar_erro:
             resposta = self.client.post(
                 f"/api/zonas/{zona['id']}/calcular",
                 json={"entradas": {"tbs": 25, "tbu": 20}},
@@ -280,6 +311,7 @@ class TestZonasApi(unittest.TestCase):
         db.iniciar_banco()
         coletor_estado.zona_service.limpar_historico_grafico()
         coletor_estado.zona_service.limpar_resfriador()
+        _instalar_proxy_coletor(self)
         self.client = cliente_autenticado(flask_app.app)
 
     def tearDown(self):

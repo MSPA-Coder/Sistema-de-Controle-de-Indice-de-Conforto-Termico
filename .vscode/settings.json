@@ -1,0 +1,14 @@
+{
+  "files.encoding": "utf8",
+  "files.eol": "\n",
+  "containers.containerClient": "com.microsoft.visualstudio.containers.docker",
+  "containers.orchestratorClient": "com.microsoft.visualstudio.orchestrators.dockercompose",
+  "containers.containerCommand": "C:\\Users\\MSPA\\AppData\\Local\\Programs\\DockerDesktop\\resources\\bin\\docker.exe",
+  "python.testing.unittestEnabled": true,
+  "python.testing.pytestEnabled": false,
+  "python.testing.unittestArgs": [
+    "-v",
+    "-s",
+    "tests"
+  ]
+}

@@ -1,17 +1,5 @@
 # -*- coding: utf-8 -*-
-"""
-rotas_comuns.py
-=================
-Rotas somente leitura, uteis nos dois papeis de app (coletor e dashboard):
-pagina inicial, lista de zonas (para rotular telas), navegacao pelo
-historico persistido, e um health-check simples do banco.
-
-Vivem num Blueprint proprio (nem em `coletor/rotas.py` nem em
-`dashboard/rotas.py`) porque sao registradas nos TRES casos de
-`app_factory.criar_app` (`papel_app` None/"coletor"/"dashboard"). Se
-estivessem duplicadas em coletor e dashboard, o caso `papel_app=None`
-tentaria registrar a mesma URL duas vezes -- o Flask recusa isso.
-"""
+"""Página principal e consultas públicas compartilhadas pelas abas do ICT."""
 
 from __future__ import annotations
 
@@ -63,14 +51,8 @@ def _parametro_data(nome: str) -> tuple[str | None, tuple | None]:
 
 @comum_bp.route("/")
 def index():
-    # O papel do app corrente (None/"coletor"/"dashboard") decide quais
-    # botoes de aba EXISTEM no processo -- ver `templates/index.html`. O
-    # PERFIL da sessao logada (ver `auth.py`) decide, por cima
-    # disso, quais desses botoes a pessoa efetivamente ve: um botao so
-    # aparece quando as duas condicoes valem ao mesmo tempo. Dashboard e
-    # somente leitura e existe em todos os papeis/perfis; Operacao aparece
-    # apenas no processo coletor E para quem tem a area "operacao".
-    papel_app = current_app.config.get("CONFORTO_PAPEL_APP")
+    # Todas as abas pertencem ao ICT; somente o perfil da sessão decide
+    # quais botões existem e quais APIs podem ser chamadas.
     aba_inicial = "principal"
     usuario = auth.usuario_atual()
     areas_permitidas = auth.AREAS_POR_PERFIL.get(usuario["perfil"], frozenset()) if usuario else frozenset()
@@ -82,7 +64,6 @@ def index():
         campos_por_indice=ti.CAMPOS_POR_INDICE,
         campo_metadados=ti.CAMPO_METADADOS,
         limites=ti.LIMITES,
-        papel_app=papel_app,
         aba_inicial=aba_inicial,
         usuario_atual=usuario,
         areas_permitidas=areas_permitidas,

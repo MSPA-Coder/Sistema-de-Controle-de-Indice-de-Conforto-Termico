@@ -6,10 +6,10 @@
     "threaded": true,
     "max_content_length": 1000000
   },
-  "coletor": {
+  "ict": {
     "port": 5000
   },
-  "dashboard": {
+  "coletor": {
     "port": 5001
   }
 }
