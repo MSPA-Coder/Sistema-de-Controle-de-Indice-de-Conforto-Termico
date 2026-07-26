@@ -6,8 +6,38 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 from app import database as db
+
+
+class TestBackupPostgres(unittest.TestCase):
+    @patch("app.database.os.path.getsize", return_value=1234)
+    @patch("app.database.subprocess.run")
+    @patch("app.database.db_backend.database_url")
+    @patch("app.database.db_backend.postgres_ativo", return_value=True)
+    def test_dump_inclui_banco_inteiro_sem_donos(
+        self, _postgres_ativo, database_url, executar, _getsize
+    ):
+        database_url.return_value = (
+            "postgresql+psycopg://conforto:segredo@postgres/conforto_termico"
+        )
+        with tempfile.TemporaryDirectory() as diretorio:
+            db_path_original = db.DB_PATH
+            db.DB_PATH = os.path.join(diretorio, "historico.db")
+            try:
+                backup = db.criar_backup_banco()
+            finally:
+                db.DB_PATH = db_path_original
+
+        comando = executar.call_args.args[0]
+        self.assertIn("--format=custom", comando)
+        self.assertIn("--no-owner", comando)
+        self.assertIn("--no-privileges", comando)
+        self.assertFalse(any(item.startswith("--schema=") for item in comando))
+        self.assertFalse(any("segredo" in item for item in comando))
+        self.assertEqual("segredo", executar.call_args.kwargs["env"]["PGPASSWORD"])
+        self.assertTrue(backup["arquivo"].endswith(".dump"))
 
 
 class TestIntervaloMinimoLeituras(unittest.TestCase):

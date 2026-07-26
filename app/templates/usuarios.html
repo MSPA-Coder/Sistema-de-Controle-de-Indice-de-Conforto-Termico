@@ -15,6 +15,7 @@
       Logado como <strong>{{ usuario_atual.nome }}</strong>
       ({{ perfil_label.get(usuario_atual.perfil, usuario_atual.perfil) }})
       <form method="post" action="{{ url_for('auth.logout') }}" class="admin-logout-form">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <button type="submit" class="botao botao--texto">Sair</button>
       </form>
     </div>
@@ -62,6 +63,7 @@
               <form method="post" action="{{ url_for('usuarios.excluir_usuario_rota', usuario_id=usuario.id) }}"
                     class="admin-excluir-form"
                     onsubmit="return confirm('Excluir o usuário {{ usuario.nome }}? Esta ação não pode ser desfeita.');">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="botao botao--perigo botao--compacto">Excluir</button>
               </form>
               {% endif %}

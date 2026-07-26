@@ -26,6 +26,7 @@ um botao no HTML nunca e controle de acesso de verdade.
 
 from __future__ import annotations
 
+import hmac
 import os
 import secrets
 from pathlib import Path
@@ -103,6 +104,15 @@ PERFIL_LABEL: dict[str, str] = {
 PERFIS_QUE_PODEM_EXCLUIR_DADOS_ENTRADA = frozenset({"tecnico", "administrador"})
 
 SENHA_TAMANHO_MINIMO = 8
+METODOS_HTTP_SEGUROS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def obter_token_csrf() -> str:
+    token = session.get("_csrf_token")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session["_csrf_token"] = token
+    return token
 
 
 # ---------------------------------------------------------------------------
@@ -186,6 +196,17 @@ def obter_ou_criar_token_interno() -> str:
     variavel_ambiente = os.environ.get("CONFORTO_INTERNO_TOKEN")
     if variavel_ambiente:
         return variavel_ambiente
+    arquivo_segredo = os.environ.get("CONFORTO_INTERNO_TOKEN_FILE")
+    if arquivo_segredo:
+        try:
+            token = Path(arquivo_segredo).read_text(encoding="utf-8").strip()
+        except OSError as erro:
+            raise RuntimeError(
+                "Não foi possível ler CONFORTO_INTERNO_TOKEN_FILE."
+            ) from erro
+        if not token:
+            raise RuntimeError("CONFORTO_INTERNO_TOKEN_FILE está vazio.")
+        return token
 
     caminho = Path(os.path.dirname(db.DB_PATH)) / "interno_token.txt"
     try:
@@ -220,6 +241,7 @@ ENDPOINTS_ISENTOS_DE_LOGIN = frozenset(
     {
         "auth.login",
         "comum.favicon",
+        "health_ict",
     }
 )
 
@@ -302,6 +324,29 @@ def registrar_autenticacao(app: Flask) -> None:
     """Registra os hooks que exigem login em QUALQUER rota (inclusive a
     pagina inicial) e que conferem a area exigida por endpoint, quando houver
     uma em AREA_POR_ENDPOINT/PERFIS_EXTRA_POR_ENDPOINT."""
+
+    app.jinja_env.globals["csrf_token"] = obter_token_csrf
+
+    @app.before_request
+    def _proteger_csrf():
+        # A suíte usa clientes Flask isolados e testa autorização
+        # separadamente. Um teste dedicado cobre esta proteção com TESTING
+        # desabilitado.
+        if (
+            not app.config.get("CSRF_PROTECTION_ENABLED", True)
+            or app.testing
+            or request.method in METODOS_HTTP_SEGUROS
+        ):
+            return None
+        esperado = session.get("_csrf_token", "")
+        recebido = request.headers.get("X-CSRF-Token", "") or request.form.get(
+            "_csrf_token", ""
+        )
+        if esperado and recebido and hmac.compare_digest(esperado, recebido):
+            return None
+        if request.path.startswith("/api/"):
+            return jsonify({"erro": "Token CSRF inválido ou ausente."}), 400
+        return "Token CSRF inválido ou ausente.", 400
 
     @app.before_request
     def _carregar_usuario_da_sessao():

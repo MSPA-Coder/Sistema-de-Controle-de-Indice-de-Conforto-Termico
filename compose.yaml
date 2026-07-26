@@ -5,9 +5,28 @@ x-app-build: &app-build
   secrets:
     - local_ca
 
-x-database-url: &database-url
-  DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-conforto}:${POSTGRES_PASSWORD:-conforto_dev_local}@postgres:5432/${POSTGRES_DB:-conforto_termico}
+x-database-environment: &database-environment
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  DB_NAME: ${POSTGRES_DB:-conforto_termico}
+  DB_USER: ${POSTGRES_USER:-conforto}
+  DB_PASSWORD_FILE: /run/secrets/postgres_password
   TZ: America/Sao_Paulo
+
+x-app-security: &app-security
+  read_only: true
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  tmpfs:
+    - /tmp:rw,nosuid,nodev,noexec,size=64m
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
 
 services:
   postgres:
@@ -16,45 +35,55 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-conforto_termico}
       POSTGRES_USER: ${POSTGRES_USER:-conforto}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-conforto_dev_local}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
       TZ: America/Sao_Paulo
+    secrets:
+      - postgres_password
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    logging: *default-logging
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-conforto} -d ${POSTGRES_DB:-conforto_termico}"]
       interval: 5s
       timeout: 5s
       retries: 20
+      start_period: 10s
+      start_interval: 1s
+    stop_grace_period: 60s
 
   schema:
     image: conforto-termico:local
     build: *app-build
+    <<: *app-security
     environment:
-      <<: *database-url
-    volumes:
-      - .:/workspace
+      <<: *database-environment
+    secrets:
+      - postgres_password
     depends_on:
       postgres:
         condition: service_healthy
     command: ["alembic", "upgrade", "head"]
     restart: "no"
+    logging: *default-logging
 
   coletor:
     image: conforto-termico:local
-    build: *app-build
     restart: unless-stopped
+    init: true
+    <<: *app-security
     environment:
-      <<: *database-url
+      <<: *database-environment
       CONFORTO_HOST: 0.0.0.0
       CONFORTO_PORT: "5000"
       CONFORTO_DEBUG: "0"
-      CONFORTO_INTERNO_TOKEN: ${CONFORTO_INTERNO_TOKEN:?Defina CONFORTO_INTERNO_TOKEN em .env.docker}
+      CONFORTO_INTERNO_TOKEN_FILE: /run/secrets/internal_token
+    secrets:
+      - postgres_password
+      - internal_token
     expose:
       - "5000"
-    volumes:
-      - .:/workspace
     depends_on:
       schema:
         condition: service_completed_successfully
@@ -69,22 +98,28 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
+      start_interval: 1s
+    stop_grace_period: 30s
+    logging: *default-logging
 
   ict:
     image: conforto-termico:local
-    build: *app-build
     restart: unless-stopped
+    init: true
+    <<: *app-security
     environment:
-      <<: *database-url
+      <<: *database-environment
       CONFORTO_HOST: 0.0.0.0
       CONFORTO_PORT: "5000"
       CONFORTO_DEBUG: ${CONFORTO_DEBUG:-0}
-      CONFORTO_INTERNO_TOKEN: ${CONFORTO_INTERNO_TOKEN:?Defina CONFORTO_INTERNO_TOKEN em .env.docker}
+      CONFORTO_INTERNO_TOKEN_FILE: /run/secrets/internal_token
       COLETOR_URL: http://coletor:5000
+    secrets:
+      - postgres_password
+      - internal_token
     ports:
       - "127.0.0.1:${APP_PORT:-5000}:5000"
     volumes:
-      - .:/workspace
       - app_instance:/workspace/instance
     depends_on:
       schema:
@@ -97,32 +132,14 @@ services:
         - CMD
         - python
         - -c
-        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/login', timeout=3)"
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=3)"
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 10s
-
-  importar_sqlite:
-    profiles: ["tools"]
-    image: conforto-termico:local
-    build: *app-build
-    environment:
-      <<: *database-url
-    volumes:
-      - .:/workspace
-      - ./instance:/sqlite:ro
-    depends_on:
-      schema:
-        condition: service_completed_successfully
-    command:
-      - python
-      - scripts/migrar_sqlite_postgres.py
-      - --sqlite-dir
-      - /sqlite
-      - --confirm-reset-postgres
-      - --report
-      - /workspace/migration_report.json
+      start_interval: 1s
+    stop_grace_period: 30s
+    logging: *default-logging
 
 volumes:
   postgres_data:
@@ -131,3 +148,7 @@ volumes:
 secrets:
   local_ca:
     file: .certs/local-root-ca.crt
+  postgres_password:
+    file: .secrets/postgres_password.txt
+  internal_token:
+    file: .secrets/internal_token.txt

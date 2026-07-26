@@ -65,7 +65,7 @@ def gerar_dados():
 def listar_execucoes():
     return jsonify({
         "execucoes": dados_db.listar_execucoes(),
-        "arquivo_banco": "dados_entrada.db",
+        "destino": "PostgreSQL (schema dados_entrada)",
     })
 
 

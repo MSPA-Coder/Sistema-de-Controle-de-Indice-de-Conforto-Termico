@@ -1,6 +1,6 @@
 # Sistema de Controle dos Índices de Conforto Térmico
 
-Aplicação web em Python e Flask para monitorar conforto térmico na produção animal. O sistema calcula índices térmicos, acompanha zonas com sensores e atuadores, mantém histórico local e oferece visões de operação e análise com acesso controlado por perfil.
+Aplicação web em Python e Flask para monitorar conforto térmico na produção animal. O sistema calcula índices térmicos, acompanha zonas com sensores e atuadores, mantém o histórico no PostgreSQL e oferece visões de operação e análise com acesso controlado por perfil.
 
 As fórmulas, faixas de classificação e espécies atendidas têm como referência a dissertação *Programa Computacional para o Cálculo de Índices de Conforto Térmico na Produção Industrial de Animais para Carne e Leite* (Mariano Sergio Pacheco de Angelo, UNIP, 2013). A implementação atual está centralizada em `app/thermal_indices.py`.
 
@@ -10,7 +10,7 @@ As fórmulas, faixas de classificação e espécies atendidas têm como referên
 - Monitoramento por zona com sensores, ventiladores e nebulizadores independentes.
 - Modos de operação desligado, manual, automático e manutenção.
 - Simulação de sensores e atuadores para uso sem hardware Modbus.
-- Histórico em PostgreSQL no ambiente Docker, com séries em tempo real, agregados de 15 minutos e resumos horários. SQLite permanece disponível para testes locais e migração de instalações existentes.
+- Histórico em PostgreSQL, com séries em tempo real, agregados de 15 minutos e resumos horários. SQLite é usado somente pelos testes unitários.
 - Painéis de acompanhamento, análises por zona e filtros de histórico.
 - Geração de dados de entrada a partir do clima histórico disponibilizado pelo Open-Meteo.
 - Alertas por e-mail, com pré-visualização quando não há SMTP configurado.
@@ -29,10 +29,8 @@ Cada resultado é classificado como **Conforto**, **Alerta**, **Perigo** ou **Em
 
 ## Requisitos
 
-- Python 3.10 ou superior.
-- Dependências de `requirements.txt`.
-- Para o ambiente recomendado de desenvolvimento: Docker Desktop com WSL 2 e VS Code.
-- `pymodbus` somente para comunicação com hardware Modbus real.
+- Docker Desktop com Docker Compose.
+- VS Code é opcional para desenvolvimento.
 - Acesso à internet somente para baixar dados climáticos ainda não presentes no cache.
 
 ## Desenvolvimento com VS Code, Docker e PostgreSQL
@@ -48,11 +46,16 @@ O PostgreSQL usa um único banco e separa as responsabilidades nos schemas
 `historico` e `dados_entrada`. O esquema é versionado pelo Alembic. As portas
 são publicadas somente em `127.0.0.1`.
 
-Na primeira execução, copie o arquivo de ambiente:
+Na primeira execução, copie o arquivo de ambiente e gere os segredos locais:
 
 ```powershell
 Copy-Item .env.docker.example .env.docker
+docker run --rm -v "${PWD}:/workspace" -w /workspace python:3.13-slim python scripts/configurar_segredos.py
 ```
+
+Os arquivos ficam em `.secrets/`, fora do Git. Não coloque senhas nem tokens em
+`.env.docker`. Em uma instalação já existente, use o procedimento de rotação
+coordenada antes de substituir a senha do PostgreSQL.
 
 Se o computador interceptar HTTPS com uma autoridade local, exporte-a antes
 do build. O arquivo gerado fica fora do Git:
@@ -82,19 +85,10 @@ docker compose --env-file .env.docker down
 Não use `down -v` sem intenção explícita: essa opção remove o volume do
 PostgreSQL.
 
-### Migração de SQLite para PostgreSQL
+### Verificação do PostgreSQL
 
-Os arquivos `instance/historico.db` e `instance/dados_entrada.db` são lidos
-somente em modo imutável. O comando abaixo recria exclusivamente os schemas
-da aplicação no PostgreSQL, importa os dados e confere a quantidade de linhas
-de cada tabela:
-
-```powershell
-docker compose --env-file .env.docker --profile tools run --rm importar_sqlite
-```
-
-O resultado detalhado é gravado em `migration_report.json`. Depois da carga,
-execute o smoke test transacional:
+Para validar escrita, leitura, unicidade case-insensitive e rollback no banco
+da pilha:
 
 ```powershell
 docker compose --env-file .env.docker exec ict python -m scripts.verificar_postgres
@@ -106,38 +100,23 @@ A suíte unitária continua usando bancos SQLite temporários para ser rápida e
 isolada:
 
 ```powershell
-docker compose --env-file .env.docker run --rm --no-deps -e DATABASE_URL= ict python -m unittest discover -v
+docker run --rm -e DATABASE_URL= conforto-termico:local python -m unittest discover -v
 ```
 
 ### Backup do PostgreSQL
 
-A ação de backup da interface usa `pg_dump` e gera um arquivo `.dump` do
-schema `historico` no volume de instância da aplicação. Os SQLite originais
-não são removidos nem alterados.
+A ação de backup da interface usa `pg_dump` em formato custom e inclui o banco
+completo — schemas `historico` e `dados_entrada`, extensões e revisão Alembic —
+no volume de instância da aplicação.
 
-## Instalação
-
-No PowerShell:
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-```
-
-Para usar equipamentos Modbus reais:
-
-```powershell
-python -m pip install "pymodbus>=3.8,<4.0"
-```
+O suporte a equipamentos Modbus reais já está incluído na imagem.
 
 ## Primeiro acesso
 
 Crie o primeiro administrador antes de iniciar o uso:
 
 ```powershell
-python scripts/criar_usuario_admin.py
+docker compose --env-file .env.docker exec ict python scripts/criar_usuario_admin.py
 ```
 
 O script solicita nome, login e senha. Depois do primeiro acesso, administradores podem gerenciar as demais contas pela interface.
@@ -154,19 +133,6 @@ Acesse somente o ICT em `http://127.0.0.1:5000`. A porta do coletor não é
 publicada no host; dentro da rede do Compose, o ICT o alcança em
 `http://coletor:5000`.
 
-Para depuração local sem Docker, abra dois terminais:
-
-```powershell
-python run_coletor.py
-```
-
-```powershell
-python run_ict.py
-```
-
-Nesse modo, o ICT usa a porta `5000`, o coletor usa `5001` e ambos usam os
-bancos SQLite de `instance/`. O navegador continua acessando somente o ICT.
-
 ## Configuração do servidor
 
 Os valores padrão ficam em `config/servidor.json`. Variáveis de ambiente, quando definidas, têm precedência:
@@ -178,34 +144,29 @@ Os valores padrão ficam em `config/servidor.json`. Variáveis de ambiente, quan
 | `CONFORTO_PORT` | conforme o processo | Porta TCP. |
 | `CONFORTO_THREADED` | `1` | Habilita atendimento concorrente. Com `CONFORTO_DEBUG=0`, controla o número de threads do `waitress` (ver abaixo). |
 | `CONFORTO_MAX_CONTENT_LENGTH` | `1000000` | Limite do corpo das requisições, em bytes. |
-| `CONFORTO_SECRET_KEY` | arquivo local gerado | Define a chave usada para assinar a sessão. |
-| `CONFORTO_INTERNO_TOKEN` | obrigatório no Docker | Segredo compartilhado entre ICT e coletor para todas as ações da API interna. |
-| `COLETOR_URL` | `http://127.0.0.1:5001` local | Endereço privado usado pelo ICT. No Compose é `http://coletor:5000`. |
+| `CONFORTO_SECRET_KEY` | arquivo no volume gerado | Define a chave usada para assinar a sessão. |
+| `CONFORTO_INTERNO_TOKEN_FILE` | `/run/secrets/internal_token` | Arquivo de segredo compartilhado entre ICT e coletor para a API interna. |
+| `CONFORTO_COOKIE_SEGURO` | `0` | Use `1` quando o acesso externo estiver protegido por HTTPS. |
+| `COLETOR_URL` | `http://coletor:5000` no Compose | Endereço privado usado pelo ICT. |
 
-Com `CONFORTO_DEBUG=0` (o padrão), o servidor é servido por `waitress` -- um servidor WSGI de produção, puro Python, pensado para rodar sem supervisão por longos períodos (ver "Coletor como serviço do Windows" abaixo). O servidor embutido do Flask/Werkzeug só é usado com `CONFORTO_DEBUG=1`, e é voltado a desenvolvimento local.
+Com `CONFORTO_DEBUG=0` (o padrão), o servidor é servido por `waitress`. O
+servidor embutido do Flask/Werkzeug só é usado com `CONFORTO_DEBUG=1`.
 
 ### Configuração de implantação e configuração operacional
 
-`.env.docker` e o `.env` local são somente leitura para a aplicação. Eles
-guardam endereços, portas, tokens e fallbacks SMTP definidos por quem mantém
-a implantação. Alterá-los exige recriar os processos afetados.
+`.env.docker` é somente leitura para a aplicação. Ele guarda endereços, portas
+e opções não secretas definidos por quem mantém a implantação. Senha do banco e
+token interno ficam em Docker secrets. Alterações exigem recriar os processos
+afetados.
 
 Parâmetros mantidos pelas abas — zonas, equipamentos, endereços Modbus,
 intervalos, limites, simulação e alertas — ficam no PostgreSQL. O coletor
 consulta essa configuração durante a malha, de modo que alterações autorizadas
 no ICT não exigem acesso ao Docker nem reescrita de `.env`.
 
-Ao expor o serviço fora da máquina local, mantenha `CONFORTO_DEBUG=0`, restrinja a rede de acesso e use HTTPS adequado ao ambiente (por exemplo, um proxy reverso na frente do `waitress`).
-
-## Coletor fora do Docker
-
-O Docker Compose é o supervisor recomendado (`restart: unless-stopped`). Em uma
-instalação sem Docker, o coletor ainda pode ser registrado como serviço do Windows:
-
-1. **NSSM** (recomendado para começar -- não exige mudar nenhum código): baixe o [NSSM](https://nssm.cc/), rode `nssm install ConfortoTermicoColetor` e aponte para `python.exe` com o argumento `run_coletor.py` (caminho completo dos dois). O NSSM cuida de iniciar no boot, reiniciar em caso de queda e redirecionar a saída para um arquivo de log. Ver `scripts/instalar_servico_coletor.ps1` para um roteiro automatizado.
-2. **`pywin32`** (integração nativa com o Service Control Manager e o Visualizador de Eventos do Windows): ver `scripts/servico_windows.py`, um esqueleto que chama o mesmo `run_coletor.py` por dentro de um `win32serviceutil.ServiceFramework`. Requer `pip install pywin32` e registrar o serviço como Administrador.
-
-Em ambos os casos, o processo continua sendo o mesmo `run_coletor.py` de sempre -- o que muda é quem o inicia, supervisiona e reinicia.
+Ao expor o serviço fora da máquina local, mantenha `CONFORTO_DEBUG=0`,
+restrinja a rede de acesso e use HTTPS adequado ao ambiente, como um proxy
+reverso na frente do `waitress`.
 
 ## Perfis de acesso
 
@@ -222,7 +183,10 @@ Todo acesso exige autenticação. As permissões são verificadas nas rotas; ocu
 
 A exclusão de dados de entrada é restrita a técnicos e administradores. O sistema também impede que o último administrador ativo seja removido ou desativado.
 
-As sessões duram até 12 horas e usam cookies `HttpOnly` e `SameSite=Lax`. A aplicação não implementa token CSRF; encerre a sessão em dispositivos compartilhados e não exponha a instalação diretamente à internet.
+As sessões duram até 12 horas e usam cookies `HttpOnly` e `SameSite=Lax`.
+Formulários e chamadas mutáveis da interface exigem token CSRF. Ao publicar por
+HTTPS, habilite `CONFORTO_COOKIE_SEGURO=1`; encerre a sessão em dispositivos
+compartilhados.
 
 ## Organização da interface
 
@@ -259,7 +223,6 @@ As zonas mantêm estados de controle independentes. A falha de um sensor não bl
 
 Antes de desabilitar a simulação:
 
-- instale `pymodbus`;
 - confira endereços, unidades, registradores e fatores de escala;
 - teste a conexão de cada equipamento;
 - valide as travas global e da zona;
@@ -286,21 +249,22 @@ A senha SMTP nunca é devolvida pela API. A interface informa apenas se existe u
 
 A área **Dados de entrada** gera séries para zonas ativas a partir de dados climáticos históricos do Open-Meteo, complementados por cálculos psicrométricos e simulação de atividade e carga térmica animal.
 
-Os resultados ficam em `instance/dados_entrada.db`, separado do histórico operacional. Uma execução pode ser exportada em CSV ou copiada uma única vez para `instance/historico.db`.
+Os resultados ficam no schema PostgreSQL `dados_entrada`, separado do schema
+operacional `historico`. Uma execução pode ser exportada em CSV ou copiada
+uma única vez para o histórico.
 
 Consultas climáticas são armazenadas em cache. Uma geração que precise de um período ainda não armazenado depende de acesso à internet e da disponibilidade do serviço externo.
 
-## Persistência e arquivos locais
+## Persistência
 
-Arquivos de execução ficam em `instance/`, que não deve ser versionada:
-
-- `historico.db`: usuários, configurações, zonas, equipamentos, leituras, estados e agregações;
-- `dados_entrada.db`: parâmetros, cache climático e séries geradas;
-- `secret_key.txt`: chave de sessão gerada automaticamente quando `CONFORTO_SECRET_KEY` não foi definida.
+Os dados da aplicação ficam no volume `postgres_data`, divididos entre os
+schemas `historico` e `dados_entrada`. O volume `app_instance` armazena a
+chave de sessão gerada e os dumps criados pela função de backup.
 
 Excluir uma zona remove seus equipamentos, mas preserva as leituras históricas sem vínculo com a zona.
 
-Faça backup periódico de `instance/` com a aplicação parada ou use a função de backup disponível na área Sistema.
+Faça backups periódicos do PostgreSQL ou use a função disponível na área
+Sistema. Não trate o diretório de código como armazenamento persistente.
 
 Para criar uma distribuição do código sem bancos, ambiente virtual, caches e metadados locais:
 
@@ -313,13 +277,13 @@ python scripts/gerar_zip_limpo.py
 Para cadastrar cinco zonas de exemplo:
 
 ```powershell
-python scripts/seed_zonas.py
+docker compose --env-file .env.docker exec ict python scripts/seed_zonas.py
 ```
 
 O script não adiciona zonas quando já existem registros. Use `--forcar` apenas quando quiser inserir outro conjunto:
 
 ```powershell
-python scripts/seed_zonas.py --forcar
+docker compose --env-file .env.docker exec ict python scripts/seed_zonas.py --forcar
 ```
 
 ## Estrutura do projeto
@@ -347,7 +311,7 @@ python scripts/seed_zonas.py --forcar
 ├── scripts/                   # utilitários de administração e demonstração
 ├── tests/                     # testes automatizados
 ├── docs/                      # material de referência
-└── instance/                  # dados locais não versionados
+└── instance/                  # chave de sessão e backups no volume Docker
 ```
 
 ## Arquitetura
@@ -373,19 +337,16 @@ A API é interna à interface web e não possui versionamento público. Ao alter
 
 ## Testes
 
-Execute a suíte completa:
+Após construir a imagem, execute a suíte completa com SQLite temporário:
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest discover -v
+docker run --rm -e DATABASE_URL= conforto-termico:local python -m unittest discover -v
 ```
 
-Ou, com o Python já ativo no ambiente:
-
-```powershell
-python -m unittest discover -v
-```
-
-Os testes de Modbus usam simulações e não exigem hardware ou conectividade. Mudanças locais podem ser verificadas primeiro com o módulo de teste relacionado; antes de integrar uma alteração ampla, execute a suíte completa.
+Os testes de Modbus usam simulações e não exigem hardware ou conectividade.
+SQLite não é uma opção de implantação: seu uso fica restrito a esses testes
+unitários. Antes de integrar uma alteração ampla, valide também a pilha
+PostgreSQL com `scripts.verificar_postgres`.
 
 ## Manutenção
 

@@ -2,12 +2,13 @@
 """
 database.py
 ============
-Persistencia do historico de leituras, configuracoes, zonas Modbus e
-equipamentos. PostgreSQL e usado quando ``DATABASE_URL`` esta definida;
-SQLite permanece como backend local e de testes.
+Persistência do histórico de leituras, configurações, zonas Modbus e
+equipamentos. PostgreSQL é o backend de produção; SQLite permanece somente
+como backend leve da suíte unitária.
 
-Todas as operacoes passam por `_conexao()`, que serializa o acesso no processo,
-ativa WAL, aplica timeout de lock, garante commit/rollback e fecha a conexao.
+Todas as operações passam por `_conexao()`, que garante commit/rollback e
+fecha a conexão. A serialização local, WAL e timeout de lock se aplicam apenas
+ao SQLite dos testes; o PostgreSQL gerencia concorrência e pooling.
 Configuracoes persistidas sao sempre sanitizadas em leitura e escrita; valores
 invalidos voltam ao padrao seguro da chave.
 """
@@ -108,22 +109,20 @@ _EMAIL_REGEX = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 @contextmanager
 def _conexao(*, escrita: bool = True) -> Iterator:
-    """Abre uma conexao SQLite, garante commit em caso de sucesso (ou
-    rollback em caso de excecao) e SEMPRE fecha a conexao ao final.
+    """Abre uma conexão, confirma ou desfaz a transação e sempre a fecha.
 
-    `escrita=True` (padrao, e o unico modo usado antes desta versao) serializa
-    a conexao com qualquer outra escrita em andamento neste processo por meio
-    de `_write_lock`. Isso e o que garante a "unicidade" logica de operacoes
+    No SQLite de testes, `escrita=True` serializa a conexão com qualquer outra
+    escrita em andamento neste processo por meio de `_write_lock`. Isso é o
+    que garante a "unicidade" lógica de operações
     como "verificar se a zona existe e, se sim, inserir o equipamento":
     quando o codigo-chamador faz a checagem e a mutacao dentro do MESMO bloco
     `with _conexao() as conn:`, nenhuma outra thread consegue intercalar uma
     mudanca no meio do caminho (ver `criar_equipamento`, `atualizar_zona`,
     `atualizar_equipamento` e `salvar_configuracoes`).
 
-    `escrita=False` e usado pelas funcoes somente-leitura (`obter_*`,
-    `listar_*`, `contar_*`): elas dispensam o lock, permitindo que varias
-    leituras concorrentes (ex.: o dashboard consultando o historico enquanto
-    o modo automatico grava uma leitura) rodem em paralelo de verdade."""
+    `escrita=False` dispensa esse lock local nas funções somente leitura. No
+    PostgreSQL, concorrência e isolamento são responsabilidade do próprio
+    banco; o parâmetro não altera a conexão."""
     if db_backend.postgres_ativo():
         conn = db_backend.abrir_conexao_postgres("historico")
         try:
@@ -182,10 +181,8 @@ def _coluna_existe(conn, tabela: str, coluna: str) -> bool:
 
 def iniciar_banco() -> None:
     if db_backend.postgres_ativo():
-        # O esquema PostgreSQL é versionado pelo Alembic e aplicado pelo
-        # entrypoint do contêiner antes de iniciar o Flask.
-        with _conexao() as conn:
-            conn.execute("DELETE FROM configuracoes WHERE chave = 'modoAutomatico'")
+        # No Docker, o job `schema` aplica todas as alterações e limpezas de
+        # dados versionadas antes de liberar os serviços da aplicação.
         return
 
     with _conexao() as conn:
@@ -811,6 +808,42 @@ def janelas_15min_pendentes(zona_id: int, indice: str) -> list[str]:
     agora = datetime.datetime.now().replace(microsecond=0)
     janela_atual_aberta = _formatar_janela(agora, 15)
     with _conexao(escrita=False) as conn:
+        if db_backend.postgres_ativo():
+            linhas = conn.execute(
+                """
+                SELECT DISTINCT
+                    to_char(
+                        date_bin(
+                            INTERVAL '15 minutes',
+                            l.criado_em::timestamp,
+                            TIMESTAMP '2000-01-01'
+                        ),
+                        'YYYY-MM-DD"T"HH24:MI:SS'
+                    ) AS janela_inicio
+                FROM leituras l
+                WHERE l.zona_id = ?
+                  AND l.indice = ?
+                  AND l.criado_em < ?
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM agregados_15min a
+                      WHERE a.zona_id = l.zona_id
+                        AND a.indice = l.indice
+                        AND a.janela_inicio = to_char(
+                            date_bin(
+                                INTERVAL '15 minutes',
+                                l.criado_em::timestamp,
+                                TIMESTAMP '2000-01-01'
+                            ),
+                            'YYYY-MM-DD"T"HH24:MI:SS'
+                        )
+                  )
+                ORDER BY janela_inicio
+                """,
+                (zona_id, indice, janela_atual_aberta),
+            ).fetchall()
+            return [linha["janela_inicio"] for linha in linhas]
+
         linhas = conn.execute(
             """
             SELECT criado_em
@@ -910,6 +943,34 @@ def horas_pendentes(zona_id: int, indice: str) -> list[str]:
         timespec="seconds"
     )
     with _conexao(escrita=False) as conn:
+        if db_backend.postgres_ativo():
+            linhas = conn.execute(
+                """
+                SELECT DISTINCT
+                    to_char(
+                        date_trunc('hour', a.janela_inicio::timestamp),
+                        'YYYY-MM-DD"T"HH24:MI:SS'
+                    ) AS hora_inicio
+                FROM agregados_15min a
+                WHERE a.zona_id = ?
+                  AND a.indice = ?
+                  AND a.janela_inicio < ?
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM resumos_horarios r
+                      WHERE r.zona_id = a.zona_id
+                        AND r.indice = a.indice
+                        AND r.hora_inicio = to_char(
+                            date_trunc('hour', a.janela_inicio::timestamp),
+                            'YYYY-MM-DD"T"HH24:MI:SS'
+                        )
+                  )
+                ORDER BY hora_inicio
+                """,
+                (zona_id, indice, hora_atual_aberta),
+            ).fetchall()
+            return [linha["hora_inicio"] for linha in linhas]
+
         linhas = conn.execute(
             """
             SELECT janela_inicio
@@ -1052,28 +1113,40 @@ def obter_resumos_horarios(
 
 
 def criar_backup_banco() -> dict:
-    """Cria um backup consistente no diretório de instância."""
+    """Cria um backup consistente no diretório de instância.
+
+    Em produção, o dump inclui todo o banco da aplicação: os dois schemas,
+    extensões e a revisão Alembic necessária para uma restauração completa.
+    """
     diretorio = os.path.dirname(DB_PATH)
     nome_base = os.path.splitext(os.path.basename(DB_PATH))[0] or "historico"
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
 
     if db_backend.postgres_ativo():
+        from sqlalchemy.engine import make_url
+
         os.makedirs(diretorio, exist_ok=True)
         caminho_backup = os.path.join(
-            diretorio, f"{nome_base}_backup_{timestamp}.dump"
+            diretorio, f"conforto_termico_backup_{timestamp}.dump"
         )
-        url = db_backend.database_url().replace(
-            "postgresql+psycopg://", "postgresql://", 1
-        )
+        url = make_url(db_backend.database_url())
+        ambiente_pg_dump = dict(os.environ)
+        if url.password:
+            ambiente_pg_dump["PGPASSWORD"] = url.password
         subprocess.run(
             [
                 "pg_dump",
                 "--format=custom",
-                "--schema=historico",
+                "--no-owner",
+                "--no-privileges",
                 f"--file={caminho_backup}",
-                url,
+                f"--host={url.host or 'postgres'}",
+                f"--port={url.port or 5432}",
+                f"--username={url.username or 'conforto'}",
+                f"--dbname={url.database or 'conforto_termico'}",
             ],
             check=True,
+            env=ambiente_pg_dump,
         )
         return {
             "arquivo": os.path.basename(caminho_backup),
@@ -1862,16 +1935,47 @@ def obter_painel_zonas() -> list[dict]:
             "FROM estado_equipamentos"
         ).fetchall()
         leituras_por_zona: dict[int, list[sqlite3.Row]] = {}
-        for zona in zonas:
-            leituras_por_zona[zona["id"]] = list(
-                reversed(
-                    conn.execute(
-                        "SELECT valor, status, entradas, criado_em FROM leituras "
-                        "WHERE zona_id = ? AND indice = ? ORDER BY id DESC LIMIT ?",
-                        (zona["id"], zona["indice"], LIMITE_LEITURAS_PAINEL_EXECUTIVO),
-                    ).fetchall()
+        if db_backend.postgres_ativo():
+            linhas_leituras = conn.execute(
+                """
+                SELECT
+                    z.id AS zona_id,
+                    recentes.valor,
+                    recentes.status,
+                    recentes.entradas,
+                    recentes.criado_em
+                FROM zonas z
+                CROSS JOIN LATERAL (
+                    SELECT l.id, l.valor, l.status, l.entradas, l.criado_em
+                    FROM leituras l
+                    WHERE l.zona_id = z.id AND l.indice = z.indice
+                    ORDER BY l.id DESC
+                    LIMIT ?
+                ) recentes
+                ORDER BY z.id, recentes.id
+                """,
+                (LIMITE_LEITURAS_PAINEL_EXECUTIVO,),
+            ).fetchall()
+            for linha in linhas_leituras:
+                leituras_por_zona.setdefault(linha["zona_id"], []).append(linha)
+        else:
+            # O caminho SQLite é mantido apenas para a suíte unitária. No
+            # PostgreSQL, a consulta LATERAL acima evita uma ida ao banco por
+            # zona e ainda usa o índice que entrega as leituras mais recentes.
+            for zona in zonas:
+                leituras_por_zona[zona["id"]] = list(
+                    reversed(
+                        conn.execute(
+                            "SELECT valor, status, entradas, criado_em FROM leituras "
+                            "WHERE zona_id = ? AND indice = ? ORDER BY id DESC LIMIT ?",
+                            (
+                                zona["id"],
+                                zona["indice"],
+                                LIMITE_LEITURAS_PAINEL_EXECUTIVO,
+                            ),
+                        ).fetchall()
+                    )
                 )
-            )
 
     sensores_por_zona: dict[int, list[sqlite3.Row]] = {}
     for linha in linhas_sensores:

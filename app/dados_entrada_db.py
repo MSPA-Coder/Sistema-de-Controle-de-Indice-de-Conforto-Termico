@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """Persistencia isolada para geracao de dados de entrada.
 
-As series usam o schema PostgreSQL ``dados_entrada`` quando ``DATABASE_URL``
-esta definida. No modo local e de testes, usam ``instance/dados_entrada.db``.
+As séries usam o schema PostgreSQL ``dados_entrada`` em produção. A suíte
+unitária usa um banco SQLite temporário.
 A copia para o historico e explicita, transacional e idempotente.
 """
 

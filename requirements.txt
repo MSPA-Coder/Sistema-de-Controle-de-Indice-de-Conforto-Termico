@@ -2,30 +2,13 @@ Flask>=3.0,<4.0
 SQLAlchemy>=2.0,<3.0
 psycopg[binary]>=3.2,<4.0
 alembic>=1.14,<2.0
-# Servidor WSGI de producao. O servidor embutido do Flask (Werkzeug) e
-# voltado a desenvolvimento -- nao pensado para rodar dias/semanas sem
-# supervisao, como um servico do Windows precisa. waitress e puro Python
-# (sem compilacao) e funciona nativamente no Windows, ao contrario de
-# alternativas comuns como gunicorn. So entra em uso quando CONFORTO_DEBUG
-# esta desligado (ver app_factory.executar_servidor) -- em desenvolvimento
-# local com depuracao ligada, o servidor do Flask continua sendo usado, com
-# o debugger interativo disponivel.
+# Servidor WSGI de produção usado pelos dois serviços no contêiner.
 waitress>=3.0,<4.0
-# Base IANA de fusos horarios. Necessaria no Windows para ZoneInfo tratar
-# corretamente UTC, horario local e transicoes de horario de verao.
+# Base IANA de fusos horários usada por ZoneInfo.
 tzdata>=2025.2
 # Cadeia de autoridades certificadoras usada nas consultas HTTPS do clima.
-# Evita depender do armazenamento de certificados do Python no Windows sem
-# jamais desativar a verificacao TLS.
 certifi>=2025.1
-# Usa o armazenamento nativo de certificados do Windows/macOS/Linux. Isso
-# mantem a validacao TLS inclusive em redes institucionais com CA propria.
+# Usa o armazenamento nativo de certificados quando disponível.
 truststore>=0.10
-
-# Opcional: necessario apenas para as Zonas Modbus (aba "Zonas"). O app
-# inteiro funciona sem esta dependencia instalada -- zonas cadastradas
-# simplesmente nao conseguem ler/escrever nos equipamentos ate a biblioteca
-# estar disponivel no ambiente onde o servidor roda (ex.: o Raspberry Pi
-# conectado ao barramento RS-485 de verdade). Instale com:
-#   pip install pymodbus
-# pymodbus>=3.8,<4.0
+# A imagem é imutável: o suporte Modbus precisa estar presente no build.
+pymodbus[serial]>=3.8,<4.0

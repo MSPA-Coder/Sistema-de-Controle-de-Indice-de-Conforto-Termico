@@ -182,6 +182,35 @@ class TestLoginLogout(BaseTestComApp):
         self.assertEqual(200, resposta.status_code)
 
 
+class TestProtecaoCsrf(BaseTestComApp):
+    def setUp(self):
+        super().setUp()
+        self.app.config["CSRF_PROTECTION_ENABLED"] = True
+        self.client = self.app.test_client()
+
+    def test_post_sem_token_e_recusado(self):
+        resposta = self.client.post(
+            "/login", data={"login": "ninguem", "senha": "incorreta"}
+        )
+        self.assertEqual(400, resposta.status_code)
+
+    def test_formulario_com_token_e_aceito(self):
+        pagina = self.client.get("/login")
+        self.assertEqual(200, pagina.status_code)
+        with self.client.session_transaction() as sessao:
+            token = sessao["_csrf_token"]
+
+        resposta = self.client.post(
+            "/login",
+            data={
+                "login": "ninguem",
+                "senha": "incorreta",
+                "_csrf_token": token,
+            },
+        )
+        self.assertEqual(200, resposta.status_code)
+
+
 class TestControleDeAcessoPorArea(BaseTestComApp):
     """Para cada perfil, confere que as rotas API respeitam exatamente
     `auth.AREAS_POR_PERFIL` -- a mesma tabela publicada no README ("

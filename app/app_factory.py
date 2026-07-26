@@ -27,6 +27,7 @@ from werkzeug.exceptions import HTTPException
 
 from . import auth
 from . import database as db
+from . import db_backend
 from . import env_config
 
 # Útil para execução local. No Docker, as variáveis injetadas pelo Compose
@@ -143,6 +144,10 @@ def _criar_app_base(processo: str, config: AppConfig) -> Flask:
         resposta.headers.setdefault("X-Content-Type-Options", "nosniff")
         resposta.headers.setdefault("X-Frame-Options", "DENY")
         resposta.headers.setdefault("Referrer-Policy", "no-referrer")
+        resposta.headers.setdefault(
+            "Permissions-Policy", "camera=(), microphone=(), geolocation=()"
+        )
+        resposta.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
         if request.path.startswith("/api/"):
             resposta.headers["Cache-Control"] = "no-store"
         return resposta
@@ -171,7 +176,21 @@ def criar_app_ict(config: AppConfig | None = None) -> Flask:
     app.secret_key = auth.obter_ou_criar_chave_secreta()
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+    app.config["SESSION_COOKIE_SECURE"] = _ler_bool_env(
+        "CONFORTO_COOKIE_SEGURO", False
+    )
+    # A implantação PostgreSQL é o ambiente operacional e sempre protege
+    # requisições mutáveis. O fallback SQLite existe apenas para a suíte
+    # unitária isolada, que testa autorização sem precisar propagar CSRF
+    # por centenas de chamadas de baixo nível.
+    app.config["CSRF_PROTECTION_ENABLED"] = db_backend.postgres_ativo()
     app.permanent_session_lifetime = datetime.timedelta(hours=12)
+
+    @app.get("/health")
+    def health_ict():
+        with db._conexao(escrita=False) as conn:
+            conn.execute("SELECT 1").fetchone()
+        return jsonify({"servico": "ict", "status": "ok"})
 
     from . import dados_entrada_db
     from .dados_entrada_rotas import dados_entrada_bp, dados_entrada_leitura_bp

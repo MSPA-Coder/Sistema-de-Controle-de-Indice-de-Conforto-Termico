@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="csrf-token" content="{{ csrf_token() }}">
 <title>Conforto Térmico</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -24,6 +25,7 @@
       <a href="{{ url_for('usuarios.pagina_usuarios') }}" class="botao botao--texto">Gerenciar usuários</a>
       {% endif %}
       <form method="post" action="{{ url_for('auth.logout') }}" class="app-topo-sessao-logout">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <button type="submit" class="botao botao--texto">Sair</button>
       </form>
     </span>
@@ -312,7 +314,7 @@
         como derivados; ponto de orvalho, bulbo úmido e índices são calculados.
       </p>
       <p class="dados-entrada-fonte">
-        Banco de destino: <code>instance/dados_entrada.db</code> ·
+        Banco de destino: PostgreSQL, schema <code>dados_entrada</code> ·
         <a href="https://open-meteo.com/en/docs/historical-weather-api" target="_blank" rel="noreferrer">documentação da fonte meteorológica</a>
         · rankings municipais: PPM 2024/IBGE-SIDRA
       </p>
@@ -363,8 +365,8 @@
       <h3 class="grafico-titulo">Transferência para o banco histórico</h3>
       <p class="dados-entrada-ajuda">
         Use a ação “Copiar para histórico” em uma geração concluída. Os dados
-        saem de <code>dados_entrada.db</code> e são inseridos em
-        <code>historico.db</code>; repetições não duplicam medições.
+        saem do schema <code>dados_entrada</code> e são inseridos no schema
+        <code>historico</code>; repetições não duplicam medições.
       </p>
       <div class="dados-entrada-arquivo-controles">
         <div class="campo-config">
@@ -373,7 +375,7 @@
         </div>
       </div>
       <div class="acao-linha">
-        <button id="btn-apagar-historico-direto" class="botao botao--perigo botao--compacto" type="button">Apagar medições de historico.db</button>
+        <button id="btn-apagar-historico-direto" class="botao botao--perigo botao--compacto" type="button">Apagar medições do histórico</button>
       </div>
       <p id="dados-entrada-arquivo-status" class="smtp-status oculto" role="status"></p>
     </section>

@@ -8,6 +8,7 @@ __pycache__
 *.db-*
 .env
 .env.*
+.secrets
 instance/*
 !instance/.gitkeep
 htmlcov

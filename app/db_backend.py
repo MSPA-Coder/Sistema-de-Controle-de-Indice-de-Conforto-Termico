@@ -1,47 +1,100 @@
 # -*- coding: utf-8 -*-
-"""Compatibilidade mínima entre o contrato sqlite3 existente e PostgreSQL.
+"""Backend PostgreSQL de produção com suporte explícito a SQLite nos testes.
 
-O projeto continua aceitando SQLite quando ``DATABASE_URL`` não está
-definida, o que preserva os testes unitários rápidos. No ambiente Docker, as
-conexões são abertas pelo SQLAlchemy e este adaptador mantém o pequeno
-subconjunto da API DB-API usado pelos módulos de persistência.
+SQLite só é selecionado quando ``DATABASE_URL`` não está definida. Uma URL
+definida com outro dialeto é rejeitada para evitar que um erro de implantação
+faça a aplicação gravar silenciosamente em um banco SQLite local.
 """
 
 from __future__ import annotations
 
+import datetime
+import json
 import os
 import re
 from collections.abc import Iterator, Mapping
 from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 
+def _ler_segredo(nome_variavel: str) -> str:
+    caminho = os.environ.get(nome_variavel, "").strip()
+    if not caminho:
+        return ""
+    try:
+        return Path(caminho).read_text(encoding="utf-8").strip()
+    except OSError as erro:
+        raise RuntimeError(
+            f"Não foi possível ler o segredo indicado por {nome_variavel}."
+        ) from erro
+
+
 def database_url() -> str:
-    return os.environ.get("DATABASE_URL", "").strip()
+    url_direta = os.environ.get("DATABASE_URL", "").strip()
+    if url_direta:
+        return url_direta
+
+    senha = _ler_segredo("DB_PASSWORD_FILE")
+    host = os.environ.get("DB_HOST", "").strip()
+    if not senha and not host:
+        # Ausência completa de configuração seleciona o SQLite dos testes.
+        return ""
+    if not senha:
+        raise RuntimeError("DB_PASSWORD_FILE é obrigatório no ambiente PostgreSQL.")
+
+    from sqlalchemy.engine import URL
+
+    url = URL.create(
+        "postgresql+psycopg",
+        username=os.environ.get("DB_USER", "conforto"),
+        password=senha,
+        host=host or "postgres",
+        port=int(os.environ.get("DB_PORT", "5432")),
+        database=os.environ.get("DB_NAME", "conforto_termico"),
+    )
+    return url.render_as_string(hide_password=False)
 
 
 def postgres_ativo() -> bool:
-    return database_url().lower().startswith(("postgresql://", "postgresql+"))
+    url = database_url()
+    if not url:
+        return False
+    if not url.lower().startswith(("postgresql://", "postgresql+")):
+        raise RuntimeError(
+            "DATABASE_URL deve apontar para PostgreSQL; "
+            "omita a variável apenas nos testes SQLite."
+        )
+    return True
+
+
+_engines_criados: dict[str, Any] = {}
 
 
 @lru_cache(maxsize=4)
 def _engine(url: str):
     from sqlalchemy import create_engine
 
-    return create_engine(
+    engine = create_engine(
         url,
         pool_pre_ping=True,
         pool_size=5,
         max_overflow=10,
+        pool_recycle=1800,
+        connect_args={"application_name": "conforto_termico"},
     )
+    _engines_criados[url] = engine
+    return engine
 
 
 class LinhaCompat(Mapping):
     """Linha indexável por nome ou posição e convertível com ``dict(linha)``."""
 
     def __init__(self, row) -> None:
-        self._mapping = row._mapping
-        self._values = tuple(row)
+        self._mapping = {
+            chave: _normalizar_valor(valor) for chave, valor in row._mapping.items()
+        }
+        self._values = tuple(_normalizar_valor(valor) for valor in row)
 
     def __getitem__(self, key):
         if isinstance(key, int):
@@ -53,6 +106,16 @@ class LinhaCompat(Mapping):
 
     def __len__(self) -> int:
         return len(self._mapping)
+
+
+def _normalizar_valor(valor):
+    """Mantém o contrato simples compartilhado com as linhas do SQLite."""
+
+    if isinstance(valor, (dict, list)):
+        return json.dumps(valor, ensure_ascii=False)
+    if isinstance(valor, (datetime.date, datetime.datetime)):
+        return valor.isoformat()
+    return valor
 
 
 class ResultadoCompat:
@@ -136,4 +199,7 @@ def abrir_conexao_postgres(schema: str) -> ConexaoPostgresCompat:
 
 
 def limpar_cache_engine() -> None:
+    for engine in _engines_criados.values():
+        engine.dispose()
+    _engines_criados.clear()
     _engine.cache_clear()

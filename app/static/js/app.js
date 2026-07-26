@@ -2,6 +2,29 @@
 // Front-end do sistema de conforto termico
 // =============================================================================
 
+const TOKEN_CSRF = document.querySelector('meta[name="csrf-token"]')?.content || "";
+const FETCH_NATIVO = window.fetch.bind(window);
+const METODOS_HTTP_SEGUROS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+// Todas as mutações da interface usam fetch relativo ao mesmo host. Centralizar
+// o cabeçalho aqui evita depender de cada tela lembrar da proteção CSRF.
+window.fetch = function fetchComCsrf(entrada, opcoes = {}) {
+  const metodo = String(
+    opcoes.method || (entrada instanceof Request ? entrada.method : "GET")
+  ).toUpperCase();
+  if (TOKEN_CSRF && !METODOS_HTTP_SEGUROS.has(metodo)) {
+    const headers = new Headers(
+      entrada instanceof Request ? entrada.headers : undefined
+    );
+    new Headers(opcoes.headers || {}).forEach((valor, chave) => {
+      headers.set(chave, valor);
+    });
+    headers.set("X-CSRF-Token", TOKEN_CSRF);
+    opcoes = { ...opcoes, headers };
+  }
+  return FETCH_NATIVO(entrada, opcoes);
+};
+
 const CONFIG_APP = window.CONFIG_APP;
 
 const CLASSE_STATUS = {
@@ -4005,7 +4028,7 @@ function renderizarExecucoesDadosEntrada(payload) {
   vazio.classList.toggle("oculto", execucoes.length > 0);
   const totalGerado = execucoes.reduce((soma, item) => soma + Number(item.total_medicoes || 0), 0);
   const totalCopiado = execucoes.reduce((soma, item) => soma + Number(item.medicoes_copiadas || 0), 0);
-  resumo.textContent = `${totalGerado.toLocaleString("pt-BR")} medições geradas em ${payload.arquivo_banco || "dados_entrada.db"}; ${totalCopiado.toLocaleString("pt-BR")} já copiadas para historico.db.`;
+  resumo.textContent = `${totalGerado.toLocaleString("pt-BR")} medições geradas em ${payload.destino || "PostgreSQL (schema dados_entrada)"}; ${totalCopiado.toLocaleString("pt-BR")} já copiadas para o histórico.`;
   execucoes.forEach((execucao) => {
     const tr = document.createElement("tr");
     const valores = [
@@ -4047,7 +4070,7 @@ function renderizarExecucoesDadosEntrada(payload) {
 }
 
 async function copiarExecucaoParaHistorico(execucaoId, botao) {
-  if (!confirm(`Copiar as medições da geração ${execucaoId} para historico.db?`)) return;
+  if (!confirm(`Copiar as medições da geração ${execucaoId} para o histórico?`)) return;
   botao.disabled = true;
   try {
     const resultado = await respostaJsonDadosEntrada("/api/dados-entrada/copiar-para-historico", {
@@ -4057,7 +4080,7 @@ async function copiarExecucaoParaHistorico(execucaoId, botao) {
     });
     definirStatusDadosEntrada(
       "dados-entrada-arquivo-status",
-      `${resultado.novas_copiadas} novas medições copiadas para historico.db.`
+      `${resultado.novas_copiadas} novas medições copiadas para o histórico.`
     );
     await carregarExecucoesDadosEntrada();
     await carregarHistoricoPersistido({ manterJanelaFinal: false });
@@ -4125,14 +4148,14 @@ async function gerarDadosEntrada(evento) {
 
 async function apagarHistoricoDiretoDadosEntrada() {
   const confirmacao = document.getElementById("dados-entrada-confirmacao-historico").value;
-  if (!confirm("Apagar definitivamente todas as medições de historico.db?")) return;
+  if (!confirm("Apagar definitivamente todas as medições do histórico?")) return;
   try {
     const resultado = await respostaJsonDadosEntrada("/api/dados-entrada/apagar-historico", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ confirmacao }),
     });
-    definirStatusDadosEntrada("dados-entrada-arquivo-status", `${resultado.medicoes_apagadas} medições apagadas de historico.db.`);
+    definirStatusDadosEntrada("dados-entrada-arquivo-status", `${resultado.medicoes_apagadas} medições apagadas do histórico.`);
     await carregarHistoricoPersistido({ manterJanelaFinal: false });
   } catch (erro) {
     definirStatusDadosEntrada("dados-entrada-arquivo-status", erro.message, true);
@@ -4140,7 +4163,7 @@ async function apagarHistoricoDiretoDadosEntrada() {
 }
 
 async function apagarDadosGerados() {
-  if (!confirm("Apagar todas as séries geradas de dados_entrada.db? As medições já copiadas para historico.db serão preservadas.")) return;
+  if (!confirm("Apagar todas as séries geradas? As medições já copiadas para o histórico serão preservadas.")) return;
   const confirmacao = prompt("Digite APAGAR para confirmar:", "");
   if (confirmacao === null) return;
   try {

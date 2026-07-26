@@ -51,6 +51,7 @@ class TestFabricasExplicitas(unittest.TestCase):
         rotas = _rotas(criar_app_ict())
         esperadas = {
             "/",
+            "/health",
             "/login",
             "/api/analises",
             "/api/historico-leituras",
@@ -63,7 +64,14 @@ class TestFabricasExplicitas(unittest.TestCase):
         }
         self.assertTrue(esperadas.issubset(rotas))
         self.assertFalse(any(rota.startswith("/api/interno/") for rota in rotas))
-        self.assertNotIn("/health", rotas)
+
+    def test_health_ict_verifica_banco_sem_exigir_login(self):
+        resposta = criar_app_ict().test_client().get("/health")
+        self.assertEqual(200, resposta.status_code)
+        self.assertEqual(
+            {"servico": "ict", "status": "ok"},
+            resposta.get_json(),
+        )
 
     def test_coletor_expoe_somente_health_e_api_interna(self):
         rotas = _rotas(criar_app_coletor())

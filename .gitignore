@@ -38,3 +38,4 @@ instance/*
 *.db-wal
 migration_report*.json
 .certs/*
+.secrets/
