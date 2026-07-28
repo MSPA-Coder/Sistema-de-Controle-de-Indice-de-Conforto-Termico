@@ -4,6 +4,7 @@
 import os
 import subprocess
 import sys
+import tempfile
 import unittest
 from html.parser import HTMLParser
 from unittest.mock import patch
@@ -15,7 +16,6 @@ from app.app_factory import (
     criar_app_ict,
 )
 from tests.auth_test_utils import cliente_autenticado
-from tests.postgres_test_utils import TestCasePostgres
 
 
 def _rotas(app) -> set[str]:
@@ -33,9 +33,15 @@ class _IdsHTML(HTMLParser):
             self.ids.append(atributos["id"])
 
 
-class TestFabricasExplicitas(TestCasePostgres):
+class TestFabricasExplicitas(unittest.TestCase):
     def setUp(self):
-        super().setUp()
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.db_path_original = db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
+
+    def tearDown(self):
+        db.DB_PATH = self.db_path_original
+        self.tempdir.cleanup()
 
     def test_config_recusa_processo_desconhecido(self):
         with self.assertRaises(ValueError):
@@ -124,10 +130,16 @@ class TestFabricasExplicitas(TestCasePostgres):
         self.assertEqual("[]", resultado.stdout.strip())
 
 
-class TestAbasPorPerfil(TestCasePostgres):
+class TestAbasPorPerfil(unittest.TestCase):
     def setUp(self):
-        super().setUp()
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.db_path_original = db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
         self.app = criar_app_ict()
+
+    def tearDown(self):
+        db.DB_PATH = self.db_path_original
+        self.tempdir.cleanup()
 
     def _pagina(self, perfil):
         return cliente_autenticado(self.app, perfil=perfil).get("/").get_data(as_text=True)

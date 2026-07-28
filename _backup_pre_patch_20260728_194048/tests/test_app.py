@@ -12,7 +12,6 @@ from app import database as db
 from app.coletor import estado as coletor_estado
 import run_ict as flask_app
 from tests.auth_test_utils import cliente_autenticado
-from tests.postgres_test_utils import TestCasePostgres
 
 
 def _instalar_proxy_coletor(caso):
@@ -41,10 +40,17 @@ def _instalar_proxy_coletor(caso):
     caso.app_coletor = app_coletor
 
 
-class TestConfiguracoesApi(TestCasePostgres):
+class TestConfiguracoesApi(unittest.TestCase):
     def setUp(self):
-        super().setUp()
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.db_path_original = db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
+        db.iniciar_banco()
         self.client = cliente_autenticado(flask_app.app)
+
+    def tearDown(self):
+        db.DB_PATH = self.db_path_original
+        self.tempdir.cleanup()
 
     def test_api_persiste_configuracoes(self):
         payload = {
@@ -198,10 +204,17 @@ class TestServidorLocal(unittest.TestCase):
         self.assertFalse(config.threaded)
 
 
-class TestManutencaoApi(TestCasePostgres):
+class TestManutencaoApi(unittest.TestCase):
     def setUp(self):
-        super().setUp()
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.db_path_original = db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
+        db.iniciar_banco()
         self.client = cliente_autenticado(flask_app.app)
+
+    def tearDown(self):
+        db.DB_PATH = self.db_path_original
+        self.tempdir.cleanup()
 
     def test_reset_limpa_o_historico(self):
         resposta = self.client.post("/api/reset", json={})
@@ -230,10 +243,17 @@ class TestManutencaoApi(TestCasePostgres):
         self.assertEqual(os.path.dirname(db.DB_PATH), os.path.dirname(caminho))
 
 
-class TestCabecalhosDeSeguranca(TestCasePostgres):
+class TestCabecalhosDeSeguranca(unittest.TestCase):
     def setUp(self):
-        super().setUp()
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.db_path_original = db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
+        db.iniciar_banco()
         self.client = cliente_autenticado(flask_app.app)
+
+    def tearDown(self):
+        db.DB_PATH = self.db_path_original
+        self.tempdir.cleanup()
 
     def test_resposta_api_inclui_cabecalhos_de_seguranca(self):
         resposta = self.client.get("/api/configuracoes")
@@ -248,11 +268,18 @@ class TestCabecalhosDeSeguranca(TestCasePostgres):
         self.assertIn(b"indicesPorEspecie", resposta.data)
 
 
-class TestErroInternoNaoVazaDetalhe(TestCasePostgres):
+class TestErroInternoNaoVazaDetalhe(unittest.TestCase):
     def setUp(self):
-        super().setUp()
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.db_path_original = db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
+        db.iniciar_banco()
         _instalar_proxy_coletor(self)
         self.client = cliente_autenticado(flask_app.app)
+
+    def tearDown(self):
+        db.DB_PATH = self.db_path_original
+        self.tempdir.cleanup()
 
     def test_excecao_inesperada_nao_vaza_mensagem_original(self):
         zona = self.client.post(
@@ -276,9 +303,12 @@ class TestErroInternoNaoVazaDetalhe(TestCasePostgres):
         registrar_erro.assert_called_once()
 
 
-class TestZonasApi(TestCasePostgres):
+class TestZonasApi(unittest.TestCase):
     def setUp(self):
-        super().setUp()
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.db_path_original = db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
+        db.iniciar_banco()
         coletor_estado.zona_service.limpar_historico_grafico()
         coletor_estado.zona_service.limpar_resfriador()
         _instalar_proxy_coletor(self)
@@ -287,7 +317,8 @@ class TestZonasApi(TestCasePostgres):
     def tearDown(self):
         coletor_estado.zona_service.limpar_historico_grafico()
         coletor_estado.zona_service.limpar_resfriador()
-        super().tearDown()
+        db.DB_PATH = self.db_path_original
+        self.tempdir.cleanup()
 
     def _criar_zona(self, **sobrescritas):
         payload = {"nome": "Aviário 1", "especie": "frangos", "indice": "ITU"}

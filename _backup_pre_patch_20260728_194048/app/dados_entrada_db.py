@@ -651,7 +651,7 @@ def obter_medicoes_csv(execucao_id: int | None = None) -> tuple[list[str], list[
                 "ORDER BY zona_id,timestamp_utc",
                 (execucao_id,),
             ).fetchall()
-    return colunas, [tuple(linha[coluna] for coluna in colunas) for linha in linhas]
+    return colunas, [tuple(linha) for linha in linhas]
 
 
 def obter_cache_clima(chave: str) -> dict | None:

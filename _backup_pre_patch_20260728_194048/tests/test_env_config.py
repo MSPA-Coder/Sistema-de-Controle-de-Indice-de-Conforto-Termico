@@ -6,10 +6,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from app import database as db
 from app import env_config
 from app.app_factory import criar_app_ict
 from tests.auth_test_utils import cliente_autenticado
-from tests.postgres_test_utils import TestCasePostgres
 
 
 class TestEnvConfig(unittest.TestCase):
@@ -53,11 +53,17 @@ class TestEnvConfig(unittest.TestCase):
         self.assertEqual("http://compose:5000", os.environ["COLETOR_URL"])
 
 
-class TestAmbienteNaoEditavelPeloICT(TestCasePostgres):
+class TestAmbienteNaoEditavelPeloICT(unittest.TestCase):
     def test_ict_nao_expoe_api_para_regravar_env_da_implantacao(self):
-        cliente = cliente_autenticado(criar_app_ict())
-        self.assertEqual(404, cliente.get("/api/ambiente").status_code)
-        self.assertEqual(404, cliente.post("/api/ambiente", json={}).status_code)
+        with tempfile.TemporaryDirectory() as tempdir:
+            db_path_original = db.DB_PATH
+            db.DB_PATH = os.path.join(tempdir, "historico.db")
+            try:
+                cliente = cliente_autenticado(criar_app_ict())
+                self.assertEqual(404, cliente.get("/api/ambiente").status_code)
+                self.assertEqual(404, cliente.post("/api/ambiente", json={}).status_code)
+            finally:
+                db.DB_PATH = db_path_original
 
 
 if __name__ == "__main__":

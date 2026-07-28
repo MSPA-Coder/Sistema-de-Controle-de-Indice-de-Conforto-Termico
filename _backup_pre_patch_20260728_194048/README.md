@@ -96,21 +96,11 @@ docker compose --env-file .env.docker exec ict python -m scripts.verificar_postg
 
 ### Testes no contêiner
 
-A suíte usa PostgreSQL descartável para os testes que exercem persistência
-(models, repositories, serviços e rotas que gravam dados) e não precisa de
-banco algum para os testes de cálculo, validação e regras de domínio -- ver
-seção "Testes" abaixo para o passo a passo completo.
+A suíte unitária continua usando bancos SQLite temporários para ser rápida e
+isolada:
 
 ```powershell
-docker compose -f compose.test.yaml up -d --wait
-docker run --rm --network conforto-termico-teste_default `
-  -e DB_HOST=postgres_teste -e DB_PORT=5432 `
-  -e DB_USER=conforto_teste -e DB_NAME=conforto_termico_teste `
-  -e DB_PASSWORD_FILE=/run/secrets/postgres_password_teste `
-  -e CONFORTO_TESTING=1 `
-  -v "$(Resolve-Path .secrets\postgres_password_teste.txt):/run/secrets/postgres_password_teste:ro" `
-  conforto-termico:local python -m unittest discover -v
-docker compose -f compose.test.yaml down
+docker run --rm -e DATABASE_URL= conforto-termico:local python -m unittest discover -v
 ```
 
 ### Backup do PostgreSQL
@@ -347,52 +337,16 @@ A API é interna à interface web e não possui versionamento público. Ao alter
 
 ## Testes
 
-A suíte tem dois níveis, conforme o que cada teste exercita (ver AGENTS.md,
-seção "Persistência e integridade"):
+Após construir a imagem, execute a suíte completa com SQLite temporário:
 
-- **Cálculo, validação e regras de domínio** (índices térmicos, formatação,
-  simulação Modbus, e-mail, notificações) não tocam banco algum e rodam em
-  menos de 1 segundo:
-
-  ```powershell
-  python -m unittest discover -v
-  ```
-
-- **Models, repositories, serviços com persistência e rotas que gravam
-  dados** usam um PostgreSQL descartável (nunca o banco operacional). Suba-o
-  uma vez com Docker:
-
-  ```powershell
-  "troque-por-uma-senha-qualquer-so-para-teste" | Set-Content -NoNewline .secrets\postgres_password_teste.txt
-  docker compose -f compose.test.yaml up -d --wait
-  ```
-
-  e exporte as variáveis de ambiente antes de rodar a suíte (mesmo comando
-  acima já cobre os dois níveis; os testes sem persistência continuam
-  passando normalmente com essas variáveis definidas):
-
-  ```powershell
-  $env:DB_HOST = "localhost"; $env:DB_PORT = "5433"
-  $env:DB_USER = "conforto_teste"; $env:DB_NAME = "conforto_termico_teste"
-  $env:DB_PASSWORD_FILE = (Resolve-Path .secrets\postgres_password_teste.txt)
-  $env:CONFORTO_TESTING = "1"
-  python -m unittest discover -v
-  ```
-
-  Sem essas variáveis, os testes de persistência são pulados (`skipped`) com
-  uma mensagem explicando como configurá-las -- a suíte nunca cai de volta
-  para SQLite silenciosamente. Ao terminar:
-
-  ```powershell
-  docker compose -f compose.test.yaml down
-  ```
+```powershell
+docker run --rm -e DATABASE_URL= conforto-termico:local python -m unittest discover -v
+```
 
 Os testes de Modbus usam simulações e não exigem hardware ou conectividade.
-SQLite não é uma opção de implantação: as únicas exceções que ainda o usam
-testam explicitamente comportamento exclusivo do próprio caminho SQLite
-(documentado em cada classe), nunca persistência genérica. Antes de integrar
-uma alteração ampla, valide também a pilha PostgreSQL "de produção" (imagem,
-Compose, migrações) com `scripts.verificar_postgres`.
+SQLite não é uma opção de implantação: seu uso fica restrito a esses testes
+unitários. Antes de integrar uma alteração ampla, valide também a pilha
+PostgreSQL com `scripts.verificar_postgres`.
 
 ## Manutenção
 

@@ -27,6 +27,7 @@ from werkzeug.exceptions import HTTPException
 
 from . import auth
 from . import database as db
+from . import db_backend
 from . import env_config
 
 # Útil para execução local. No Docker, as variáveis injetadas pelo Compose
@@ -136,14 +137,6 @@ def _criar_app_base(processo: str, config: AppConfig) -> Flask:
     app.config["MAX_CONTENT_LENGTH"] = config.max_content_length
     app.config["CONFORTO_PROCESSO"] = processo
     app.config["CONFORTO_DEBUG"] = config.debug
-    # `app.testing` (padrão Flask) é o único sinal de "isto é uma app de
-    # teste" -- deliberadamente independente do backend de persistência
-    # (SQLite ou PostgreSQL). `CONFORTO_TESTING` é ligado uma única vez por
-    # `tests/__init__.py` antes de qualquer teste importar uma fábrica ou o
-    # `run_ict.app` de módulo; nunca é definido em produção/Docker. Ver
-    # `auth._proteger_csrf`, que usa `app.testing` para dispensar CSRF nos
-    # testes que não são o teste dedicado dessa proteção.
-    app.testing = _ler_bool_env("CONFORTO_TESTING", False)
     db.iniciar_banco()
 
     @app.after_request
@@ -186,11 +179,11 @@ def criar_app_ict(config: AppConfig | None = None) -> Flask:
     app.config["SESSION_COOKIE_SECURE"] = _ler_bool_env(
         "CONFORTO_COOKIE_SEGURO", False
     )
-    # CSRF é sempre protegido por padrão (ver `auth._proteger_csrf`, que
-    # usa `app.config.get("CSRF_PROTECTION_ENABLED", True)`). Não depende
-    # do backend de persistência: testes que precisam dispensar CSRF usam
-    # `app.testing`, e o único teste que exercita a proteção em si
-    # (`TestProtecaoCsrf`) desliga `app.testing` explicitamente.
+    # A implantação PostgreSQL é o ambiente operacional e sempre protege
+    # requisições mutáveis. O fallback SQLite existe apenas para a suíte
+    # unitária isolada, que testa autorização sem precisar propagar CSRF
+    # por centenas de chamadas de baixo nível.
+    app.config["CSRF_PROTECTION_ENABLED"] = db_backend.postgres_ativo()
     app.permanent_session_lifetime = datetime.timedelta(hours=12)
 
     @app.get("/health")

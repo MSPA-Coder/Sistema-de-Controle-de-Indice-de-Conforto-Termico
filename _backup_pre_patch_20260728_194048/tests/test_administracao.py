@@ -21,7 +21,6 @@ from app import auth
 from app import database as db
 from app.app_factory import AppConfig, criar_app_coletor, criar_app_ict
 from tests.auth_test_utils import cliente_autenticado
-from tests.postgres_test_utils import TestCasePostgres
 
 
 class _ServidorEmThread:
@@ -44,12 +43,6 @@ class _ServidorEmThread:
 
 
 class TestTokenInterno(unittest.TestCase):
-    """Não usa `TestCasePostgres`: `obter_ou_criar_token_interno` grava
-    `interno_token.txt` no diretório de `db.DB_PATH` só como local de
-    instância compartilhado -- nunca abre uma conexão de banco. O tempdir
-    aqui isola esse arquivo (evita gravar no `instance/` real do projeto e
-    evita que um token de uma execução vaze para a próxima)."""
-
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
         self.db_path_original = db.DB_PATH
@@ -74,9 +67,12 @@ class TestTokenInterno(unittest.TestCase):
         self.assertEqual("token-definido-a-mao", auth.obter_ou_criar_token_interno())
 
 
-class TestProxyTesteDeConexao(TestCasePostgres):
+class TestProxyTesteDeConexao(unittest.TestCase):
     def setUp(self):
-        super().setUp()
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.db_path_original = db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
+        db.iniciar_banco()
 
         config = AppConfig(
             debug=False, host="127.0.0.1", port=0, threaded=True, max_content_length=1_000_000
@@ -106,11 +102,12 @@ class TestProxyTesteDeConexao(TestCasePostgres):
         self.coletor_url_original = os.environ.get("COLETOR_URL")
 
     def tearDown(self):
+        db.DB_PATH = self.db_path_original
+        self.tempdir.cleanup()
         if self.coletor_url_original is None:
             os.environ.pop("COLETOR_URL", None)
         else:
             os.environ["COLETOR_URL"] = self.coletor_url_original
-        super().tearDown()
 
     def test_rota_interna_rejeita_chamada_sem_token(self):
         resposta = self.coletor.post(

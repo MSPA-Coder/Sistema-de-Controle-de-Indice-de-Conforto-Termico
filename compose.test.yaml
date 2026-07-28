@@ -1,0 +1,47 @@
+name: conforto-termico-teste
+
+# PostgreSQL descartável para a suíte de testes (ver AGENTS.md: "Testes de
+# models, repositories, serviços com persistência e rotas que gravam dados
+# usam PostgreSQL descartável"). Nunca é o banco operacional: nome do
+# projeto, porta e volume são todos distintos do `compose.yaml` principal,
+# então os dois podem rodar ao mesmo tempo sem conflito. Dados em `tmpfs`
+# (nunca tocam disco, somem ao descer o serviço) -- é normal e esperado
+# apagar tudo a qualquer momento.
+#
+# Uso:
+#   docker compose -f compose.test.yaml up -d
+#   $env:DB_HOST="localhost"; $env:DB_PORT="5433"
+#   $env:DB_USER="conforto_teste"; $env:DB_NAME="conforto_termico_teste"
+#   $env:DB_PASSWORD_FILE="$(Resolve-Path .secrets/postgres_password_teste.txt)"
+#   $env:CONFORTO_TESTING="1"
+#   python -m alembic upgrade head   # uma vez, ou deixe o TestCasePostgres fazer isso
+#   python -m unittest discover -s tests
+#   docker compose -f compose.test.yaml down
+#
+# (ver README.md, seção "Testes", para o passo a passo completo e o
+# equivalente em bash/PowerShell)
+
+services:
+  postgres_teste:
+    image: postgres:17-alpine
+    restart: "no"
+    environment:
+      POSTGRES_DB: conforto_termico_teste
+      POSTGRES_USER: conforto_teste
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password_teste
+      TZ: America/Sao_Paulo
+    secrets:
+      - postgres_password_teste
+    ports:
+      - "127.0.0.1:${POSTGRES_TESTE_PORT:-5433}:5432"
+    tmpfs:
+      - /var/lib/postgresql/data:rw,size=512m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U conforto_teste -d conforto_termico_teste"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+secrets:
+  postgres_password_teste:
+    file: .secrets/postgres_password_teste.txt

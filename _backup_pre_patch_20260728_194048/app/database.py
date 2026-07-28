@@ -652,13 +652,13 @@ def obter_historico_leituras(
             where_base = ("WHERE " + " AND ".join(filtros)) if filtros else ""
             candidatos = conn.execute(
                 f"""
-                SELECT DISTINCT l.valor, ABS(l.valor - ?) AS diferenca_absoluta
+                SELECT DISTINCT l.valor
                 FROM leituras l
                 {where_base}
-                ORDER BY diferenca_absoluta ASC, l.valor ASC
+                ORDER BY ABS(l.valor - ?) ASC, l.valor ASC
                 LIMIT 2
                 """,
-                [valor_referencia, *parametros],
+                [*parametros, valor_referencia],
             ).fetchall()
             valores_encontrados = [float(linha["valor"]) for linha in candidatos]
             if valores_encontrados and abs(valores_encontrados[0] - valor_referencia) <= 1e-9:

@@ -9,7 +9,6 @@ import unittest
 from unittest.mock import patch
 
 from app import database as db
-from tests.postgres_test_utils import TestCasePostgres
 
 
 class TestBackupPostgres(unittest.TestCase):
@@ -41,13 +40,19 @@ class TestBackupPostgres(unittest.TestCase):
         self.assertTrue(backup["arquivo"].endswith(".dump"))
 
 
-class TestIntervaloMinimoLeituras(TestCasePostgres):
+class TestIntervaloMinimoLeituras(unittest.TestCase):
     def setUp(self):
-        super().setUp()
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.db_path_original = db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
+        db.iniciar_banco()
         self.zona_frangos = db.criar_zona(
             {"nome": "Aviário", "especie": "frangos", "indice": "ITU"}
         )
 
+    def tearDown(self):
+        db.DB_PATH = self.db_path_original
+        self.tempdir.cleanup()
 
     def test_nao_salva_mesmo_indice_antes_de_um_minuto(self):
         entradas = {"tbs": 25, "tbu": 20}
@@ -193,13 +198,7 @@ class TestIntervaloMinimoLeituras(TestCasePostgres):
             2, len(db.obter_historico_por_zona(self.zona_frangos["id"]))
         )
 
-    @patch("app.database.os.path.getsize", return_value=4321)
-    @patch("app.database.subprocess.run")
-    def test_cria_backup_no_mesmo_diretorio_do_banco(self, _executar, _getsize):
-        # O comando pg_dump em si (flags, PGPASSWORD, etc.) já é coberto em
-        # detalhe por TestBackupPostgres; aqui o interesse é só o diretório
-        # e o formato do retorno, então subprocess.run é mockado (evita
-        # depender do binário pg_dump e não deixa arquivos de dump no disco).
+    def test_cria_backup_no_mesmo_diretorio_do_banco(self):
         db.salvar_leitura(
             "frangos",
             "ITU",
@@ -211,8 +210,9 @@ class TestIntervaloMinimoLeituras(TestCasePostgres):
 
         backup = db.criar_backup_banco()
 
+        self.assertTrue(os.path.exists(backup["caminho"]))
         self.assertEqual(os.path.dirname(db.DB_PATH), os.path.dirname(backup["caminho"]))
-        self.assertEqual(4321, backup["tamanho_bytes"])
+        self.assertGreater(backup["tamanho_bytes"], 0)
 
     def test_historico_leituras_paginado_inclui_zona(self):
         zona = db.criar_zona({"nome": "Aviario 1", "especie": "frangos", "indice": "ITU"})
@@ -363,6 +363,21 @@ class TestIntervaloMinimoLeituras(TestCasePostgres):
         self.assertEqual(70, configuracoes["limiteUmidadeNebulizador"])
         self.assertEqual("conforto", configuracoes["statusMinimoEmail"])
 
+    def test_inicializacao_remove_configuracao_automatica_global_obsoleta(self):
+        with db._conexao() as conn:
+            conn.execute(
+                "INSERT INTO configuracoes (chave, valor, atualizado_em) "
+                "VALUES ('modoAutomatico', 'true', '2024-01-01T00:00:00')"
+            )
+
+        db.iniciar_banco()
+
+        with db._conexao(escrita=False) as conn:
+            linha = conn.execute(
+                "SELECT 1 FROM configuracoes WHERE chave = 'modoAutomatico'"
+            ).fetchone()
+        self.assertIsNone(linha)
+
     def test_salva_e_recupera_configuracoes(self):
         db.salvar_configuracoes(
             {
@@ -388,20 +403,13 @@ class TestIntervaloMinimoLeituras(TestCasePostgres):
         self.assertNotIn("campoIgnorado", configuracoes)
 
 
-class TestLimpezaDeConfiguracaoObsoletaNaInicializacaoSqlite(unittest.TestCase):
-    """`iniciar_banco()` remove a antiga chave global `modoAutomatico` a cada
-    chamada -- mas isso só existe no ramo SQLite. Sob PostgreSQL a mesma
-    limpeza é feita uma única vez, na migração `0002_otimiza_postgres`, e
-    não no caminho de inicialização de cada processo (ver o comentário
-    daquela migração). Fica deliberadamente em SQLite, como
-    `TestConcorrenciaLeituraEscrita`."""
+class TestSanitizacaoDeConfiguracoes(unittest.TestCase):
+    """`salvar_configuracoes`/`obter_configuracoes` nunca devem persistir ou
+    devolver um valor de tipo errado, fora de faixa ou (no caso do
+    e-mail) potencialmente perigoso -- sempre caem de volta ao padrao
+    seguro daquele campo especifico, sem lancar excecao."""
 
     def setUp(self):
-        self._patch_postgres_ativo = patch(
-            "app.database.db_backend.postgres_ativo", return_value=False
-        )
-        self._patch_postgres_ativo.start()
-        self.addCleanup(self._patch_postgres_ativo.stop)
         self.tempdir = tempfile.TemporaryDirectory()
         self.db_path_original = db.DB_PATH
         db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
@@ -410,32 +418,6 @@ class TestLimpezaDeConfiguracaoObsoletaNaInicializacaoSqlite(unittest.TestCase):
     def tearDown(self):
         db.DB_PATH = self.db_path_original
         self.tempdir.cleanup()
-
-    def test_inicializacao_remove_configuracao_automatica_global_obsoleta(self):
-        with db._conexao() as conn:
-            conn.execute(
-                "INSERT INTO configuracoes (chave, valor, atualizado_em) "
-                "VALUES ('modoAutomatico', 'true', '2024-01-01T00:00:00')"
-            )
-
-        db.iniciar_banco()
-
-        with db._conexao(escrita=False) as conn:
-            linha = conn.execute(
-                "SELECT 1 FROM configuracoes WHERE chave = 'modoAutomatico'"
-            ).fetchone()
-        self.assertIsNone(linha)
-
-
-class TestSanitizacaoDeConfiguracoes(TestCasePostgres):
-    """`salvar_configuracoes`/`obter_configuracoes` nunca devem persistir ou
-    devolver um valor de tipo errado, fora de faixa ou (no caso do
-    e-mail) potencialmente perigoso -- sempre caem de volta ao padrao
-    seguro daquele campo especifico, sem lancar excecao."""
-
-    def setUp(self):
-        super().setUp()
-
 
     def test_email_com_quebra_de_linha_cai_para_padrao(self):
         # Tentativa de injecao de cabecalho SMTP (ex.: "Bcc: atacante@...")
@@ -525,10 +507,16 @@ class TestSanitizacaoDeConfiguracoes(TestCasePostgres):
         self.assertEqual("senha-nova", salvas["smtpSenha"])
 
 
-class TestZonasCRUD(TestCasePostgres):
+class TestZonasCRUD(unittest.TestCase):
     def setUp(self):
-        super().setUp()
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.db_path_original = db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
+        db.iniciar_banco()
 
+    def tearDown(self):
+        db.DB_PATH = self.db_path_original
+        self.tempdir.cleanup()
 
     def test_cria_e_busca_zona(self):
         zona = db.criar_zona({"nome": "Aviário 1", "especie": "frangos", "indice": "ITU"})
@@ -622,10 +610,16 @@ class TestZonasCRUD(TestCasePostgres):
         self.assertFalse(db.excluir_zona(9999))
 
 
-class TestEstatisticasZonas(TestCasePostgres):
+class TestEstatisticasZonas(unittest.TestCase):
     def setUp(self):
-        super().setUp()
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.db_path_original = db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
+        db.iniciar_banco()
 
+    def tearDown(self):
+        db.DB_PATH = self.db_path_original
+        self.tempdir.cleanup()
 
     def test_zona_sem_leituras_devolve_percentuais_e_agregados_none(self):
         zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
@@ -694,7 +688,7 @@ class TestEstatisticasZonas(TestCasePostgres):
         self.assertEqual([zona_b["id"], zona_a["id"]], [s["zona_id"] for s in stats])
 
 
-class TestPainelExecutivoZonas(TestCasePostgres):
+class TestPainelExecutivoZonas(unittest.TestCase):
     """Testa `obter_painel_zonas`, usada pelo card "Painel executivo por
     zona" da aba Analises. Como a funcao depende de `datetime.datetime.
     now()` internamente (mesmo padrao ja usado por `salvar_leitura`), os
@@ -704,8 +698,14 @@ class TestPainelExecutivoZonas(TestCasePostgres):
     anterior."""
 
     def setUp(self):
-        super().setUp()
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.db_path_original = db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
+        db.iniciar_banco()
 
+    def tearDown(self):
+        db.DB_PATH = self.db_path_original
+        self.tempdir.cleanup()
 
     def _inserir_leitura(
         self, zona_id, valor, status, quando, indice="ITU", especie="frangos", entradas=None
@@ -1105,11 +1105,17 @@ class TestPainelExecutivoZonas(TestCasePostgres):
         self.assertIsNone(linhas[0]["intensidade"])
 
 
-class TestEquipamentosCRUD(TestCasePostgres):
+class TestEquipamentosCRUD(unittest.TestCase):
     def setUp(self):
-        super().setUp()
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.db_path_original = db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
+        db.iniciar_banco()
         self.zona = db.criar_zona({"nome": "Zona teste", "especie": "frangos", "indice": "ITU"})
 
+    def tearDown(self):
+        db.DB_PATH = self.db_path_original
+        self.tempdir.cleanup()
 
     def _equipamento_base(self, **sobrescritas):
         base = {
@@ -1229,32 +1235,14 @@ class TestEquipamentosCRUD(TestCasePostgres):
         self.assertTrue(db.excluir_equipamento(equipamento["id"]))
         self.assertIsNone(db.obter_equipamento(equipamento["id"]))
 
-
 class TestConcorrenciaLeituraEscrita(unittest.TestCase):
     """`_conexao(escrita=False)` (usada por toda leitura) nao deve esperar
     por uma escrita em andamento neste processo: em modo WAL, um leitor
     trabalha com sua propria snapshot, entao serializa-lo atras do escritor
     custaria latencia sem nenhum ganho de correcao. Ja duas ESCRITAS devem
-    continuar se serializando (ver `_write_lock`).
-
-    Fica no SQLite deliberadamente (não migra para `TestCasePostgres`): o
-    `_write_lock` só existe no ramo SQLite de `_conexao()` -- sob PostgreSQL
-    a função retorna antes de tocar nele (concorrência ali é do próprio
-    banco, não deste processo). Testar isto em PostgreSQL não exerceria o
-    código em questão.
-
-    `postgres_ativo()` é mockado para `False` porque ele lê `DB_HOST`/
-    `DATABASE_URL` do ambiente do processo inteiro -- quando a suíte roda
-    com essas variáveis definidas (para as classes `TestCasePostgres` desta
-    mesma execução), manipular só `db.DB_PATH` não bastaria para forçar o
-    ramo SQLite aqui."""
+    continuar se serializando (ver `_write_lock`)."""
 
     def setUp(self):
-        self._patch_postgres_ativo = patch(
-            "app.database.db_backend.postgres_ativo", return_value=False
-        )
-        self._patch_postgres_ativo.start()
-        self.addCleanup(self._patch_postgres_ativo.stop)
         self.tempdir = tempfile.TemporaryDirectory()
         self.db_path_original = db.DB_PATH
         db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
@@ -1263,7 +1251,6 @@ class TestConcorrenciaLeituraEscrita(unittest.TestCase):
     def tearDown(self):
         db.DB_PATH = self.db_path_original
         self.tempdir.cleanup()
-
 
     def test_leitura_nao_espera_escrita_em_andamento(self):
         escrita_em_andamento = threading.Event()
@@ -1324,15 +1311,21 @@ class TestConcorrenciaLeituraEscrita(unittest.TestCase):
         self.assertEqual(1, len(segunda_comecou_em))
 
 
-class TestUsuariosCRUD(TestCasePostgres):
+class TestUsuariosCRUD(unittest.TestCase):
     """CRUD de `usuarios` na camada de persistencia.
     Testes de sessao/login/HTTP ficam em test_auth.py; aqui so a logica de
     banco -- validacao, unicidade de login e as travas do ultimo
     administrador."""
 
     def setUp(self):
-        super().setUp()
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.db_path_original = db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
+        db.iniciar_banco()
 
+    def tearDown(self):
+        db.DB_PATH = self.db_path_original
+        self.tempdir.cleanup()
 
     @staticmethod
     def _dados(**sobrescreve):

@@ -8,20 +8,24 @@ e acionamento dos atuadores) usando funcoes de leitura/escrita Modbus
 falsas -- sem depender de hardware real.
 """
 
+import os
+import tempfile
 import unittest
 
 from app import database as db
 from app.zona_service import ZonaCalculoError, ZonaService
-from tests.postgres_test_utils import TestCasePostgres
 
 
 def _ignorar_estado_equipamentos(*args):
     pass
 
 
-class TestZonaService(TestCasePostgres):
+class TestZonaService(unittest.TestCase):
     def setUp(self):
-        super().setUp()
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.db_path_original = db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
+        db.iniciar_banco()
 
         self.leituras_simuladas: dict[str, float | None] = {}
         self.escritas: list[tuple[str, bool]] = []
@@ -43,6 +47,10 @@ class TestZonaService(TestCasePostgres):
             ler_modbus_real=ler_mock,
             escrever_modbus_real=escrever_mock,
         )
+
+    def tearDown(self):
+        db.DB_PATH = self.db_path_original
+        self.tempdir.cleanup()
 
     def _criar_zona_com_sensores(self, especie="frangos", indice="ITU"):
         zona = db.criar_zona({"nome": "Zona Teste", "especie": especie, "indice": indice})
@@ -235,13 +243,20 @@ class TestZonaService(TestCasePostgres):
         self.assertIsNotNone(resultado["valor"])  # o calculo em si nao falhou
 
 
-class TestModoSimuladoZonaService(TestCasePostgres):
+class TestModoSimuladoZonaService(unittest.TestCase):
     """Sem simulador injetado, o servico sempre usa as funcoes reais
     (default). Com um simulador injetado, a escolha entre real e simulado
     segue a configuracao `modoSimuladoZonas` persistida."""
 
     def setUp(self):
-        super().setUp()
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.db_path_original = db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
+        db.iniciar_banco()
+
+    def tearDown(self):
+        db.DB_PATH = self.db_path_original
+        self.tempdir.cleanup()
 
     def test_sem_simulador_injetado_usa_sempre_a_funcao_real(self):
         chamadas_real = []
@@ -368,12 +383,15 @@ class TestModoSimuladoZonaService(TestCasePostgres):
         self.assertFalse(resultado["modo_simulado"])
 
 
-class TestPersistenciaEstadoEquipamentos(TestCasePostgres):
+class TestPersistenciaEstadoEquipamentos(unittest.TestCase):
     """O servico persiste o estado atual dos atuadores a cada calculo,
     permitindo que o painel executivo seja montado a partir do banco."""
 
     def setUp(self):
-        super().setUp()
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.db_path_original = db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
+        db.iniciar_banco()
 
         self.leituras_simuladas: dict[str, float | None] = {}
         self.chamadas_estado: list[tuple] = []
@@ -421,6 +439,10 @@ class TestPersistenciaEstadoEquipamentos(TestCasePostgres):
             escrever_modbus_real=escrever_mock,
             salvar_estado_equipamentos=salvar_estado_mock,
         )
+
+    def tearDown(self):
+        db.DB_PATH = self.db_path_original
+        self.tempdir.cleanup()
 
     def _criar_zona_com_sensores(self):
         zona = db.criar_zona({"nome": "Zona Teste", "especie": "frangos", "indice": "ITU"})

@@ -12,6 +12,7 @@ pura de `usuarios`.
 from __future__ import annotations
 
 import os
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -19,7 +20,6 @@ from app import auth
 from app import database as db
 from app.app_factory import AppConfig, criar_app_ict
 from tests.auth_test_utils import SENHA_TESTE, cliente_autenticado
-from tests.postgres_test_utils import TestCasePostgres
 
 
 def _config_teste() -> AppConfig:
@@ -59,11 +59,17 @@ class TestHashDeSenha(unittest.TestCase):
         self.assertEqual(set(db.PERFIS_VALIDOS), set(auth.AREAS_POR_PERFIL))
 
 
-class BaseTestComApp(TestCasePostgres):
+class BaseTestComApp(unittest.TestCase):
     def setUp(self):
-        super().setUp()
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.db_path_original = db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
+        db.iniciar_banco()
         self.app = criar_app_ict(config=_config_teste())
 
+    def tearDown(self):
+        db.DB_PATH = self.db_path_original
+        self.tempdir.cleanup()
 
 
 class TestLoginLogout(BaseTestComApp):
@@ -177,13 +183,9 @@ class TestLoginLogout(BaseTestComApp):
 
 
 class TestProtecaoCsrf(BaseTestComApp):
-    """Único teste da suíte que exercita a proteção CSRF de verdade: precisa
-    desligar `app.testing` (ligado por padrão em `tests/__init__.py` para
-    dispensar CSRF no resto da suíte -- ver `auth._proteger_csrf`)."""
-
     def setUp(self):
         super().setUp()
-        self.app.testing = False
+        self.app.config["CSRF_PROTECTION_ENABLED"] = True
         self.client = self.app.test_client()
 
     def test_post_sem_token_e_recusado(self):

@@ -10,25 +10,29 @@ docstring do próprio script)."""
 from __future__ import annotations
 
 import io
+import os
 import sys
+import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 
 import scripts.criar_usuario_admin as script
 from app import database as db
-from tests.postgres_test_utils import TestCasePostgres
 
 
-class TestCriarUsuarioAdmin(TestCasePostgres):
+class TestCriarUsuarioAdmin(unittest.TestCase):
     def setUp(self):
-        super().setUp()
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.db_path_original = db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
         self.argv_original = sys.argv
         self.stdin_original = sys.stdin
 
     def tearDown(self):
+        db.DB_PATH = self.db_path_original
         sys.argv = self.argv_original
         sys.stdin = self.stdin_original
-        super().tearDown()
+        self.tempdir.cleanup()
 
     def _rodar(self, *args, entrada_stdin: str = ""):
         sys.argv = ["scripts/criar_usuario_admin.py", *args]

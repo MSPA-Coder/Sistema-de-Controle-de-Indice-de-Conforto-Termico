@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 
 import os
+import tempfile
 import threading
 import unittest
 
 from app import database as db
-from tests.postgres_test_utils import TestCasePostgres
 from app.coletor.controle import (
     GerenciadorControleZonas,
     ZonaOcupadaError,
@@ -41,12 +41,18 @@ class _ZonaServiceFalso:
         self.resfriadores_limpos.append(zona_id)
 
 
-class TestGerenciadorControleZonas(TestCasePostgres):
+class TestGerenciadorControleZonas(unittest.TestCase):
     def setUp(self):
-        super().setUp()
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.db_path_original = db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
+        db.iniciar_banco()
         self.servico = _ZonaServiceFalso()
         self.gerenciador = GerenciadorControleZonas(self.servico)
 
+    def tearDown(self):
+        db.DB_PATH = self.db_path_original
+        self.tempdir.cleanup()
 
     @staticmethod
     def _criar_zona(nome):

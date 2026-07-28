@@ -2,11 +2,12 @@
 """Testes da camada de agregacao (15min/hora) descrita em agregacao.py."""
 
 import datetime
+import os
+import tempfile
 import unittest
 
 from app import agregacao
 from app import database as db
-from tests.postgres_test_utils import TestCasePostgres
 
 
 def _inserir_leitura_bruta(zona_id, valor, criado_em, status="Conforto", entradas=None):
@@ -21,12 +22,19 @@ def _inserir_leitura_bruta(zona_id, valor, criado_em, status="Conforto", entrada
         )
 
 
-class TestAgregacao15minEHora(TestCasePostgres):
+class TestAgregacao15minEHora(unittest.TestCase):
     def setUp(self):
-        super().setUp()
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.db_path_original = db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
+        db.iniciar_banco()
         self.zona = db.criar_zona(
             {"nome": "Aviario Teste", "especie": "frangos", "indice": "ITU", "ativa": True}
         )
+
+    def tearDown(self):
+        db.DB_PATH = self.db_path_original
+        self.tempdir.cleanup()
 
     def _agora_menos(self, **kwargs):
         return (

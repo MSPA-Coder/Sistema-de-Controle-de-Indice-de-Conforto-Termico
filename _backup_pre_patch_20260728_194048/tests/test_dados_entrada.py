@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 import datetime
 import json
+import os
 import random
+import tempfile
 import unittest
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
@@ -12,15 +14,25 @@ from app import gerador_dados as gerador
 from app.app_factory import criar_app_ict
 from app.dados_entrada_cidades import referencias_publicas
 from tests.auth_test_utils import cliente_autenticado
-from tests.postgres_test_utils import TestCasePostgres
 
 
-class TestDadosEntrada(TestCasePostgres):
+class TestDadosEntrada(unittest.TestCase):
     def setUp(self):
-        super().setUp()
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.db_original = db.DB_PATH
+        self.dados_db_original = dados_db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
+        dados_db.DB_PATH = os.path.join(self.tempdir.name, "dados_entrada.db")
+        db.iniciar_banco()
+        dados_db.iniciar_banco()
         self.zona = db.criar_zona(
             {"nome": "Estábulo teste", "especie": "bovinos", "indice": "ITU", "ativa": True}
         )
+
+    def tearDown(self):
+        db.DB_PATH = self.db_original
+        dados_db.DB_PATH = self.dados_db_original
+        self.tempdir.cleanup()
 
     def _configurar_zona(self):
         return dados_db.salvar_configuracoes_zonas(
