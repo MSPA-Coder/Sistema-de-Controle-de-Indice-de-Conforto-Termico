@@ -112,6 +112,7 @@ services:
       CONFORTO_HOST: 0.0.0.0
       CONFORTO_PORT: "5000"
       CONFORTO_DEBUG: ${CONFORTO_DEBUG:-0}
+      CONFORTO_SESSION_COOKIE_NAME: ${CONFORTO_SESSION_COOKIE_NAME:-conforto_session}
       CONFORTO_INTERNO_TOKEN_FILE: /run/secrets/internal_token
       COLETOR_URL: http://coletor:5000
     secrets:

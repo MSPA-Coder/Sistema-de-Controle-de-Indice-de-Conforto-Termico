@@ -181,6 +181,9 @@ def criar_app_ict(config: AppConfig | None = None) -> Flask:
     app = _criar_app_base("ict", config)
 
     app.secret_key = auth.obter_ou_criar_chave_secreta()
+    app.config["SESSION_COOKIE_NAME"] = os.environ.get(
+        "CONFORTO_SESSION_COOKIE_NAME", "conforto_session"
+    ).strip() or "conforto_session"
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
     app.config["SESSION_COOKIE_SECURE"] = _ler_bool_env(

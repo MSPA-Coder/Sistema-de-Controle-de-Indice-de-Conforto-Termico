@@ -152,6 +152,7 @@ Os valores padrão ficam em `config/servidor.json`. Variáveis de ambiente, quan
 | `CONFORTO_DEBUG` | `0` | Ativa o modo de depuração do Flask (servidor de desenvolvimento, com o debugger interativo). Use somente em desenvolvimento local. |
 | `CONFORTO_HOST` | `127.0.0.1` | Interface de rede usada pelo servidor. |
 | `CONFORTO_PORT` | conforme o processo | Porta TCP. |
+| `CONFORTO_SESSION_COOKIE_NAME` | `conforto_session` | Nome exclusivo do cookie de sessão no navegador. |
 | `CONFORTO_THREADED` | `1` | Habilita atendimento concorrente. Com `CONFORTO_DEBUG=0`, controla o número de threads do `waitress` (ver abaixo). |
 | `CONFORTO_MAX_CONTENT_LENGTH` | `1000000` | Limite do corpo das requisições, em bytes. |
 | `CONFORTO_SECRET_KEY` | arquivo no volume gerado | Define a chave usada para assinar a sessão. |
