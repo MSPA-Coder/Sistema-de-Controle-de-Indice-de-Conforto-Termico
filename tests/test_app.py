@@ -1,16 +1,13 @@
-# -*- coding: utf-8 -*-
-
 import os
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from app import app_factory
-from app import auth
+import run_ict as flask_app
+from app import app_factory, auth
 from app import database as db
 from app.coletor import estado as coletor_estado
-import run_ict as flask_app
 from tests.auth_test_utils import cliente_autenticado
 from tests.postgres_test_utils import TestCasePostgres
 
@@ -87,7 +84,8 @@ class TestConfiguracoesApi(TestCasePostgres):
 
     def test_api_mantem_senha_smtp_ao_salvar_sem_reenviar(self):
         primeiro = self.client.post(
-            "/api/configuracoes", json={"smtpHost": "smtp.fazenda.com.br", "smtpSenha": "segredo123"}
+            "/api/configuracoes",
+            json={"smtpHost": "smtp.fazenda.com.br", "smtpSenha": "segredo123"},
         )
         self.assertTrue(primeiro.json["smtpSenhaConfigurada"])
 
@@ -144,9 +142,7 @@ class TestServidorLocal(unittest.TestCase):
 
     def test_app_config_from_env_usa_padroes_seguros_sem_variaveis(self):
         ambiente_limpo = {
-            chave: valor
-            for chave, valor in os.environ.items()
-            if not chave.startswith("CONFORTO_")
+            chave: valor for chave, valor in os.environ.items() if not chave.startswith("CONFORTO_")
         }
         with patch.dict(os.environ, ambiente_limpo, clear=True):
             config = app_factory.AppConfig.from_env()
@@ -209,9 +205,7 @@ class TestManutencaoApi(TestCasePostgres):
         self.assertTrue(resposta.json["ok"])
 
     def test_backup_banco_cria_arquivo_no_mesmo_diretorio(self):
-        zona = db.criar_zona(
-            {"nome": "Zona backup", "especie": "frangos", "indice": "ITU"}
-        )
+        zona = db.criar_zona({"nome": "Zona backup", "especie": "frangos", "indice": "ITU"})
         db.salvar_leitura(
             "frangos",
             "ITU",
@@ -260,11 +254,14 @@ class TestErroInternoNaoVazaDetalhe(TestCasePostgres):
             json={"nome": "Zona de teste", "especie": "frangos", "indice": "ITU"},
         ).json
         segredo = "detalhe-interno-sensivel-do-servidor"
-        with patch.object(
-            coletor_estado.gerenciador_controle,
-            "calcular_manual",
-            side_effect=RuntimeError(segredo),
-        ), patch.object(self.app_coletor.logger, "exception") as registrar_erro:
+        with (
+            patch.object(
+                coletor_estado.gerenciador_controle,
+                "calcular_manual",
+                side_effect=RuntimeError(segredo),
+            ),
+            patch.object(self.app_coletor.logger, "exception") as registrar_erro,
+        ):
             resposta = self.client.post(
                 f"/api/zonas/{zona['id']}/calcular",
                 json={"entradas": {"tbs": 25, "tbu": 20}},
@@ -346,9 +343,7 @@ class TestZonasApi(TestCasePostgres):
         self.assertTrue(estado_zona["confirmado"]["ventilador"])
         self.assertTrue(self.client.get(f"/api/operacao/eventos?zona_id={zona_id}").json)
 
-        self.client.put(
-            f"/api/zonas/{zona_id}/controle", json={"modo": "automatico"}
-        )
+        self.client.put(f"/api/zonas/{zona_id}/controle", json={"modo": "automatico"})
         manual_fora_do_modo = self.client.post(
             f"/api/zonas/{zona_id}/calcular",
             json={"entradas": {"tbs": 25, "tbu": 20}},
@@ -439,8 +434,13 @@ class TestZonasApi(TestCasePostgres):
         resposta = self.client.post(
             "/api/zonas/9999/equipamentos",
             json={
-                "tipo": "sensor", "nome": "x", "modo_conexao": "tcp", "host": "1",
-                "tipo_registrador": "input", "endereco_registrador": 1, "campo_medido": "tbs",
+                "tipo": "sensor",
+                "nome": "x",
+                "modo_conexao": "tcp",
+                "host": "1",
+                "tipo_registrador": "input",
+                "endereco_registrador": 1,
+                "campo_medido": "tbs",
             },
         )
         self.assertEqual(404, resposta.status_code)
@@ -449,8 +449,14 @@ class TestZonasApi(TestCasePostgres):
         zona_id = self._criar_zona().json["id"]
         resposta = self.client.post(
             f"/api/zonas/{zona_id}/equipamentos",
-            json={"tipo": "aspirador", "nome": "x", "modo_conexao": "tcp", "host": "1",
-                  "tipo_registrador": "input", "endereco_registrador": 1},
+            json={
+                "tipo": "aspirador",
+                "nome": "x",
+                "modo_conexao": "tcp",
+                "host": "1",
+                "tipo_registrador": "input",
+                "endereco_registrador": 1,
+            },
         )
         self.assertEqual(400, resposta.status_code)
 
@@ -459,8 +465,13 @@ class TestZonasApi(TestCasePostgres):
         equipamento_id = self.client.post(
             f"/api/zonas/{zona_id}/equipamentos",
             json={
-                "tipo": "sensor", "nome": "Sensor TBS", "modo_conexao": "tcp", "host": "1",
-                "tipo_registrador": "input", "endereco_registrador": 1, "campo_medido": "tbs",
+                "tipo": "sensor",
+                "nome": "Sensor TBS",
+                "modo_conexao": "tcp",
+                "host": "1",
+                "tipo_registrador": "input",
+                "endereco_registrador": 1,
+                "campo_medido": "tbs",
             },
         ).json["id"]
 
@@ -476,8 +487,13 @@ class TestZonasApi(TestCasePostgres):
         equipamento_id = self.client.post(
             f"/api/zonas/{zona_a}/equipamentos",
             json={
-                "tipo": "sensor", "nome": "Sensor", "modo_conexao": "tcp", "host": "1",
-                "tipo_registrador": "input", "endereco_registrador": 1, "campo_medido": "tbs",
+                "tipo": "sensor",
+                "nome": "Sensor",
+                "modo_conexao": "tcp",
+                "host": "1",
+                "tipo_registrador": "input",
+                "endereco_registrador": 1,
+                "campo_medido": "tbs",
             },
         ).json["id"]
 
@@ -489,9 +505,14 @@ class TestZonasApi(TestCasePostgres):
         self.client.post(
             f"/api/zonas/{zona_id}/equipamentos",
             json={
-                "tipo": "sensor", "nome": "Sensor Inatingível", "modo_conexao": "tcp",
-                "host": "203.0.113.1", "porta": 502, "tipo_registrador": "input",
-                "endereco_registrador": 1, "campo_medido": "tbs",
+                "tipo": "sensor",
+                "nome": "Sensor Inatingível",
+                "modo_conexao": "tcp",
+                "host": "203.0.113.1",
+                "porta": 502,
+                "tipo_registrador": "input",
+                "endereco_registrador": 1,
+                "campo_medido": "tbs",
             },
         )
         # Mocka a leitura Modbus (em vez de bater numa rede real) para o
@@ -615,14 +636,19 @@ class TestZonasApi(TestCasePostgres):
         zona = self._criar_zona().json
         for valor in (70.0, 71.0, 72.0):
             db.salvar_leitura(
-                "frangos", "ITU", valor, "Alerta",
+                "frangos",
+                "ITU",
+                valor,
+                "Alerta",
                 {"tbs": valor - 45, "tbu": valor - 50},
-                intervalo_minutos=0, zona_id=zona["id"],
+                intervalo_minutos=0,
+                zona_id=zona["id"],
             )
         with db._conexao() as conn:
-            ids = [linha["id"] for linha in conn.execute(
-                "SELECT id FROM leituras ORDER BY id"
-            ).fetchall()]
+            ids = [
+                linha["id"]
+                for linha in conn.execute("SELECT id FROM leituras ORDER BY id").fetchall()
+            ]
             conn.executemany(
                 "UPDATE leituras SET criado_em=? WHERE id=?",
                 zip(

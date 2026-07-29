@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 test_modbus_client.py
 =======================
@@ -28,7 +27,9 @@ class _ClienteFalso:
 
     ultima_instancia = None
 
-    def __init__(self, *args, conectar=True, resposta_leitura=None, resposta_escrita=None, **kwargs):
+    def __init__(
+        self, *args, conectar=True, resposta_leitura=None, resposta_escrita=None, **kwargs
+    ):
         self.conectar_resultado = conectar
         self.resposta_leitura = resposta_leitura or _RespostaFalsa([300])
         self.resposta_escrita = resposta_escrita or _RespostaFalsa([])
@@ -112,7 +113,9 @@ class TestLeituraComClienteFalso(unittest.TestCase):
     def test_leitura_input_register(self):
         cliente = _ClienteFalso(resposta_leitura=_RespostaFalsa([250]))
         with patch.object(modbus_client, "ModbusTcpClient", return_value=cliente):
-            valor = modbus_client.ler_valor(_equipamento_tcp(tipo_registrador="input", fator_escala=0.1))
+            valor = modbus_client.ler_valor(
+                _equipamento_tcp(tipo_registrador="input", fator_escala=0.1)
+            )
         self.assertEqual(25.0, valor)
 
     def test_valor_negativo_via_complemento_de_dois_int16(self):
@@ -143,9 +146,10 @@ class TestLeituraComClienteFalso(unittest.TestCase):
             def read_holding_registers(self, *a, **k):
                 raise RuntimeError("falha de rede simulada")
 
-        with patch.object(
-            modbus_client, "ModbusTcpClient", return_value=ClienteQuebrado()
-        ), patch.object(modbus_client.logger, "exception") as registrar_erro:
+        with (
+            patch.object(modbus_client, "ModbusTcpClient", return_value=ClienteQuebrado()),
+            patch.object(modbus_client.logger, "exception") as registrar_erro,
+        ):
             self.assertIsNone(modbus_client.ler_valor(_equipamento_tcp()))
         registrar_erro.assert_called_once()
 
@@ -154,8 +158,12 @@ class TestLeituraComClienteFalso(unittest.TestCase):
 
     def test_rtu_sem_porta_serial_devolve_none(self):
         equipamento = {
-            "nome": "x", "modo_conexao": "rtu", "porta_serial": "",
-            "unidade_id": 1, "tipo_registrador": "holding", "endereco_registrador": 1,
+            "nome": "x",
+            "modo_conexao": "rtu",
+            "porta_serial": "",
+            "unidade_id": 1,
+            "tipo_registrador": "holding",
+            "endereco_registrador": 1,
         }
         self.assertIsNone(modbus_client.ler_valor(equipamento))
 
@@ -177,7 +185,9 @@ class TestEscritaComClienteFalso(unittest.TestCase):
     def test_escrita_coil_bem_sucedida(self):
         cliente = _ClienteFalso(resposta_escrita=_RespostaFalsa())
         with patch.object(modbus_client, "ModbusTcpClient", return_value=cliente):
-            resultado = modbus_client.escrever_valor(_equipamento_tcp(tipo_registrador="coil"), False)
+            resultado = modbus_client.escrever_valor(
+                _equipamento_tcp(tipo_registrador="coil"), False
+            )
         self.assertTrue(resultado)
 
     def test_escrita_com_erro_modbus_devolve_false(self):
@@ -191,9 +201,10 @@ class TestEscritaComClienteFalso(unittest.TestCase):
             def write_register(self, *a, **k):
                 raise RuntimeError("falha de rede simulada")
 
-        with patch.object(
-            modbus_client, "ModbusTcpClient", return_value=ClienteQuebrado()
-        ), patch.object(modbus_client.logger, "exception") as registrar_erro:
+        with (
+            patch.object(modbus_client, "ModbusTcpClient", return_value=ClienteQuebrado()),
+            patch.object(modbus_client.logger, "exception") as registrar_erro,
+        ):
             resultado = modbus_client.escrever_valor(_equipamento_tcp(), True)
         self.assertFalse(resultado)
         registrar_erro.assert_called_once()
@@ -201,9 +212,7 @@ class TestEscritaComClienteFalso(unittest.TestCase):
     def test_confirmacao_de_coil_le_estado_real(self):
         cliente = _ClienteFalso(resposta_leitura=_RespostaFalsa(bits=[True]))
         with patch.object(modbus_client, "ModbusTcpClient", return_value=cliente):
-            confirmado = modbus_client.ler_estado_atuador(
-                _equipamento_tcp(tipo_registrador="coil")
-            )
+            confirmado = modbus_client.ler_estado_atuador(_equipamento_tcp(tipo_registrador="coil"))
         self.assertTrue(confirmado)
 
     def test_confirmacao_de_holding_register_le_estado_real(self):

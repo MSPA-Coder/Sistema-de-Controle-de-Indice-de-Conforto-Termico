@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Testes automatizados do projeto."""
 
 import os
@@ -11,4 +10,3 @@ import os
 # definido fora da suíte: produção/Docker não passam por este pacote.
 # `setdefault` preserva um valor já definido pelo ambiente de CI/execução.
 os.environ.setdefault("CONFORTO_TESTING", "1")
-

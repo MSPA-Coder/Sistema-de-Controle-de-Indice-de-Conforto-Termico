@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 database.py
 ============
@@ -23,11 +22,11 @@ import re
 import sqlite3
 import subprocess
 import threading
+from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext
-from typing import Iterator
 
-from . import thermal_indices as ti
 from . import db_backend
+from . import thermal_indices as ti
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INSTANCE_DIR = os.path.join(PROJECT_ROOT, "instance")
@@ -1023,7 +1022,7 @@ def consolidar_resumo_horario(zona_id: int, especie: str, indice: str, hora_inic
         status_da_media = ti.classificar_status(valor_medio, especie, indice)
 
         total = len(linhas)
-        contagem = {status: 0 for status in ti.STATUS_ORDEM}
+        contagem = dict.fromkeys(ti.STATUS_ORDEM, 0)
         for linha in linhas:
             contagem[linha["status"]] = contagem.get(linha["status"], 0) + 1
         percentuais = {

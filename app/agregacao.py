@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 agregacao.py
 =============
@@ -46,9 +45,7 @@ def executar_para_zona(zona: dict, logger=None) -> dict:
                 janelas_15min += 1
         except Exception:
             if logger:
-                logger.exception(
-                    "Falha ao agregar janela de 15min %s da zona %s", janela, zona_id
-                )
+                logger.exception("Falha ao agregar janela de 15min %s da zona %s", janela, zona_id)
 
     horas = 0
     for hora in db.horas_pendentes(zona_id, indice):
@@ -57,11 +54,13 @@ def executar_para_zona(zona: dict, logger=None) -> dict:
                 horas += 1
         except Exception:
             if logger:
-                logger.exception(
-                    "Falha ao consolidar resumo horario %s da zona %s", hora, zona_id
-                )
+                logger.exception("Falha ao consolidar resumo horario %s da zona %s", hora, zona_id)
 
-    return {"zona_id": zona_id, "janelas_15min_consolidadas": janelas_15min, "horas_consolidadas": horas}
+    return {
+        "zona_id": zona_id,
+        "janelas_15min_consolidadas": janelas_15min,
+        "horas_consolidadas": horas,
+    }
 
 
 def executar(logger=None) -> list[dict]:

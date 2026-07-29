@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 import datetime
 import os
 import tempfile
@@ -48,7 +46,6 @@ class TestIntervaloMinimoLeituras(TestCasePostgres):
             {"nome": "Aviário", "especie": "frangos", "indice": "ITU"}
         )
 
-
     def test_nao_salva_mesmo_indice_antes_de_um_minuto(self):
         entradas = {"tbs": 25, "tbu": 20}
 
@@ -90,9 +87,9 @@ class TestIntervaloMinimoLeituras(TestCasePostgres):
                 zona_id=self.zona_frangos["id"],
             )
         )
-        criado_em_antigo = (
-            datetime.datetime.now() - datetime.timedelta(seconds=61)
-        ).isoformat(timespec="seconds")
+        criado_em_antigo = (datetime.datetime.now() - datetime.timedelta(seconds=61)).isoformat(
+            timespec="seconds"
+        )
 
         with db._conexao() as conn:
             conn.execute(
@@ -110,15 +107,11 @@ class TestIntervaloMinimoLeituras(TestCasePostgres):
                 zona_id=self.zona_frangos["id"],
             )
         )
-        self.assertEqual(
-            2, len(db.obter_historico_por_zona(self.zona_frangos["id"]))
-        )
+        self.assertEqual(2, len(db.obter_historico_por_zona(self.zona_frangos["id"])))
 
     def test_intervalo_e_independente_por_zona(self):
         entradas = {"tbs": 25, "tbu": 20}
-        outra_zona = db.criar_zona(
-            {"nome": "Outro aviário", "especie": "frangos", "indice": "ITU"}
-        )
+        outra_zona = db.criar_zona({"nome": "Outro aviário", "especie": "frangos", "indice": "ITU"})
 
         self.assertTrue(
             db.salvar_leitura(
@@ -189,9 +182,7 @@ class TestIntervaloMinimoLeituras(TestCasePostgres):
             )
         )
 
-        self.assertEqual(
-            2, len(db.obter_historico_por_zona(self.zona_frangos["id"]))
-        )
+        self.assertEqual(2, len(db.obter_historico_por_zona(self.zona_frangos["id"])))
 
     @patch("app.database.os.path.getsize", return_value=4321)
     @patch("app.database.subprocess.run")
@@ -256,9 +247,7 @@ class TestIntervaloMinimoLeituras(TestCasePostgres):
                 zona_id=zona["id"],
             )
 
-        pagina = db.obter_historico_leituras(
-            limite=30, deslocamento=15, zona_id=zona["id"]
-        )
+        pagina = db.obter_historico_leituras(limite=30, deslocamento=15, zona_id=zona["id"])
 
         self.assertEqual(65, pagina["total"])
         self.assertEqual(30, len(pagina["leituras"]))
@@ -325,24 +314,32 @@ class TestIntervaloMinimoLeituras(TestCasePostgres):
         zona = db.criar_zona({"nome": "Aviario 1", "especie": "frangos", "indice": "ITU"})
         for valor in (70.0, 71.0, 72.0, 73.0):
             db.salvar_leitura(
-                "frangos", "ITU", valor, "Alerta", {"tbs": valor - 45},
-                intervalo_minutos=0, zona_id=zona["id"],
+                "frangos",
+                "ITU",
+                valor,
+                "Alerta",
+                {"tbs": valor - 45},
+                intervalo_minutos=0,
+                zona_id=zona["id"],
             )
         with db._conexao() as conn:
-            ids = [linha["id"] for linha in conn.execute(
-                "SELECT id FROM leituras ORDER BY id"
-            ).fetchall()]
+            ids = [
+                linha["id"]
+                for linha in conn.execute("SELECT id FROM leituras ORDER BY id").fetchall()
+            ]
             datas = (
-                "2024-01-31 12:00:00", "2024-02-01T00:00:00",
-                "2024-02-29T23:59:59", "2024-03-01 00:00:00",
+                "2024-01-31 12:00:00",
+                "2024-02-01T00:00:00",
+                "2024-02-29T23:59:59",
+                "2024-03-01 00:00:00",
             )
-            conn.executemany(
-                "UPDATE leituras SET criado_em=? WHERE id=?", zip(datas, ids)
-            )
+            conn.executemany("UPDATE leituras SET criado_em=? WHERE id=?", zip(datas, ids))
 
         pagina = db.obter_historico_leituras(
-            limite=30, zona_id=zona["id"],
-            data_inicio="2024-02-01", data_fim="2024-02-29",
+            limite=30,
+            zona_id=zona["id"],
+            data_inicio="2024-02-01",
+            data_fim="2024-02-29",
         )
 
         self.assertEqual(2, pagina["total"])
@@ -436,7 +433,6 @@ class TestSanitizacaoDeConfiguracoes(TestCasePostgres):
     def setUp(self):
         super().setUp()
 
-
     def test_email_com_quebra_de_linha_cai_para_padrao(self):
         # Tentativa de injecao de cabecalho SMTP (ex.: "Bcc: atacante@...")
         # via quebra de linha no valor do e-mail.
@@ -529,7 +525,6 @@ class TestZonasCRUD(TestCasePostgres):
     def setUp(self):
         super().setUp()
 
-
     def test_cria_e_busca_zona(self):
         zona = db.criar_zona({"nome": "Aviário 1", "especie": "frangos", "indice": "ITU"})
         self.assertEqual("Aviário 1", zona["nome"])
@@ -609,7 +604,9 @@ class TestZonasCRUD(TestCasePostgres):
 
     def test_excluir_zona_preserva_historico_ja_gravado(self):
         zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
-        db.salvar_leitura("frangos", "ITU", 75.0, "Conforto", {"tbs": 25, "tbu": 20}, zona_id=zona["id"])
+        db.salvar_leitura(
+            "frangos", "ITU", 75.0, "Conforto", {"tbs": 25, "tbu": 20}, zona_id=zona["id"]
+        )
         total_antes = db.contar_leituras()
         db.excluir_zona(zona["id"])
         # A linha em si nao e apagada (ON DELETE SET NULL, nao CASCADE) --
@@ -625,7 +622,6 @@ class TestZonasCRUD(TestCasePostgres):
 class TestEstatisticasZonas(TestCasePostgres):
     def setUp(self):
         super().setUp()
-
 
     def test_zona_sem_leituras_devolve_percentuais_e_agregados_none(self):
         zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
@@ -649,8 +645,13 @@ class TestEstatisticasZonas(TestCasePostgres):
         ]
         for valor, status in leituras:
             db.salvar_leitura(
-                "frangos", "ITU", valor, status, {"tbs": 25, "tbu": 20},
-                intervalo_minutos=0, zona_id=zona["id"],
+                "frangos",
+                "ITU",
+                valor,
+                status,
+                {"tbs": 25, "tbu": 20},
+                intervalo_minutos=0,
+                zona_id=zona["id"],
             )
 
         [stats] = db.obter_estatisticas_zonas()
@@ -667,13 +668,25 @@ class TestEstatisticasZonas(TestCasePostgres):
     def test_ignora_leituras_de_um_indice_anterior_ao_atual_da_zona(self):
         zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
         db.salvar_leitura(
-            "frangos", "ITU", 70.0, "Conforto", {"tbs": 25, "tbu": 20},
-            intervalo_minutos=0, zona_id=zona["id"],
+            "frangos",
+            "ITU",
+            70.0,
+            "Conforto",
+            {"tbs": 25, "tbu": 20},
+            intervalo_minutos=0,
+            zona_id=zona["id"],
         )
-        db.atualizar_zona(zona["id"], {"nome": "Zona 1", "especie": "frangos", "indice": "ITUV", "ativa": True})
+        db.atualizar_zona(
+            zona["id"], {"nome": "Zona 1", "especie": "frangos", "indice": "ITUV", "ativa": True}
+        )
         db.salvar_leitura(
-            "frangos", "ITUV", 20.0, "Conforto", {"tbs": 25, "tbu": 20, "vv": 1.5},
-            intervalo_minutos=0, zona_id=zona["id"],
+            "frangos",
+            "ITUV",
+            20.0,
+            "Conforto",
+            {"tbs": 25, "tbu": 20, "vv": 1.5},
+            intervalo_minutos=0,
+            zona_id=zona["id"],
         )
 
         [stats] = db.obter_estatisticas_zonas()
@@ -705,7 +718,6 @@ class TestPainelExecutivoZonas(TestCasePostgres):
 
     def setUp(self):
         super().setUp()
-
 
     def _inserir_leitura(
         self, zona_id, valor, status, quando, indice="ITU", especie="frangos", entradas=None
@@ -759,9 +771,7 @@ class TestPainelExecutivoZonas(TestCasePostgres):
             },
             painel["equipamentos_ligados"],
         )
-        self.assertEqual(
-            "Ainda não há leitura registrada para esta zona.", painel["recomendacao"]
-        )
+        self.assertEqual("Ainda não há leitura registrada para esta zona.", painel["recomendacao"])
 
     def test_status_e_valor_atuais_vem_da_leitura_mais_recente(self):
         zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
@@ -816,9 +826,7 @@ class TestPainelExecutivoZonas(TestCasePostgres):
         zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
         agora = datetime.datetime.now()
         # Fora da janela de 24h -- nao deve entrar na conta.
-        self._inserir_leitura(
-            zona["id"], 90.0, "Emergência", agora - datetime.timedelta(hours=25)
-        )
+        self._inserir_leitura(zona["id"], 90.0, "Emergência", agora - datetime.timedelta(hours=25))
         self._inserir_leitura(zona["id"], 70.0, "Conforto", agora - datetime.timedelta(hours=2))
         self._inserir_leitura(zona["id"], 71.0, "Conforto", agora - datetime.timedelta(hours=1))
         self._inserir_leitura(zona["id"], 78.0, "Alerta", agora)
@@ -954,9 +962,7 @@ class TestPainelExecutivoZonas(TestCasePostgres):
 
         [painel] = db.obter_painel_zonas()
 
-        self.assertEqual(
-            "Ainda não há leitura registrada para esta zona.", painel["recomendacao"]
-        )
+        self.assertEqual("Ainda não há leitura registrada para esta zona.", painel["recomendacao"])
 
     def test_recomendacao_menciona_tendencia_de_subida_em_perigo(self):
         zona = db.criar_zona({"nome": "Zona 1", "especie": "frangos", "indice": "ITU"})
@@ -1110,7 +1116,6 @@ class TestEquipamentosCRUD(TestCasePostgres):
         super().setUp()
         self.zona = db.criar_zona({"nome": "Zona teste", "especie": "frangos", "indice": "ITU"})
 
-
     def _equipamento_base(self, **sobrescritas):
         base = {
             "tipo": "sensor",
@@ -1171,15 +1176,20 @@ class TestEquipamentosCRUD(TestCasePostgres):
         equipamento = db.criar_equipamento(
             self.zona["id"],
             self._equipamento_base(
-                tipo="ventilador", nome="Ventilador 1", tipo_registrador="coil",
-                endereco_registrador=1, campo_medido=None,
+                tipo="ventilador",
+                nome="Ventilador 1",
+                tipo_registrador="coil",
+                endereco_registrador=1,
+                campo_medido=None,
             ),
         )
         self.assertIsNone(equipamento["campo_medido"])
 
     def test_endereco_registrador_fora_da_faixa_e_rejeitado(self):
         with self.assertRaises(db.ZonaInvalidaError):
-            db.criar_equipamento(self.zona["id"], self._equipamento_base(endereco_registrador=999999))
+            db.criar_equipamento(
+                self.zona["id"], self._equipamento_base(endereco_registrador=999999)
+            )
 
     def test_unidade_id_fora_da_faixa_e_rejeitada(self):
         with self.assertRaises(db.ZonaInvalidaError):
@@ -1264,7 +1274,6 @@ class TestConcorrenciaLeituraEscrita(unittest.TestCase):
         db.DB_PATH = self.db_path_original
         self.tempdir.cleanup()
 
-
     def test_leitura_nao_espera_escrita_em_andamento(self):
         escrita_em_andamento = threading.Event()
         pode_liberar_escrita = threading.Event()
@@ -1286,7 +1295,8 @@ class TestConcorrenciaLeituraEscrita(unittest.TestCase):
         thread_escrita.join(timeout=2)
 
         self.assertLess(
-            duracao, 0.5,
+            duracao,
+            0.5,
             "uma leitura esperou por uma escrita em andamento; "
             "verifique se a consulta do histórico ainda usa escrita=False",
         )
@@ -1332,7 +1342,6 @@ class TestUsuariosCRUD(TestCasePostgres):
 
     def setUp(self):
         super().setUp()
-
 
     @staticmethod
     def _dados(**sobrescreve):
@@ -1398,7 +1407,8 @@ class TestUsuariosCRUD(TestCasePostgres):
     def test_atualizar_usuario_preserva_senha_quando_nao_informada(self):
         criado = db.criar_usuario(self._dados())
         db.atualizar_usuario(
-            criado["id"], {"nome": "Ana A. Admin", "login": "ana", "perfil": "administrador", "ativo": True}
+            criado["id"],
+            {"nome": "Ana A. Admin", "login": "ana", "perfil": "administrador", "ativo": True},
         )
         interno = db.obter_usuario_por_login("ana")
         self.assertEqual("hash-fake-nao-importa-aqui", interno["senha_hash"])
@@ -1409,8 +1419,11 @@ class TestUsuariosCRUD(TestCasePostgres):
         db.atualizar_usuario(
             criado["id"],
             {
-                "nome": "Ana Admin", "login": "ana", "perfil": "administrador",
-                "ativo": True, "senha_hash": "novo-hash",
+                "nome": "Ana Admin",
+                "login": "ana",
+                "perfil": "administrador",
+                "ativo": True,
+                "senha_hash": "novo-hash",
             },
         )
         interno = db.obter_usuario_por_login("ana")

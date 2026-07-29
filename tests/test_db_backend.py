@@ -22,13 +22,15 @@ class TestSelecaoBackend(unittest.TestCase):
             self.assertTrue(db_backend.postgres_ativo())
 
     def test_url_de_outro_dialeto_nao_cai_silenciosamente_em_sqlite(self):
-        with patch.dict(
-            os.environ,
-            {"DATABASE_URL": "sqlite:////workspace/instance/producao.db"},
-            clear=True,
+        with (
+            patch.dict(
+                os.environ,
+                {"DATABASE_URL": "sqlite:////workspace/instance/producao.db"},
+                clear=True,
+            ),
+            self.assertRaisesRegex(RuntimeError, "deve apontar para PostgreSQL"),
         ):
-            with self.assertRaisesRegex(RuntimeError, "deve apontar para PostgreSQL"):
-                db_backend.postgres_ativo()
+            db_backend.postgres_ativo()
 
     def test_monta_url_postgresql_a_partir_de_segredo_em_arquivo(self):
         with tempfile.TemporaryDirectory() as diretorio:

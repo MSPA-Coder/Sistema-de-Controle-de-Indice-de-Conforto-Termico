@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 models.py
 =========
@@ -144,9 +143,7 @@ class Resfriamento:
             self.tipo_de_resfriador = 0
             return
 
-        self.nebulizador_ativo = (
-            umidade_relativa is not None and umidade_relativa <= limite_umidade
-        )
+        self.nebulizador_ativo = umidade_relativa is not None and umidade_relativa <= limite_umidade
         self.tipo_de_resfriador = 3 if self.nebulizador_ativo else 1
 
     def registrar_leitura(self, status: str, leituras_para_reduzir: int = 3) -> None:
@@ -210,6 +207,10 @@ class Email:
         configuracao persistida no banco. Quando um campo especifico vem
         vazio, a respectiva variavel de ambiente (`SMTP_HOST`/`SMTP_PORT`/
         `SMTP_USER`/`SMTP_PASS`) e usada como fallback."""
+        import logging
+
+        logger = logging.getLogger(__name__)
+
         smtp_config = smtp_config or {}
         host = smtp_config.get("host") or os.environ.get("SMTP_HOST")
         if not host:
@@ -234,10 +235,19 @@ class Email:
             msg["To"] = self.destino
             with smtplib.SMTP(host, int(porta), timeout=10) as servidor:
                 servidor.starttls()
+                # Credenciais sao usadas apenas internamente - nunca logadas
                 servidor.login(usuario, senha)
                 servidor.sendmail(usuario, [self.destino], msg.as_string())
             self._enviado = True
-        except Exception:
+        except smtplib.SMTPAuthenticationError:
+            logger.error("Falha de autenticação SMTP para %s", host)
+            self._enviado = False
+        except smtplib.SMTPConnectError:
+            logger.error("Não foi possível conectar ao SMTP %s:%s", host, porta)
+            self._enviado = False
+        except Exception as erro:
+            # Sanitizar log para evitar expor credenciais
+            logger.error("Erro ao enviar e-mail: %s", str(erro))
             self._enviado = False
         return self._enviado
 
@@ -280,9 +290,7 @@ class Email:
             f"{Email._formatar_zona(zona)}"
             f"Valor do {indice}: {valor}\n"
             f"{Email._formatar_entradas(entradas)}"
-            f"Mensagem: {ti.mensagem_do_status(status)}\n"
-            + "*" * 75
-            + "\n"
+            f"Mensagem: {ti.mensagem_do_status(status)}\n" + "*" * 75 + "\n"
             "Você está recebendo esse e-mail por estar cadastrado na lista de "
             "usuários do Sistema de Controle dos Índices de Conforto Térmico. "
             "Em caso de dúvida contate o administrador do sistema.\nObrigado."

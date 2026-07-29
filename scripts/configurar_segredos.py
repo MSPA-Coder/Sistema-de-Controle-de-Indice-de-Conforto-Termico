@@ -8,6 +8,7 @@ também exige alterar a senha do papel no banco antes de recriar os serviços.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import secrets
 from pathlib import Path
@@ -24,10 +25,8 @@ def _gravar(caminho: Path, quantidade_bytes: int, *, force: bool) -> bool:
     if caminho.exists() and not force:
         return False
     caminho.write_text(secrets.token_urlsafe(quantidade_bytes), encoding="utf-8")
-    try:
+    with contextlib.suppress(OSError):
         os.chmod(caminho, 0o600)
-    except OSError:
-        pass
     return True
 
 

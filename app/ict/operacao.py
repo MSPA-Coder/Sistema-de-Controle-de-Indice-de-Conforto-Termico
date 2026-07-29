@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """APIs públicas da aba Operação.
 
 O navegador conversa somente com o ICT. Depois de autenticar a sessão e

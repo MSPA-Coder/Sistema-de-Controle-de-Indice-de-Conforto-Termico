@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Malha operacional executada no backend do processo coletor.
 
 O navegador apenas solicita operacoes e consulta o estado persistido. O
@@ -12,9 +11,8 @@ import datetime
 import threading
 from collections import defaultdict
 
-from .. import agregacao
+from .. import agregacao, notificacoes
 from .. import database as db
-from .. import notificacoes
 from .. import thermal_indices as ti
 from ..zona_service import ZonaCalculoError
 
@@ -50,9 +48,7 @@ class GerenciadorControleZonas:
     def _executar_exclusivo(self, zona_id: int, funcao):
         lock = self._lock_zona(zona_id)
         if not lock.acquire(blocking=False):
-            raise ZonaOcupadaError(
-                f"A zona {zona_id} ja possui um ciclo ou comando em andamento."
-            )
+            raise ZonaOcupadaError(f"A zona {zona_id} ja possui um ciclo ou comando em andamento.")
         try:
             return funcao()
         finally:
@@ -85,9 +81,7 @@ class GerenciadorControleZonas:
             iniciado_em=agora.isoformat(timespec="seconds"),
             proximo_ciclo_em=proximo.isoformat(timespec="seconds"),
         )
-        self._thread = threading.Thread(
-            target=self._loop, name="controle-zonas", daemon=True
-        )
+        self._thread = threading.Thread(target=self._loop, name="controle-zonas", daemon=True)
         self._thread.start()
 
     def parar(self, timeout: float = 3.0) -> None:
@@ -150,6 +144,7 @@ class GerenciadorControleZonas:
             if not controle or controle.get("modo") != "automatico":
                 continue
             try:
+
                 def _calcular_automatico(zona_id=zona["id"]):
                     atual = db.obter_controle_zona(zona_id)
                     if not atual or atual.get("modo") != "automatico":
@@ -201,9 +196,7 @@ class GerenciadorControleZonas:
 
         return resultados
 
-    def calcular_manual(
-        self, zona_id: int, entradas: dict | None = None, logger=None
-    ) -> dict:
+    def calcular_manual(self, zona_id: int, entradas: dict | None = None, logger=None) -> dict:
         def _calcular():
             controle = db.obter_controle_zona(zona_id)
             if controle is None:
@@ -235,9 +228,7 @@ class GerenciadorControleZonas:
             controle = db.salvar_controle_zona(zona_id, dados)
             desligamento = None
             if controle["modo"] in ("desligado", "manutencao"):
-                desligamento = self.zona_service.desativar_atuadores(
-                    zona_id, logger=logger
-                )
+                desligamento = self.zona_service.desativar_atuadores(zona_id, logger=logger)
                 confirmado = desligamento["confirmado"]
                 db.salvar_estado_equipamentos(
                     zona_id,
@@ -264,14 +255,10 @@ class GerenciadorControleZonas:
 
         return self._executar_exclusivo(zona_id, _alterar)
 
-    def comandar_manual(
-        self, zona_id: int, tipo: str, ligar: bool, logger=None
-    ) -> dict:
+    def comandar_manual(self, zona_id: int, tipo: str, ligar: bool, logger=None) -> dict:
         resultado = self._executar_exclusivo(
             zona_id,
-            lambda: self.zona_service.comandar_manual(
-                zona_id, tipo, ligar, logger=logger
-            ),
+            lambda: self.zona_service.comandar_manual(zona_id, tipo, ligar, logger=logger),
         )
         db.salvar_comando_manual_atuador(
             zona_id,

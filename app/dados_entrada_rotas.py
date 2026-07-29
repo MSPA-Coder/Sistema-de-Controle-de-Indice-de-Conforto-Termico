@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Rotas de consulta e operacao da aba de dados de entrada."""
 
 from __future__ import annotations
@@ -8,8 +7,8 @@ import io
 
 from flask import Blueprint, Response, current_app, jsonify, request
 
-from . import database as db
 from . import dados_entrada_db as dados_db
+from . import database as db
 from .app_factory import MENSAGEM_ERRO_INTERNO
 from .dados_entrada_cidades import referencias_publicas
 
@@ -25,9 +24,9 @@ def _confirmado(dados: dict) -> bool:
 
 @dados_entrada_leitura_bp.route("/api/dados-entrada/configuracoes", methods=["GET"])
 def obter_configuracoes():
-    return jsonify(dados_db.obter_configuracoes_zonas(
-        db.listar_zonas(apenas_ativas=True), sincronizar=True
-    ))
+    return jsonify(
+        dados_db.obter_configuracoes_zonas(db.listar_zonas(apenas_ativas=True), sincronizar=True)
+    )
 
 
 @dados_entrada_leitura_bp.route("/api/dados-entrada/referencias", methods=["GET"])
@@ -63,10 +62,12 @@ def gerar_dados():
 
 @dados_entrada_leitura_bp.route("/api/dados-entrada/execucoes", methods=["GET"])
 def listar_execucoes():
-    return jsonify({
-        "execucoes": dados_db.listar_execucoes(),
-        "destino": "PostgreSQL (schema dados_entrada)",
-    })
+    return jsonify(
+        {
+            "execucoes": dados_db.listar_execucoes(),
+            "destino": "PostgreSQL (schema dados_entrada)",
+        }
+    )
 
 
 @dados_entrada_leitura_bp.route("/api/dados-entrada/exportar.csv", methods=["GET"])
@@ -87,9 +88,7 @@ def exportar_csv():
     return Response(
         "\ufeff" + saida.getvalue(),
         mimetype="text/csv; charset=utf-8",
-        headers={
-            "Content-Disposition": f'attachment; filename="dados_entrada{sufixo}.csv"'
-        },
+        headers={"Content-Disposition": f'attachment; filename="dados_entrada{sufixo}.csv"'},
     )
 
 

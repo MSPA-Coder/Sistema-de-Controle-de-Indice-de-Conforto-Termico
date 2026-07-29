@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Testes da camada de agregacao (15min/hora) descrita em agregacao.py."""
 
 import datetime

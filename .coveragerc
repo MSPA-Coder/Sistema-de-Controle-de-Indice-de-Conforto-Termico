@@ -1,0 +1,20 @@
+[run]
+source = app
+omit = 
+    */migrations/*
+    */tests/*
+    */__pycache__/*
+    app/database.py
+branch = True
+
+[report]
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+    raise NotImplementedError
+fail_under = 60
+show_missing = True
+
+[html]
+directory = htmlcov

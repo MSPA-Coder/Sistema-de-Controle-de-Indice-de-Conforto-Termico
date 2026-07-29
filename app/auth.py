@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 auth.py
 ========
@@ -26,8 +25,10 @@ um botao no HTML nunca e controle de acesso de verdade.
 
 from __future__ import annotations
 
+import contextlib
 import hmac
 import os
+import re
 import secrets
 from pathlib import Path
 
@@ -43,6 +44,8 @@ from flask import (
     session,
     url_for,
 )
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from . import database as db
@@ -105,6 +108,31 @@ PERFIS_QUE_PODEM_EXCLUIR_DADOS_ENTRADA = frozenset({"tecnico", "administrador"})
 
 SENHA_TAMANHO_MINIMO = 8
 METODOS_HTTP_SEGUROS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+# Limiter para rate limiting - inicializado uma vez e reutilizado
+_limiter: Limiter | None = None
+
+
+def obter_limiter() -> Limiter:
+    """Obtem ou cria o limiter para rate limiting."""
+    global _limiter
+    if _limiter is None:
+        _limiter = Limiter(
+            key_func=get_remote_address,
+            default_limits=["100 per hour", "20 per minute"],
+            storage_uri="memory://",
+        )
+    return _limiter
+
+
+def sanitizar_log(mensagem: str) -> str:
+    """Sanitiza credenciais e dados sensíveis de logs."""
+    # Remove senhas de strings de log
+    mensagem = re.sub(r"senha[=:]\s*\S+", "senha=***", mensagem, flags=re.IGNORECASE)
+    mensagem = re.sub(r"password[=:]\s*\S+", "password=***", mensagem, flags=re.IGNORECASE)
+    mensagem = re.sub(r"secret[=:]\s*\S+", "secret=***", mensagem, flags=re.IGNORECASE)
+    mensagem = re.sub(r"token[=:]\s*\S+", "token=***", mensagem, flags=re.IGNORECASE)
+    return mensagem
 
 
 def obter_token_csrf() -> str:
@@ -169,10 +197,8 @@ def obter_ou_criar_chave_secreta() -> str:
     try:
         caminho.parent.mkdir(parents=True, exist_ok=True)
         caminho.write_text(nova_chave, encoding="utf-8")
-        try:
-            os.chmod(caminho, 0o600)
-        except OSError:
-            pass  # Windows nao suporta esse modo -- nao e fatal.
+        with contextlib.suppress(OSError):
+            os.chmod(caminho, 0o600)  # Windows nao suporta esse modo -- nao e fatal.
     except OSError:
         pass  # Sem permissao de escrita: a chave vale so para este processo.
     return nova_chave
@@ -201,9 +227,7 @@ def obter_ou_criar_token_interno() -> str:
         try:
             token = Path(arquivo_segredo).read_text(encoding="utf-8").strip()
         except OSError as erro:
-            raise RuntimeError(
-                "Não foi possível ler CONFORTO_INTERNO_TOKEN_FILE."
-            ) from erro
+            raise RuntimeError("Não foi possível ler CONFORTO_INTERNO_TOKEN_FILE.") from erro
         if not token:
             raise RuntimeError("CONFORTO_INTERNO_TOKEN_FILE está vazio.")
         return token
@@ -220,10 +244,8 @@ def obter_ou_criar_token_interno() -> str:
     try:
         caminho.parent.mkdir(parents=True, exist_ok=True)
         caminho.write_text(novo_token, encoding="utf-8")
-        try:
+        with contextlib.suppress(OSError):
             os.chmod(caminho, 0o600)
-        except OSError:
-            pass
     except OSError:
         pass
     return novo_token
@@ -339,9 +361,7 @@ def registrar_autenticacao(app: Flask) -> None:
         ):
             return None
         esperado = session.get("_csrf_token", "")
-        recebido = request.headers.get("X-CSRF-Token", "") or request.form.get(
-            "_csrf_token", ""
-        )
+        recebido = request.headers.get("X-CSRF-Token", "") or request.form.get("_csrf_token", "")
         if esperado and recebido and hmac.compare_digest(esperado, recebido):
             return None
         if request.path.startswith("/api/"):
@@ -383,9 +403,7 @@ def registrar_autenticacao(app: Flask) -> None:
 
         area_requerida = AREA_POR_ENDPOINT.get(endpoint)
         if area_requerida is not None:
-            areas_aceitas = (
-                (area_requerida,) if isinstance(area_requerida, str) else area_requerida
-            )
+            areas_aceitas = (area_requerida,) if isinstance(area_requerida, str) else area_requerida
             if not any(area_permitida(g.usuario["perfil"], area) for area in areas_aceitas):
                 return _negar_acesso()
 
@@ -417,7 +435,10 @@ def _destino_pos_login(bruto: str) -> str:
 
 
 @auth_bp.route("/login", methods=["GET", "POST"])
+@obter_limiter().limit("5 per minute")
 def login():
+    from .audit_log import log_login_sucesso, log_login_falha
+
     if g.usuario is not None:
         return redirect(url_for("comum.index"))
 
@@ -427,6 +448,10 @@ def login():
     if request.method == "POST":
         login_digitado = str(request.form.get("login", "")).strip()
         senha_digitada = request.form.get("senha", "")
+
+        # Sanitizar dados sensíveis antes de qualquer log potencial
+        sanitizar_log(login_digitado)
+
         usuario = db.obter_usuario_por_login(login_digitado)
 
         # Mensagem identica para "login inexistente" e "senha incorreta"
@@ -438,12 +463,18 @@ def login():
             or not usuario["ativo"]
             or not conferir_senha(senha_digitada, usuario["senha_hash"])
         ):
+            motivo = "usuario_inexistente" if usuario is None else "credenciais_invalidas"
+            if usuario and not usuario["ativo"]:
+                motivo = "usuario_inativo"
+            
+            log_login_falha(login_digitado, motivo)
             erro = "Login ou senha inválidos."
         else:
             session.clear()
             session["usuario_id"] = usuario["id"]
             session.permanent = True
             db.registrar_login_usuario(usuario["id"])
+            log_login_sucesso(usuario["id"], login_digitado)
             return redirect(_destino_pos_login(proxima))
 
     return render_template("login.html", erro=erro, proxima=proxima)

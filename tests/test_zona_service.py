@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 test_zona_service.py
 =====================
@@ -141,10 +140,17 @@ class TestZonaService(TestCasePostgres):
 
     def test_calculo_manual_aceita_umidade_como_texto_no_limite_do_nebulizador(self):
         zona = self._criar_zona_com_sensores(indice="ITU")
-        db.criar_equipamento(zona["id"], {
-            "tipo": "nebulizador", "nome": "NEB-1", "modo_conexao": "tcp", "host": "10.0.0.3",
-            "tipo_registrador": "coil", "endereco_registrador": 0,
-        })
+        db.criar_equipamento(
+            zona["id"],
+            {
+                "tipo": "nebulizador",
+                "nome": "NEB-1",
+                "modo_conexao": "tcp",
+                "host": "10.0.0.3",
+                "tipo_registrador": "coil",
+                "endereco_registrador": 0,
+            },
+        )
 
         resultado = self.servico.calcular_manual(
             zona["id"], {"tbs": "45", "tbu": "25", "ur": "55,5"}
@@ -162,8 +168,10 @@ class TestZonaService(TestCasePostgres):
         self._equipamento_sensor(zona_fria["id"], "TBU-FRIA", "tbu")
 
         self.leituras_simuladas = {
-            "TBS-QUENTE": 38.0, "TBU-QUENTE": 30.0,  # deve dar Perigo/Emergencia
-            "TBS-FRIA": 20.0, "TBU-FRIA": 18.0,  # deve dar Conforto
+            "TBS-QUENTE": 38.0,
+            "TBU-QUENTE": 30.0,  # deve dar Perigo/Emergencia
+            "TBS-FRIA": 20.0,
+            "TBU-FRIA": 18.0,  # deve dar Conforto
         }
 
         quente = self.servico.calcular(zona_quente["id"])
@@ -177,19 +185,31 @@ class TestZonaService(TestCasePostgres):
     def test_atuadores_sao_acionados_conforme_status(self):
         zona = self._criar_zona_com_sensores()
         db.salvar_configuracoes({"habilitarEquipamentos": True})
-        db.salvar_controle_zona(
-            zona["id"], {"modo": "manual", "acionamento_habilitado": True}
-        )
+        db.salvar_controle_zona(zona["id"], {"modo": "manual", "acionamento_habilitado": True})
         self._equipamento_sensor(zona["id"], "TBS-A", "tbs")
         self._equipamento_sensor(zona["id"], "TBU-A", "tbu")
-        db.criar_equipamento(zona["id"], {
-            "tipo": "ventilador", "nome": "VENT-1", "modo_conexao": "tcp", "host": "10.0.0.2",
-            "tipo_registrador": "coil", "endereco_registrador": 0,
-        })
-        db.criar_equipamento(zona["id"], {
-            "tipo": "nebulizador", "nome": "NEB-1", "modo_conexao": "tcp", "host": "10.0.0.3",
-            "tipo_registrador": "coil", "endereco_registrador": 0,
-        })
+        db.criar_equipamento(
+            zona["id"],
+            {
+                "tipo": "ventilador",
+                "nome": "VENT-1",
+                "modo_conexao": "tcp",
+                "host": "10.0.0.2",
+                "tipo_registrador": "coil",
+                "endereco_registrador": 0,
+            },
+        )
+        db.criar_equipamento(
+            zona["id"],
+            {
+                "tipo": "nebulizador",
+                "nome": "NEB-1",
+                "modo_conexao": "tcp",
+                "host": "10.0.0.3",
+                "tipo_registrador": "coil",
+                "endereco_registrador": 0,
+            },
+        )
         self.leituras_simuladas = {"TBS-A": 38.0, "TBU-A": 30.0}
 
         self.servico.calcular(zona["id"])
@@ -214,15 +234,20 @@ class TestZonaService(TestCasePostgres):
     def test_falha_ao_acionar_atuador_nao_impede_o_calculo(self):
         zona = self._criar_zona_com_sensores()
         db.salvar_configuracoes({"habilitarEquipamentos": True})
-        db.salvar_controle_zona(
-            zona["id"], {"modo": "manual", "acionamento_habilitado": True}
-        )
+        db.salvar_controle_zona(zona["id"], {"modo": "manual", "acionamento_habilitado": True})
         self._equipamento_sensor(zona["id"], "TBS-A", "tbs")
         self._equipamento_sensor(zona["id"], "TBU-A", "tbu")
-        db.criar_equipamento(zona["id"], {
-            "tipo": "ventilador", "nome": "VENT-QUEBRADO", "modo_conexao": "tcp", "host": "10.0.0.9",
-            "tipo_registrador": "coil", "endereco_registrador": 0,
-        })
+        db.criar_equipamento(
+            zona["id"],
+            {
+                "tipo": "ventilador",
+                "nome": "VENT-QUEBRADO",
+                "modo_conexao": "tcp",
+                "host": "10.0.0.9",
+                "tipo_registrador": "coil",
+                "endereco_registrador": 0,
+            },
+        )
         self.leituras_simuladas = {"TBS-A": 38.0, "TBU-A": 30.0}
 
         def escrever_falho(equipamento, ligar):
@@ -262,14 +287,30 @@ class TestModoSimuladoZonaService(TestCasePostgres):
         # mesmo com modoSimuladoZonas=True (padrao) persistido, sem
         # simulador injetado o servico nao tem como simular -- usa real.
         zona = db.criar_zona({"nome": "Z", "especie": "frangos", "indice": "ITU"})
-        db.criar_equipamento(zona["id"], {
-            "tipo": "sensor", "nome": "TBS", "modo_conexao": "tcp", "host": "1",
-            "tipo_registrador": "input", "endereco_registrador": 1, "campo_medido": "tbs",
-        })
-        db.criar_equipamento(zona["id"], {
-            "tipo": "sensor", "nome": "TBU", "modo_conexao": "tcp", "host": "1",
-            "tipo_registrador": "input", "endereco_registrador": 2, "campo_medido": "tbu",
-        })
+        db.criar_equipamento(
+            zona["id"],
+            {
+                "tipo": "sensor",
+                "nome": "TBS",
+                "modo_conexao": "tcp",
+                "host": "1",
+                "tipo_registrador": "input",
+                "endereco_registrador": 1,
+                "campo_medido": "tbs",
+            },
+        )
+        db.criar_equipamento(
+            zona["id"],
+            {
+                "tipo": "sensor",
+                "nome": "TBU",
+                "modo_conexao": "tcp",
+                "host": "1",
+                "tipo_registrador": "input",
+                "endereco_registrador": 2,
+                "campo_medido": "tbu",
+            },
+        )
         servico.calcular(zona["id"])
         self.assertIn("TBS", chamadas_real)
 
@@ -309,14 +350,30 @@ class TestModoSimuladoZonaService(TestCasePostgres):
         servico.definir_simulador(simulador)
 
         zona = db.criar_zona({"nome": "Z", "especie": "frangos", "indice": "ITU"})
-        db.criar_equipamento(zona["id"], {
-            "tipo": "sensor", "nome": "TBS", "modo_conexao": "tcp", "host": "1",
-            "tipo_registrador": "input", "endereco_registrador": 1, "campo_medido": "tbs",
-        })
-        db.criar_equipamento(zona["id"], {
-            "tipo": "sensor", "nome": "TBU", "modo_conexao": "tcp", "host": "1",
-            "tipo_registrador": "input", "endereco_registrador": 2, "campo_medido": "tbu",
-        })
+        db.criar_equipamento(
+            zona["id"],
+            {
+                "tipo": "sensor",
+                "nome": "TBS",
+                "modo_conexao": "tcp",
+                "host": "1",
+                "tipo_registrador": "input",
+                "endereco_registrador": 1,
+                "campo_medido": "tbs",
+            },
+        )
+        db.criar_equipamento(
+            zona["id"],
+            {
+                "tipo": "sensor",
+                "nome": "TBU",
+                "modo_conexao": "tcp",
+                "host": "1",
+                "tipo_registrador": "input",
+                "endereco_registrador": 2,
+                "campo_medido": "tbu",
+            },
+        )
         resultado = servico.calcular(zona["id"])
 
         self.assertIn("TBS", simulador.leituras_chamadas)
@@ -354,14 +411,30 @@ class TestModoSimuladoZonaService(TestCasePostgres):
         servico.definir_simulador(SimuladorFalso())
 
         zona = db.criar_zona({"nome": "Z", "especie": "frangos", "indice": "ITU"})
-        db.criar_equipamento(zona["id"], {
-            "tipo": "sensor", "nome": "TBS", "modo_conexao": "tcp", "host": "1",
-            "tipo_registrador": "input", "endereco_registrador": 1, "campo_medido": "tbs",
-        })
-        db.criar_equipamento(zona["id"], {
-            "tipo": "sensor", "nome": "TBU", "modo_conexao": "tcp", "host": "1",
-            "tipo_registrador": "input", "endereco_registrador": 2, "campo_medido": "tbu",
-        })
+        db.criar_equipamento(
+            zona["id"],
+            {
+                "tipo": "sensor",
+                "nome": "TBS",
+                "modo_conexao": "tcp",
+                "host": "1",
+                "tipo_registrador": "input",
+                "endereco_registrador": 1,
+                "campo_medido": "tbs",
+            },
+        )
+        db.criar_equipamento(
+            zona["id"],
+            {
+                "tipo": "sensor",
+                "nome": "TBU",
+                "modo_conexao": "tcp",
+                "host": "1",
+                "tipo_registrador": "input",
+                "endereco_registrador": 2,
+                "campo_medido": "tbu",
+            },
+        )
         resultado = servico.calcular(zona["id"])
 
         self.assertIn("TBS", chamadas_real)
@@ -460,9 +533,7 @@ class TestPersistenciaEstadoEquipamentos(TestCasePostgres):
         resultado = self.servico.calcular(zona["id"])
 
         self.assertEqual(1, len(self.chamadas_estado))
-        zona_id, ventilador_ligado, nebulizador_ligado, intensidade, *_ = (
-            self.chamadas_estado[0]
-        )
+        zona_id, ventilador_ligado, nebulizador_ligado, intensidade, *_ = self.chamadas_estado[0]
         self.assertEqual(zona["id"], zona_id)
         self.assertEqual(resultado["equipamento"]["ativo"], ventilador_ligado)
         self.assertEqual(resultado["equipamento"]["nebulizador"], nebulizador_ligado)
@@ -473,9 +544,7 @@ class TestPersistenciaEstadoEquipamentos(TestCasePostgres):
     def test_calcular_manual_tambem_persiste_estado(self):
         zona = self._criar_zona_com_sensores()
 
-        self.servico.calcular_manual(
-            zona["id"], {"tbs": 38.0, "tbu": 30.0}
-        )
+        self.servico.calcular_manual(zona["id"], {"tbs": 38.0, "tbu": 30.0})
 
         self.assertEqual(1, len(self.chamadas_estado))
 

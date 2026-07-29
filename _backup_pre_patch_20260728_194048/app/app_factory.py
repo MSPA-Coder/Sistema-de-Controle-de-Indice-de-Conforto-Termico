@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Composição dos dois processos da aplicação.
 
@@ -25,10 +24,8 @@ from flask import Flask, jsonify, request
 from flask.json.provider import DefaultJSONProvider
 from werkzeug.exceptions import HTTPException
 
-from . import auth
+from . import auth, db_backend, env_config
 from . import database as db
-from . import db_backend
-from . import env_config
 
 # Útil para execução local. No Docker, as variáveis injetadas pelo Compose
 # têm precedência e pertencem à implantação, não à interface ICT.
@@ -93,7 +90,7 @@ class AppConfig:
     max_content_length: int
 
     @classmethod
-    def from_env(cls, processo: str = "ict") -> "AppConfig":
+    def from_env(cls, processo: str = "ict") -> AppConfig:
         if processo not in PROCESSOS_APP:
             raise ValueError(
                 f"processo inválido: {processo!r} (esperado um de {PROCESSOS_APP})"

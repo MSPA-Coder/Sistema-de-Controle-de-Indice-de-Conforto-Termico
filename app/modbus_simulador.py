@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 modbus_simulador.py
 =====================
@@ -22,10 +21,13 @@ from __future__ import annotations
 import random
 import threading
 import time
-from typing import Callable
+from typing import TYPE_CHECKING
 
 from . import thermal_indices as ti
 from .services import SensorSimuladoService
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 class SimuladorModbusZonas:

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 notificacoes.py
 ================
@@ -32,12 +31,15 @@ manual e o automatico.
 
 from __future__ import annotations
 
-import logging
 import queue
 import threading
+from typing import TYPE_CHECKING
 
 from . import thermal_indices as ti
 from .models import Email
+
+if TYPE_CHECKING:
+    import logging
 
 
 def deve_notificar_email(resposta: dict, config: dict) -> bool:
@@ -83,7 +85,7 @@ class FilaNotificacoes:
     passado a `iniciar`)."""
 
     def __init__(self) -> None:
-        self._fila: "queue.Queue[dict | None]" = queue.Queue()
+        self._fila: queue.Queue[dict | None] = queue.Queue()
         self._thread: threading.Thread | None = None
         self._logger: logging.Logger | None = None
 
@@ -91,9 +93,7 @@ class FilaNotificacoes:
         if self._thread is not None and self._thread.is_alive():
             return
         self._logger = logger
-        self._thread = threading.Thread(
-            target=self._loop, name="notificacoes-email", daemon=True
-        )
+        self._thread = threading.Thread(target=self._loop, name="notificacoes-email", daemon=True)
         self._thread.start()
 
     def parar(self, timeout: float = 3.0) -> None:

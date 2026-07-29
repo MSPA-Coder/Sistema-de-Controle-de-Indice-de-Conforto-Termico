@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Persistencia isolada para geracao de dados de entrada.
 
 As séries usam o schema PostgreSQL ``dados_entrada`` em produção. A suíte
@@ -13,8 +12,8 @@ import json
 import os
 import sqlite3
 import threading
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Iterator
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from . import database as historico_db
@@ -82,7 +81,7 @@ class _SemLock:
 
 
 @contextmanager
-def sessao_geracao() -> Iterator["_SessaoGeracao"]:
+def sessao_geracao() -> Iterator[_SessaoGeracao]:
     """Uma conexao reaproveitada por todos os lotes de uma execucao.
 
     Evita abrir e fechar uma conexao SQLite a cada lote de medicoes, como

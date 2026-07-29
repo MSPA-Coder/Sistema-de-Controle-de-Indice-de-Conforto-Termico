@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Contratos arquiteturais dos processos ICT e coletor."""
 
 import os
@@ -7,7 +6,6 @@ import sys
 import tempfile
 import unittest
 from html.parser import HTMLParser
-from unittest.mock import patch
 
 from app import database as db
 from app.app_factory import (

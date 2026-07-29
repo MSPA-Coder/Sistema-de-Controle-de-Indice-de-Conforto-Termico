@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 database.py
 ============
@@ -24,14 +23,21 @@ import sqlite3
 import subprocess
 import threading
 from contextlib import contextmanager, nullcontext
-from typing import Iterator
+from typing import TYPE_CHECKING
 
-from . import thermal_indices as ti
+from . import cache as cache_module
 from . import db_backend
+from . import thermal_indices as ti
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INSTANCE_DIR = os.path.join(PROJECT_ROOT, "instance")
 DB_PATH = os.path.join(INSTANCE_DIR, "historico.db")
+
+# Cache global para configurações e dados de referência (TTL: 5 minutos)
+_cache_configuracoes = cache_module.obter_cache(ttl_segundos=300.0)
 
 # So serializa ESCRITAS (INSERT/UPDATE/DELETE/DDL) entre threads deste
 # processo. Leituras (`_conexao(escrita=False)`) nao adquirem nada: em modo
@@ -281,9 +287,7 @@ def iniciar_banco() -> None:
         )
         # Usado por `listar_zonas(apenas_ativas=True)` nos calculos
         # automaticos e manuais, que processam somente zonas ativas.
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_zonas_ativa ON zonas (ativa)"
-        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_zonas_ativa ON zonas (ativa)")
 
         # Estado ATUAL (ligado/desligado, intensidade) dos atuadores de cada
         # zona, persistido a cada ciclo de calculo por
@@ -444,9 +448,7 @@ def iniciar_banco() -> None:
         }
         for coluna, definicao in colunas_estado.items():
             if not _coluna_existe(conn, "estado_equipamentos", coluna):
-                conn.execute(
-                    f"ALTER TABLE estado_equipamentos ADD COLUMN {coluna} {definicao}"
-                )
+                conn.execute(f"ALTER TABLE estado_equipamentos ADD COLUMN {coluna} {definicao}")
 
         # MIGRACAO: `zona_id` foi adicionado depois que a tabela `leituras`
         # ja existia em instalacoes anteriores (recurso de Zonas Modbus).
@@ -743,9 +745,7 @@ def obter_historico_leituras(
         if deslocamento is None:
             deslocamento_calculado = max(0, total - limite)
         else:
-            deslocamento_calculado = max(
-                0, min(int(deslocamento), max(0, total - limite))
-            )
+            deslocamento_calculado = max(0, min(int(deslocamento), max(0, total - limite)))
         linhas = conn.execute(
             f"""
             SELECT l.*, z.nome AS zona_nome
@@ -796,9 +796,7 @@ def _formatar_janela(momento: datetime.datetime, minutos: int) -> str:
     """Arredonda `momento` para baixo, para o inicio do bucket de `minutos`
     minutos (ex.: 14:07:32 com minutos=15 vira 14:00:00)."""
     bucket = (momento.minute // minutos) * minutos
-    return momento.replace(minute=bucket, second=0, microsecond=0).isoformat(
-        timespec="seconds"
-    )
+    return momento.replace(minute=bucket, second=0, microsecond=0).isoformat(timespec="seconds")
 
 
 def janelas_15min_pendentes(zona_id: int, indice: str) -> list[str]:
@@ -862,14 +860,14 @@ def janelas_15min_pendentes(zona_id: int, indice: str) -> list[str]:
         for linha in linhas
     }
     pendentes = sorted(
-        janela
-        for janela in janelas
-        if janela not in feitas and janela < janela_atual_aberta
+        janela for janela in janelas if janela not in feitas and janela < janela_atual_aberta
     )
     return pendentes
 
 
-def agregar_janela_15min(zona_id: int, especie: str, indice: str, janela_inicio: str) -> dict | None:
+def agregar_janela_15min(
+    zona_id: int, especie: str, indice: str, janela_inicio: str
+) -> dict | None:
     """Calcula media/minimo/maximo do indice e de cada campo de entrada
     dentro da janela de 15 min informada e grava (UPSERT) em
     `agregados_15min`. Devolve o registro gravado, ou None se a janela nao
@@ -926,9 +924,16 @@ def agregar_janela_15min(zona_id: int, especie: str, indice: str, janela_inicio:
                 criado_em = excluded.criado_em
             """,
             (
-                zona_id, especie, indice, janela_inicio, registro["amostras"],
-                registro["valor_medio"], registro["valor_minimo"], registro["valor_maximo"],
-                json.dumps(entradas_medias), agora,
+                zona_id,
+                especie,
+                indice,
+                janela_inicio,
+                registro["amostras"],
+                registro["valor_medio"],
+                registro["valor_minimo"],
+                registro["valor_maximo"],
+                json.dumps(entradas_medias),
+                agora,
             ),
         )
     return registro
@@ -990,14 +995,12 @@ def horas_pendentes(zona_id: int, indice: str) -> list[str]:
         .isoformat(timespec="seconds")
         for linha in linhas
     }
-    return sorted(
-        hora
-        for hora in horas
-        if hora not in feitas and hora < hora_atual_aberta
-    )
+    return sorted(hora for hora in horas if hora not in feitas and hora < hora_atual_aberta)
 
 
-def consolidar_resumo_horario(zona_id: int, especie: str, indice: str, hora_inicio: str) -> dict | None:
+def consolidar_resumo_horario(
+    zona_id: int, especie: str, indice: str, hora_inicio: str
+) -> dict | None:
     """Consolida a hora informada a partir da LEITURA BRUTA (nao dos
     agregados de 15 min, para nao perder precisao nos percentuais de
     status), calculando: media/minimo/maximo do indice, o status
@@ -1023,12 +1026,11 @@ def consolidar_resumo_horario(zona_id: int, especie: str, indice: str, hora_inic
         status_da_media = ti.classificar_status(valor_medio, especie, indice)
 
         total = len(linhas)
-        contagem = {status: 0 for status in ti.STATUS_ORDEM}
+        contagem = dict.fromkeys(ti.STATUS_ORDEM, 0)
         for linha in linhas:
             contagem[linha["status"]] = contagem.get(linha["status"], 0) + 1
         percentuais = {
-            status: round((contagem.get(status, 0) / total) * 100, 1)
-            for status in ti.STATUS_ORDEM
+            status: round((contagem.get(status, 0) / total) * 100, 1) for status in ti.STATUS_ORDEM
         }
 
         agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
@@ -1052,15 +1054,29 @@ def consolidar_resumo_horario(zona_id: int, especie: str, indice: str, hora_inic
                 criado_em = excluded.criado_em
             """,
             (
-                zona_id, especie, indice, hora_inicio, total, valor_medio,
-                round(min(valores), 2), round(max(valores), 2), status_da_media,
-                percentuais["Conforto"], percentuais["Alerta"],
-                percentuais["Perigo"], percentuais["Emergência"], agora,
+                zona_id,
+                especie,
+                indice,
+                hora_inicio,
+                total,
+                valor_medio,
+                round(min(valores), 2),
+                round(max(valores), 2),
+                status_da_media,
+                percentuais["Conforto"],
+                percentuais["Alerta"],
+                percentuais["Perigo"],
+                percentuais["Emergência"],
+                agora,
             ),
         )
     return {
-        "zona_id": zona_id, "indice": indice, "hora_inicio": hora_inicio,
-        "amostras": total, "valor_medio": valor_medio, "status_da_media": status_da_media,
+        "zona_id": zona_id,
+        "indice": indice,
+        "hora_inicio": hora_inicio,
+        "amostras": total,
+        "valor_medio": valor_medio,
+        "status_da_media": status_da_media,
         "percentuais": percentuais,
     }
 
@@ -1126,9 +1142,7 @@ def criar_backup_banco() -> dict:
         from sqlalchemy.engine import make_url
 
         os.makedirs(diretorio, exist_ok=True)
-        caminho_backup = os.path.join(
-            diretorio, f"conforto_termico_backup_{timestamp}.dump"
-        )
+        caminho_backup = os.path.join(diretorio, f"conforto_termico_backup_{timestamp}.dump")
         url = make_url(db_backend.database_url())
         ambiente_pg_dump = dict(os.environ)
         if url.password:
@@ -1191,6 +1205,7 @@ def salvar_estado_equipamentos(
 
     Uma confirmação ``None`` indica comando sem realimentação disponível.
     """
+
     def _bool_sql(valor):
         return None if valor is None else int(bool(valor))
 
@@ -1365,9 +1380,7 @@ def obter_status_coletor() -> dict:
     heartbeat = datetime.datetime.fromisoformat(dados["heartbeat_em"])
     intervalo = float(obter_configuracoes().get("intervaloLeituraSegundos") or 1)
     limite = datetime.timedelta(seconds=max(10.0, intervalo * 3))
-    dados["online"] = (
-        dados["status"] == "online" and datetime.datetime.now() - heartbeat <= limite
-    )
+    dados["online"] = dados["status"] == "online" and datetime.datetime.now() - heartbeat <= limite
     if not dados["online"] and dados["status"] == "online":
         dados["status"] = "sem_heartbeat"
     dados.pop("id", None)
@@ -1478,9 +1491,7 @@ def salvar_controle_zona(zona_id: int, dados: dict) -> dict:
             f"Modo operacional invalido: {modo!r} (esperado um de {MODOS_OPERACAO})."
         )
 
-    acionamento = dados.get(
-        "acionamento_habilitado", atual["acionamento_habilitado"]
-    )
+    acionamento = dados.get("acionamento_habilitado", atual["acionamento_habilitado"])
     if not isinstance(acionamento, bool):
         raise ZonaInvalidaError("acionamento_habilitado precisa ser booleano.")
 
@@ -1593,7 +1604,9 @@ def _validar_equipamento(dados: dict) -> dict:
 
     tipo_dado = dados.get("tipo_dado", "int16")
     if tipo_dado not in TIPOS_DADO:
-        raise ZonaInvalidaError(f"Tipo de dado inválido: {tipo_dado!r} (esperado um de {TIPOS_DADO}).")
+        raise ZonaInvalidaError(
+            f"Tipo de dado inválido: {tipo_dado!r} (esperado um de {TIPOS_DADO})."
+        )
 
     fator_escala = _validar_numero(dados.get("fator_escala", 1.0), "fator_escala")
     if fator_escala == 0:
@@ -1632,7 +1645,13 @@ def criar_zona(dados: dict) -> dict:
     with _conexao() as conn:
         cursor = conn.execute(
             "INSERT INTO zonas (nome, especie, indice, ativa, criado_em) VALUES (?, ?, ?, ?, ?)",
-            (validado["nome"], validado["especie"], validado["indice"], int(validado["ativa"]), agora),
+            (
+                validado["nome"],
+                validado["especie"],
+                validado["indice"],
+                int(validado["ativa"]),
+                agora,
+            ),
         )
         zona_id = cursor.lastrowid
         conn.execute(
@@ -1712,9 +1731,7 @@ def obter_zona(zona_id: int) -> dict | None:
     zona["equipamentos"] = [dict(e) for e in equipamentos]
     zona["controle"] = {
         "modo": controle["modo"] if controle else MODO_OPERACAO_PADRAO,
-        "acionamento_habilitado": bool(controle["acionamento_habilitado"])
-        if controle
-        else False,
+        "acionamento_habilitado": bool(controle["acionamento_habilitado"]) if controle else False,
         "atualizado_em": controle["atualizado_em"] if controle else None,
     }
     return zona
@@ -1780,7 +1797,13 @@ def atualizar_zona(zona_id: int, dados: dict) -> dict | None:
             return None
         conn.execute(
             "UPDATE zonas SET nome = ?, especie = ?, indice = ?, ativa = ? WHERE id = ?",
-            (validado["nome"], validado["especie"], validado["indice"], int(validado["ativa"]), zona_id),
+            (
+                validado["nome"],
+                validado["especie"],
+                validado["indice"],
+                int(validado["ativa"]),
+                zona_id,
+            ),
         )
         zona_linha = conn.execute("SELECT * FROM zonas WHERE id = ?", (zona_id,)).fetchone()
         equipamentos = conn.execute(
@@ -1796,9 +1819,7 @@ def atualizar_zona(zona_id: int, dados: dict) -> dict | None:
     zona["equipamentos"] = [dict(e) for e in equipamentos]
     zona["controle"] = {
         "modo": controle["modo"] if controle else MODO_OPERACAO_PADRAO,
-        "acionamento_habilitado": bool(controle["acionamento_habilitado"])
-        if controle
-        else False,
+        "acionamento_habilitado": bool(controle["acionamento_habilitado"]) if controle else False,
         "atualizado_em": controle["atualizado_em"] if controle else None,
     }
     return zona
@@ -1827,9 +1848,7 @@ def obter_estatisticas_zonas() -> list[dict]:
 
     Usado pela aba "Análises" do dashboard (2 relatorios por zona)."""
     with _conexao(escrita=False) as conn:
-        zonas = conn.execute(
-            "SELECT id, nome, especie, indice FROM zonas ORDER BY id"
-        ).fetchall()
+        zonas = conn.execute("SELECT id, nome, especie, indice FROM zonas ORDER BY id").fetchall()
         contagens = conn.execute(
             """
             SELECT zona_id, indice, status, COUNT(*) AS total
@@ -1919,9 +1938,7 @@ def obter_painel_zonas() -> list[dict]:
     inicio_dia = agora.replace(hour=0, minute=0, second=0)
 
     with _conexao(escrita=False) as conn:
-        zonas = conn.execute(
-            "SELECT id, nome, especie, indice FROM zonas ORDER BY id"
-        ).fetchall()
+        zonas = conn.execute("SELECT id, nome, especie, indice FROM zonas ORDER BY id").fetchall()
         linhas_sensores = conn.execute(
             "SELECT zona_id, nome, campo_medido FROM equipamentos "
             "WHERE tipo = 'sensor' ORDER BY zona_id, id"
@@ -2103,7 +2120,7 @@ def _resumir_painel_zona(
     inicio_24h = bisect.bisect_left(datas, corte_24h)
     leituras_24h = leituras[inicio_24h:]
     if leituras_24h:
-        conforto = sum(1 for l in leituras_24h if l["status"] == "Conforto")
+        conforto = sum(1 for leitura in leituras_24h if leitura["status"] == "Conforto")
         base["percentual_conforto_24h"] = round(100 * conforto / len(leituras_24h), 1)
     else:
         base["percentual_conforto_24h"] = None
@@ -2112,7 +2129,7 @@ def _resumir_painel_zona(
     # mais recente enquanto o status nao muda, e usa o inicio dessa
     # sequencia como o momento em que o status atual "comecou".
     inicio_sequencia = ultima_dt
-    for linha, dt in zip(reversed(leituras), reversed(datas)):
+    for linha, dt in zip(reversed(leituras), reversed(datas), strict=False):
         if linha["status"] != ultima["status"]:
             break
         inicio_sequencia = dt
@@ -2125,7 +2142,9 @@ def _resumir_painel_zona(
     if leituras_hoje:
         base["nivel_maximo_dia"] = max(
             leituras_hoje,
-            key=lambda l: ti.STATUS_PESO[ti.normalizar_chave_texto(l["status"]).lower()],
+            key=lambda leitura: ti.STATUS_PESO[
+                ti.normalizar_chave_texto(leitura["status"]).lower()
+            ],
         )["status"]
     else:
         base["nivel_maximo_dia"] = None
@@ -2138,10 +2157,7 @@ def _resumir_painel_zona(
     minutos_por_status = {"Perigo": 0.0, "Emergência": 0.0}
     for posicao, linha in enumerate(leituras_hoje):
         inicio_intervalo = datas_hoje[posicao]
-        if posicao + 1 < len(leituras_hoje):
-            fim_intervalo = datas_hoje[posicao + 1]
-        else:
-            fim_intervalo = agora
+        fim_intervalo = datas_hoje[posicao + 1] if posicao + 1 < len(leituras_hoje) else agora
         if linha["status"] in minutos_por_status:
             minutos_por_status[linha["status"]] += (
                 fim_intervalo - inicio_intervalo
@@ -2156,7 +2172,7 @@ def _resumir_painel_zona(
     # minimamente confiavel; hoje fica de fora do calculo (e o dia que
     # estamos tentando prever).
     picos_por_dia: dict[datetime.date, tuple[datetime.datetime, float]] = {}
-    for linha, dt in zip(leituras, datas):
+    for linha, dt in zip(leituras, datas, strict=False):
         dia = dt.date()
         if dia == agora.date():
             continue
@@ -2189,9 +2205,7 @@ def _resumir_painel_zona(
     # desse conjunto nao e avaliado aqui (nao ha como inferir sua
     # disponibilidade a partir do que fica persistido no historico).
     campos_relevantes = set(ti.CAMPOS_POR_INDICE[zona["indice"]])
-    campos_relevantes |= (
-        {"tbs", "tbu", "ur", "tpo"} if zona["indice"] == "IGNU" else {"ur", "tpo"}
-    )
+    campos_relevantes |= {"tbs", "tbu", "ur", "tpo"} if zona["indice"] == "IGNU" else {"ur", "tpo"}
     entradas_ultima = json.loads(ultima["entradas"])
     base["sensores_indisponiveis"] = [
         sensor["nome"]
@@ -2221,9 +2235,7 @@ def _recomendacao_operacional(painel: dict) -> str:
 
     tendencia_15min = painel.get("tendencias", {}).get("15min")
     if tendencia_15min == "subindo" and status in ("Perigo", "Emergência"):
-        partes.append(
-            "O índice ainda está subindo nos últimos 15 minutos: reforce o resfriamento."
-        )
+        partes.append("O índice ainda está subindo nos últimos 15 minutos: reforce o resfriamento.")
     elif tendencia_15min == "subindo" and status == "Alerta":
         partes.append("Tendência de subida nos últimos 15 minutos; monitore de perto.")
     elif tendencia_15min == "descendo" and status in ("Perigo", "Emergência"):
@@ -2458,7 +2470,9 @@ def _sanitizar_configuracoes(configuracoes: dict) -> dict:
         "modoUmidadeRelativa": _coagir_enum(
             bruto["modoUmidadeRelativa"], padrao["modoUmidadeRelativa"], ("medido", "calculado")
         ),
-        "altitudeMetros": _coagir_numero(bruto["altitudeMetros"], padrao["altitudeMetros"], -500, 9000),
+        "altitudeMetros": _coagir_numero(
+            bruto["altitudeMetros"], padrao["altitudeMetros"], -500, 9000
+        ),
         "limiteUmidadeNebulizador": _coagir_numero(
             bruto["limiteUmidadeNebulizador"], padrao["limiteUmidadeNebulizador"], 0, 100
         ),
@@ -2468,7 +2482,9 @@ def _sanitizar_configuracoes(configuracoes: dict) -> dict:
         "smtpPorta": _coagir_numero(bruto["smtpPorta"], padrao["smtpPorta"], 1, 65535),
         "smtpUsuario": _coagir_texto_livre(bruto["smtpUsuario"], padrao["smtpUsuario"]),
         "smtpSenha": _coagir_texto_livre(bruto["smtpSenha"], padrao["smtpSenha"]),
-        "modoSimuladoZonas": _coagir_booleano(bruto["modoSimuladoZonas"], padrao["modoSimuladoZonas"]),
+        "modoSimuladoZonas": _coagir_booleano(
+            bruto["modoSimuladoZonas"], padrao["modoSimuladoZonas"]
+        ),
     }
 
 
@@ -2483,12 +2499,24 @@ def _decodificar_configuracoes(linhas) -> dict:
 
 
 def obter_configuracoes() -> dict:
+    """Obtém configurações do banco com cache em memória."""
+    # Tenta obter do cache primeiro
+    valor_cached = _cache_configuracoes.get("configuracoes_gerais")
+    if valor_cached is not None:
+        return valor_cached
+
     with _conexao(escrita=False) as conn:
         linhas = conn.execute("SELECT chave, valor FROM configuracoes").fetchall()
-    # Sanitiza tambem na leitura: protege contra um valor corrompido ou
-    # editado manualmente no arquivo .db (defesa em profundidade -- a
-    # escrita ja e validada em salvar_configuracoes).
-    return _sanitizar_configuracoes(_decodificar_configuracoes(linhas))
+
+    resultado = _sanitizar_configuracoes(_decodificar_configuracoes(linhas))
+    # Armazena no cache
+    _cache_configuracoes.set("configuracoes_gerais", resultado)
+    return resultado
+
+
+def limpar_cache_configuracoes() -> None:
+    """Limpa o cache de configurações (chamar após salvar novas configurações)."""
+    _cache_configuracoes.delete("configuracoes_gerais")
 
 
 def salvar_configuracoes(configuracoes: dict) -> dict:
@@ -2526,11 +2554,11 @@ def salvar_configuracoes(configuracoes: dict) -> dict:
                 valor = excluded.valor,
                 atualizado_em = excluded.atualizado_em
             """,
-            [
-                (chave, json.dumps(valor), agora)
-                for chave, valor in salvas.items()
-            ],
+            [(chave, json.dumps(valor), agora) for chave, valor in salvas.items()],
         )
+
+    # Limpa o cache após salvar novas configurações
+    limpar_cache_configuracoes()
     return salvas
 
 
@@ -2627,9 +2655,7 @@ def criar_usuario(dados: dict) -> dict:
                 agora,
             ),
         )
-        linha = conn.execute(
-            "SELECT * FROM usuarios WHERE id = ?", (cursor.lastrowid,)
-        ).fetchone()
+        linha = conn.execute("SELECT * FROM usuarios WHERE id = ?", (cursor.lastrowid,)).fetchone()
     return _linha_usuario_publica(linha)
 
 
@@ -2667,8 +2693,7 @@ def contar_usuarios_ativos_por_perfil(perfil: str, *, excluir_id: int | None = N
             ).fetchone()
         else:
             linha = conn.execute(
-                "SELECT COUNT(*) AS total FROM usuarios "
-                "WHERE perfil = ? AND ativo = 1 AND id != ?",
+                "SELECT COUNT(*) AS total FROM usuarios WHERE perfil = ? AND ativo = 1 AND id != ?",
                 (perfil, excluir_id),
             ).fetchone()
     return int(linha["total"])
@@ -2766,6 +2791,4 @@ def excluir_usuario(usuario_id: int) -> bool:
 def registrar_login_usuario(usuario_id: int) -> None:
     agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
     with _conexao() as conn:
-        conn.execute(
-            "UPDATE usuarios SET ultimo_login_em = ? WHERE id = ?", (agora, usuario_id)
-        )
+        conn.execute("UPDATE usuarios SET ultimo_login_em = ? WHERE id = ?", (agora, usuario_id))

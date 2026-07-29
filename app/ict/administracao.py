@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Administração pública do ICT.
 
 Cadastro, configurações e manutenção persistem no PostgreSQL. A única ação
@@ -14,6 +13,7 @@ from .. import database as db
 from .coletor_client import chamar_coletor
 
 administracao_bp = Blueprint("administracao", __name__)
+
 
 def _configuracoes_publicas(config: dict) -> dict:
     """Nunca deixa a senha SMTP sair do servidor -- mesma mascara que
@@ -115,7 +115,9 @@ def criar_equipamento(zona_id):
         return jsonify({"erro": str(erro)}), 400
 
 
-@administracao_bp.route("/api/zonas/<int:zona_id>/equipamentos/<int:equipamento_id>", methods=["PUT"])
+@administracao_bp.route(
+    "/api/zonas/<int:zona_id>/equipamentos/<int:equipamento_id>", methods=["PUT"]
+)
 def atualizar_equipamento(zona_id, equipamento_id):
     dados = request.get_json(force=True, silent=True) or {}
     try:

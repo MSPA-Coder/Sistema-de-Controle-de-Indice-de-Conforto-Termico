@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 import unittest
 
 from app import thermal_indices as ti
@@ -45,19 +43,28 @@ class TestResfriamento(unittest.TestCase):
         self.assertEqual(ti.intensidade_do_status("Alerta"), resfriamento.estado()["intensidade"])
 
         resfriamento.registrar_leitura("Emergencia")
-        self.assertEqual(ti.intensidade_do_status("Emergencia"), resfriamento.estado()["intensidade"])
+        self.assertEqual(
+            ti.intensidade_do_status("Emergencia"), resfriamento.estado()["intensidade"]
+        )
 
     def test_reduz_intensidade_apos_tres_leituras_consecutivas(self):
         resfriamento = Resfriamento()
         resfriamento.registrar_leitura("Emergencia")
 
         resfriamento.registrar_leitura("Perigo")
-        self.assertEqual(ti.intensidade_do_status("Emergencia"), resfriamento.estado()["intensidade"])
-        self.assertEqual(ti.intensidade_do_status("Perigo"), resfriamento.estado()["intensidade_reducao_pendente"])
+        self.assertEqual(
+            ti.intensidade_do_status("Emergencia"), resfriamento.estado()["intensidade"]
+        )
+        self.assertEqual(
+            ti.intensidade_do_status("Perigo"),
+            resfriamento.estado()["intensidade_reducao_pendente"],
+        )
         self.assertEqual(1, resfriamento.estado()["leituras_reducao_consecutivas"])
 
         resfriamento.registrar_leitura("Perigo")
-        self.assertEqual(ti.intensidade_do_status("Emergencia"), resfriamento.estado()["intensidade"])
+        self.assertEqual(
+            ti.intensidade_do_status("Emergencia"), resfriamento.estado()["intensidade"]
+        )
         self.assertEqual(2, resfriamento.estado()["leituras_reducao_consecutivas"])
 
         resfriamento.registrar_leitura("Perigo")
@@ -70,8 +77,13 @@ class TestResfriamento(unittest.TestCase):
         resfriamento.registrar_leitura("Perigo")
 
         resfriamento.registrar_leitura("Alerta")
-        self.assertEqual(ti.intensidade_do_status("Emergencia"), resfriamento.estado()["intensidade"])
-        self.assertEqual(ti.intensidade_do_status("Perigo"), resfriamento.estado()["intensidade_reducao_pendente"])
+        self.assertEqual(
+            ti.intensidade_do_status("Emergencia"), resfriamento.estado()["intensidade"]
+        )
+        self.assertEqual(
+            ti.intensidade_do_status("Perigo"),
+            resfriamento.estado()["intensidade_reducao_pendente"],
+        )
         self.assertEqual(2, resfriamento.estado()["leituras_reducao_consecutivas"])
 
     def test_reducao_nao_pula_degraus_mesmo_com_conforto(self):

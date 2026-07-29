@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Persistencia isolada para geracao de dados de entrada.
 
 As séries usam o schema PostgreSQL ``dados_entrada`` em produção. A suíte
@@ -14,7 +13,7 @@ import os
 import sqlite3
 import threading
 from contextlib import contextmanager
-from typing import Iterator
+from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from . import database as historico_db
@@ -24,6 +23,9 @@ from .dados_entrada_cidades import (
     CIDADES_POR_ESPECIE,
     calcular_lotacao,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 DB_PATH: str | None = None
 TIMEOUT_CONEXAO_SEGUNDOS = 30.0
@@ -82,7 +84,7 @@ class _SemLock:
 
 
 @contextmanager
-def sessao_geracao() -> Iterator["_SessaoGeracao"]:
+def sessao_geracao() -> Iterator[_SessaoGeracao]:
     """Uma conexao reaproveitada por todos os lotes de uma execucao.
 
     Evita abrir e fechar uma conexao SQLite a cada lote de medicoes, como
@@ -253,14 +255,11 @@ def iniciar_banco() -> None:
             """
         )
         colunas_config = {
-            linha["name"] for linha in conn.execute(
-                "PRAGMA table_info(configuracoes_zona)"
-            ).fetchall()
+            linha["name"]
+            for linha in conn.execute("PRAGMA table_info(configuracoes_zona)").fetchall()
         }
         if "cidade_codigo_ibge" not in colunas_config:
-            conn.execute(
-                "ALTER TABLE configuracoes_zona ADD COLUMN cidade_codigo_ibge TEXT"
-            )
+            conn.execute("ALTER TABLE configuracoes_zona ADD COLUMN cidade_codigo_ibge TEXT")
         migracoes_config = {
             "area_util_m2": "ALTER TABLE configuracoes_zona ADD COLUMN area_util_m2 REAL",
             "densidade_categoria": (
@@ -275,17 +274,14 @@ def iniciar_banco() -> None:
             if coluna not in colunas_config:
                 conn.execute(sql)
         colunas_medicao = {
-            linha["name"] for linha in conn.execute(
-                "PRAGMA table_info(medicoes)"
-            ).fetchall()
+            linha["name"] for linha in conn.execute("PRAGMA table_info(medicoes)").fetchall()
         }
         migracoes_medicao = {
             "area_util_m2": (
                 "ALTER TABLE medicoes ADD COLUMN area_util_m2 REAL NOT NULL DEFAULT 0"
             ),
             "densidade_categoria": (
-                "ALTER TABLE medicoes ADD COLUMN densidade_categoria "
-                "TEXT NOT NULL DEFAULT 'media'"
+                "ALTER TABLE medicoes ADD COLUMN densidade_categoria TEXT NOT NULL DEFAULT 'media'"
             ),
             "densidade_animais_m2": (
                 "ALTER TABLE medicoes ADD COLUMN densidade_animais_m2 REAL NOT NULL DEFAULT 0"
@@ -320,9 +316,7 @@ def sincronizar_zonas(zonas: list[dict]) -> list[dict]:
                 """,
                 (zona["id"], zona["nome"], zona["especie"], agora),
             )
-        linhas = conn.execute(
-            "SELECT * FROM configuracoes_zona ORDER BY zona_id"
-        ).fetchall()
+        linhas = conn.execute("SELECT * FROM configuracoes_zona ORDER BY zona_id").fetchall()
     ids_atuais = {zona["id"] for zona in zonas}
     return [_config_publica(dict(linha)) for linha in linhas if linha["zona_id"] in ids_atuais]
 
@@ -347,17 +341,13 @@ def _numero(dados: dict, chave: str, minimo: float, maximo: float) -> float:
     except (TypeError, ValueError) as erro:
         raise ConfiguracaoDadosEntradaError(f"Informe um valor numérico para {chave}.") from erro
     if not minimo <= valor <= maximo:
-        raise ConfiguracaoDadosEntradaError(
-            f"{chave} deve estar entre {minimo:g} e {maximo:g}."
-        )
+        raise ConfiguracaoDadosEntradaError(f"{chave} deve estar entre {minimo:g} e {maximo:g}.")
     return valor
 
 
 def validar_configuracao_zona(dados: dict, zona: dict) -> dict:
     cidade_codigo = str(dados.get("cidade_codigo_ibge", "")).strip()
-    codigos_validos = {
-        cidade["codigo_ibge"] for cidade in CIDADES_POR_ESPECIE[zona["especie"]]
-    }
+    codigos_validos = {cidade["codigo_ibge"] for cidade in CIDADES_POR_ESPECIE[zona["especie"]]}
     if cidade_codigo not in codigos_validos:
         raise ConfiguracaoDadosEntradaError(
             f"Selecione uma das cidades de referência da zona '{zona['nome']}'."
@@ -461,22 +451,28 @@ def salvar_configuracoes_zonas(dados: list[dict], zonas: list[dict]) -> list[dic
                     ordenhas_dia=excluded.ordenhas_dia, atualizado_em=excluded.atualizado_em
                 """,
                 (
-                    item["zona_id"], item["zona_nome"], item["especie"],
+                    item["zona_id"],
+                    item["zona_nome"],
+                    item["especie"],
                     item["cidade_codigo_ibge"],
-                    item["latitude"], item["longitude"], item["fuso_horario"],
-                    item["altitude_m"], item["area_util_m2"],
-                    item["densidade_categoria"], item["densidade_animais_m2"],
+                    item["latitude"],
+                    item["longitude"],
+                    item["fuso_horario"],
+                    item["altitude_m"],
+                    item["area_util_m2"],
+                    item["densidade_categoria"],
+                    item["densidade_animais_m2"],
                     item["quantidade_animais"],
-                    item["peso_medio_kg"], item["producao_leite_kg_dia"],
-                    item["ordenhas_dia"], agora,
+                    item["peso_medio_kg"],
+                    item["producao_leite_kg_dia"],
+                    item["ordenhas_dia"],
+                    agora,
                 ),
             )
     return sincronizar_zonas(zonas)
 
 
-def obter_configuracoes_zonas(
-    zonas: list[dict], *, sincronizar: bool = True
-) -> list[dict]:
+def obter_configuracoes_zonas(zonas: list[dict], *, sincronizar: bool = True) -> list[dict]:
     if sincronizar:
         return sincronizar_zonas(zonas)
     ids = [zona["id"] for zona in zonas]
@@ -491,24 +487,27 @@ def obter_configuracoes_zonas(
     por_id = {linha["zona_id"]: dict(linha) for linha in linhas}
     resultado = []
     for zona in zonas:
-        config = por_id.get(zona["id"], {
-            "zona_id": zona["id"],
-            "zona_nome": zona["nome"],
-            "especie": zona["especie"],
-            "cidade_codigo_ibge": None,
-            "latitude": None,
-            "longitude": None,
-            "fuso_horario": "America/Sao_Paulo",
-            "altitude_m": None,
-            "area_util_m2": None,
-            "densidade_categoria": "media",
-            "densidade_animais_m2": None,
-            "quantidade_animais": 0,
-            "peso_medio_kg": None,
-            "producao_leite_kg_dia": 0,
-            "ordenhas_dia": 0,
-            "atualizado_em": None,
-        })
+        config = por_id.get(
+            zona["id"],
+            {
+                "zona_id": zona["id"],
+                "zona_nome": zona["nome"],
+                "especie": zona["especie"],
+                "cidade_codigo_ibge": None,
+                "latitude": None,
+                "longitude": None,
+                "fuso_horario": "America/Sao_Paulo",
+                "altitude_m": None,
+                "area_util_m2": None,
+                "densidade_categoria": "media",
+                "densidade_animais_m2": None,
+                "quantidade_animais": 0,
+                "peso_medio_kg": None,
+                "producao_leite_kg_dia": 0,
+                "ordenhas_dia": 0,
+                "atualizado_em": None,
+            },
+        )
         config["zona_nome"] = zona["nome"]
         config["especie"] = zona["especie"]
         resultado.append(_config_publica(config))
@@ -516,8 +515,14 @@ def obter_configuracoes_zonas(
 
 
 def criar_execucao(
-    *, data_inicio: str, data_fim: str, dias: int, intervalo_minutos: int,
-    semente: int, total_zonas: int, fonte_clima: str,
+    *,
+    data_inicio: str,
+    data_fim: str,
+    dias: int,
+    intervalo_minutos: int,
+    semente: int,
+    total_zonas: int,
+    fonte_clima: str,
 ) -> int:
     with _conexao() as conn:
         cursor = conn.execute(
@@ -528,25 +533,56 @@ def criar_execucao(
             ) VALUES (?, ?, ?, ?, ?, ?, ?, 'processando', ?)
             """,
             (
-                data_inicio, data_fim, dias, intervalo_minutos, semente,
-                fonte_clima, total_zonas, _agora(),
+                data_inicio,
+                data_fim,
+                dias,
+                intervalo_minutos,
+                semente,
+                fonte_clima,
+                total_zonas,
+                _agora(),
             ),
         )
         return int(cursor.lastrowid)
 
 
 _COLUNAS_MEDICAO = (
-    "execucao_id", "zona_id", "zona_nome", "especie", "indice",
-    "timestamp_utc", "timestamp_local", "fuso_horario", "tbs_externa_c",
-    "ur_externa_pct", "ponto_orvalho_c", "tbu_c", "velocidade_vento_ms",
-    "precipitacao_mm", "pressao_hpa", "radiacao_w_m2", "nebulosidade_pct",
-    "valor_indice", "status_termico", "area_util_m2",
-    "densidade_categoria", "densidade_animais_m2", "quantidade_animais",
-    "atividade_predominante", "alimentacao_kg", "consumo_agua_l",
-    "animais_em_pe", "animais_deitados", "animais_em_ordenha",
-    "calor_sensivel_animais_w", "calor_latente_animais_w",
-    "vapor_agua_animais_kg_h", "origem_variaveis", "indicador_qualidade",
-    "entradas_indice", "simulation_seed",
+    "execucao_id",
+    "zona_id",
+    "zona_nome",
+    "especie",
+    "indice",
+    "timestamp_utc",
+    "timestamp_local",
+    "fuso_horario",
+    "tbs_externa_c",
+    "ur_externa_pct",
+    "ponto_orvalho_c",
+    "tbu_c",
+    "velocidade_vento_ms",
+    "precipitacao_mm",
+    "pressao_hpa",
+    "radiacao_w_m2",
+    "nebulosidade_pct",
+    "valor_indice",
+    "status_termico",
+    "area_util_m2",
+    "densidade_categoria",
+    "densidade_animais_m2",
+    "quantidade_animais",
+    "atividade_predominante",
+    "alimentacao_kg",
+    "consumo_agua_l",
+    "animais_em_pe",
+    "animais_deitados",
+    "animais_em_ordenha",
+    "calor_sensivel_animais_w",
+    "calor_latente_animais_w",
+    "vapor_agua_animais_kg_h",
+    "origem_variaveis",
+    "indicador_qualidade",
+    "entradas_indice",
+    "simulation_seed",
 )
 
 
@@ -588,8 +624,7 @@ def inserir_medicoes(medicoes: list[dict]) -> None:
 def concluir_execucao(execucao_id: int, total_medicoes: int) -> None:
     with _conexao() as conn:
         conn.execute(
-            "UPDATE execucoes SET status='concluida', total_medicoes=?, "
-            "concluido_em=? WHERE id=?",
+            "UPDATE execucoes SET status='concluida', total_medicoes=?, concluido_em=? WHERE id=?",
             (total_medicoes, _agora(), execucao_id),
         )
 
@@ -695,23 +730,23 @@ def copiar_medicoes_para_historico(execucao_id: int) -> dict:
                 (execucao_id,),
             ).fetchone()
             if execucao is None:
-                raise ConfiguracaoDadosEntradaError(
-                    f"Execução {execucao_id} não encontrada."
-                )
+                raise ConfiguracaoDadosEntradaError(f"Execução {execucao_id} não encontrada.")
             if execucao["status"] != "concluida":
                 raise ConfiguracaoDadosEntradaError(
                     "Somente uma geração concluída pode ser copiada."
                 )
 
-            pendentes = int(conn.execute(
-                """
+            pendentes = int(
+                conn.execute(
+                    """
                 SELECT COUNT(*)
                 FROM medicoes m
                 LEFT JOIN historico_exportado he ON he.medicao_id = m.id
                 WHERE m.execucao_id=? AND he.medicao_id IS NULL
                 """,
-                (execucao_id,),
-            ).fetchone()[0])
+                    (execucao_id,),
+                ).fetchone()[0]
+            )
             agora = _agora()
             if pendentes:
                 conn.execute(
@@ -738,14 +773,16 @@ def copiar_medicoes_para_historico(execucao_id: int) -> dict:
                     """,
                     (agora, execucao_id),
                 )
-            total_copiado = int(conn.execute(
-                """
+            total_copiado = int(
+                conn.execute(
+                    """
                 SELECT COUNT(*) FROM historico_exportado he
                 JOIN medicoes m ON m.id = he.medicao_id
                 WHERE m.execucao_id=?
                 """,
-                (execucao_id,),
-            ).fetchone()[0])
+                    (execucao_id,),
+                ).fetchone()[0]
+            )
         return {
             "execucao_id": execucao_id,
             "novas_copiadas": pendentes,
@@ -765,23 +802,23 @@ def copiar_medicoes_para_historico(execucao_id: int) -> dict:
                 (execucao_id,),
             ).fetchone()
             if execucao is None:
-                raise ConfiguracaoDadosEntradaError(
-                    f"Execução {execucao_id} não encontrada."
-                )
+                raise ConfiguracaoDadosEntradaError(f"Execução {execucao_id} não encontrada.")
             if execucao["status"] != "concluida":
                 raise ConfiguracaoDadosEntradaError(
                     "Somente uma geração concluída pode ser copiada."
                 )
 
-            pendentes = int(conn.execute(
-                """
+            pendentes = int(
+                conn.execute(
+                    """
                 SELECT COUNT(*)
                 FROM medicoes m
                 LEFT JOIN historico_exportado he ON he.medicao_id = m.id
                 WHERE m.execucao_id=? AND he.medicao_id IS NULL
                 """,
-                (execucao_id,),
-            ).fetchone()[0])
+                    (execucao_id,),
+                ).fetchone()[0]
+            )
             agora = _agora()
             if pendentes:
                 conn.execute(
@@ -808,14 +845,16 @@ def copiar_medicoes_para_historico(execucao_id: int) -> dict:
                     """,
                     (agora, execucao_id),
                 )
-            total_copiado = int(conn.execute(
-                """
+            total_copiado = int(
+                conn.execute(
+                    """
                 SELECT COUNT(*) FROM historico_exportado he
                 JOIN medicoes m ON m.id = he.medicao_id
                 WHERE m.execucao_id=?
                 """,
-                (execucao_id,),
-            ).fetchone()[0])
+                    (execucao_id,),
+                ).fetchone()[0]
+            )
             conn.commit()
             conn.execute("DETACH DATABASE historico")
         except Exception:

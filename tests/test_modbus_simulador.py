@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 test_modbus_simulador.py
 ==========================
@@ -31,7 +30,12 @@ class TestSimuladorModbusZonas(unittest.TestCase):
         )
 
     def _sensor(self, campo, zona_id=1):
-        return {"tipo": "sensor", "nome": "Sensor " + campo, "campo_medido": campo, "zona_id": zona_id}
+        return {
+            "tipo": "sensor",
+            "nome": "Sensor " + campo,
+            "campo_medido": campo,
+            "zona_id": zona_id,
+        }
 
     def test_leitura_fica_dentro_da_faixa_plausivel_do_campo(self):
         equipamento = self._sensor("tbs")
@@ -93,7 +97,13 @@ class TestSimuladorModbusZonas(unittest.TestCase):
         self.assertEqual(20.9, tbu)
 
     def test_indices_diferentes_geram_campos_diferentes(self):
-        zona_ignu = {"id": 2, "nome": "Zona IGNU", "especie": "suinos", "indice": "IGNU", "ativa": True}
+        zona_ignu = {
+            "id": 2,
+            "nome": "Zona IGNU",
+            "especie": "suinos",
+            "indice": "IGNU",
+            "ativa": True,
+        }
         simulador = SimuladorModbusZonas(
             obter_zona=lambda zid: zona_ignu if zid == 2 else None,
             obter_resfriamento_ativo=lambda zid: False,

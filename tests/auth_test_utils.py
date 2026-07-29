@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 auth_test_utils.py
 =====================

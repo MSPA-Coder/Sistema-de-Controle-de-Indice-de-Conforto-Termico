@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 postgres_test_utils.py
 =======================
@@ -39,9 +38,8 @@ import os
 import unittest
 from pathlib import Path
 
-from app import dados_entrada_db
+from app import dados_entrada_db, db_backend
 from app import database as db
-from app import db_backend
 
 _RAIZ_PROJETO = Path(__file__).resolve().parents[1]
 _migracoes_aplicadas = False

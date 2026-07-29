@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Composição dos dois processos da aplicação.
 
@@ -23,11 +22,12 @@ from types import MappingProxyType
 
 from flask import Flask, jsonify, request
 from flask.json.provider import DefaultJSONProvider
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from werkzeug.exceptions import HTTPException
 
-from . import auth
+from . import auth, env_config
 from . import database as db
-from . import env_config
 
 # Útil para execução local. No Docker, as variáveis injetadas pelo Compose
 # têm precedência e pertencem à implantação, não à interface ICT.
@@ -36,6 +36,18 @@ env_config.carregar()
 MENSAGEM_ERRO_INTERNO = "Erro interno inesperado. Consulte o log do servidor para detalhes."
 PROCESSOS_APP = ("ict", "coletor")
 CONFIG_SERVIDOR_PATH = Path(__file__).resolve().parents[1] / "config" / "servidor.json"
+
+
+def _criar_limiter(app: Flask) -> Limiter:
+    """Configura rate limiting para proteção contra brute-force e DoS."""
+    limiter = Limiter(
+        app=app,
+        key_func=get_remote_address,
+        default_limits=["100 per hour", "20 per minute"],
+        storage_uri="memory://",
+        strategy="fixed-window",
+    )
+    return limiter
 
 
 def _ler_config_servidor(processo: str) -> dict:
@@ -92,23 +104,15 @@ class AppConfig:
     max_content_length: int
 
     @classmethod
-    def from_env(cls, processo: str = "ict") -> "AppConfig":
+    def from_env(cls, processo: str = "ict") -> AppConfig:
         if processo not in PROCESSOS_APP:
-            raise ValueError(
-                f"processo inválido: {processo!r} (esperado um de {PROCESSOS_APP})"
-            )
+            raise ValueError(f"processo inválido: {processo!r} (esperado um de {PROCESSOS_APP})")
 
         config_arquivo = _ler_config_servidor(processo)
         return cls(
-            debug=_ler_bool_env(
-                "CONFORTO_DEBUG", _coagir_bool(config_arquivo.get("debug"), False)
-            ),
-            host=os.environ.get(
-                "CONFORTO_HOST", str(config_arquivo.get("host") or "127.0.0.1")
-            ),
-            port=_ler_int_env(
-                "CONFORTO_PORT", _coagir_int(config_arquivo.get("port"), 5000)
-            ),
+            debug=_ler_bool_env("CONFORTO_DEBUG", _coagir_bool(config_arquivo.get("debug"), False)),
+            host=os.environ.get("CONFORTO_HOST", str(config_arquivo.get("host") or "127.0.0.1")),
+            port=_ler_int_env("CONFORTO_PORT", _coagir_int(config_arquivo.get("port"), 5000)),
             threaded=_ler_bool_env(
                 "CONFORTO_THREADED",
                 _coagir_bool(config_arquivo.get("threaded"), True),
@@ -144,6 +148,10 @@ def _criar_app_base(processo: str, config: AppConfig) -> Flask:
     # `auth._proteger_csrf`, que usa `app.testing` para dispensar CSRF nos
     # testes que não são o teste dedicado dessa proteção.
     app.testing = _ler_bool_env("CONFORTO_TESTING", False)
+
+    # Inicializar rate limiting
+    _criar_limiter(app)
+
     db.iniciar_banco()
 
     @app.after_request
@@ -155,6 +163,12 @@ def _criar_app_base(processo: str, config: AppConfig) -> Flask:
             "Permissions-Policy", "camera=(), microphone=(), geolocation=()"
         )
         resposta.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+        # Content Security Policy completo
+        resposta.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        )
         if request.path.startswith("/api/"):
             resposta.headers["Cache-Control"] = "no-store"
         return resposta
@@ -181,14 +195,13 @@ def criar_app_ict(config: AppConfig | None = None) -> Flask:
     app = _criar_app_base("ict", config)
 
     app.secret_key = auth.obter_ou_criar_chave_secreta()
-    app.config["SESSION_COOKIE_NAME"] = os.environ.get(
-        "CONFORTO_SESSION_COOKIE_NAME", "conforto_session"
-    ).strip() or "conforto_session"
+    app.config["SESSION_COOKIE_NAME"] = (
+        os.environ.get("CONFORTO_SESSION_COOKIE_NAME", "conforto_session").strip()
+        or "conforto_session"
+    )
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-    app.config["SESSION_COOKIE_SECURE"] = _ler_bool_env(
-        "CONFORTO_COOKIE_SEGURO", False
-    )
+    app.config["SESSION_COOKIE_SECURE"] = _ler_bool_env("CONFORTO_COOKIE_SEGURO", False)
     # CSRF é sempre protegido por padrão (ver `auth._proteger_csrf`, que
     # usa `app.config.get("CSRF_PROTECTION_ENABLED", True)`). Não depende
     # do backend de persistência: testes que precisam dispensar CSRF usam
@@ -198,9 +211,26 @@ def criar_app_ict(config: AppConfig | None = None) -> Flask:
 
     @app.get("/health")
     def health_ict():
-        with db._conexao(escrita=False) as conn:
-            conn.execute("SELECT 1").fetchone()
-        return jsonify({"servico": "ict", "status": "ok"})
+        """Health check completo que valida DB e status do coletor."""
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        status = {"servico": "ict", "status": "ok"}
+        status_code = 200
+
+        # Verificar banco de dados
+        try:
+            with db._conexao(escrita=False) as conn:
+                conn.execute("SELECT 1").fetchone()
+            status["db"] = "up"
+        except Exception as e:
+            status["db"] = "down"
+            status["status"] = "degraded"
+            status_code = 503
+            logger.error("Health check DB falhou: %s", str(e))
+
+        return jsonify(status), status_code
 
     from . import dados_entrada_db
     from .dados_entrada_rotas import dados_entrada_bp, dados_entrada_leitura_bp

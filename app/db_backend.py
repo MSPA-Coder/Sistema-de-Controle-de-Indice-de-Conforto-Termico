@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Backend PostgreSQL de produção com suporte explícito a SQLite nos testes.
 
 SQLite só é selecionado quando ``DATABASE_URL`` não está definida. Uma URL
@@ -62,8 +61,7 @@ def postgres_ativo() -> bool:
         return False
     if not url.lower().startswith(("postgresql://", "postgresql+")):
         raise RuntimeError(
-            "DATABASE_URL deve apontar para PostgreSQL; "
-            "omita a variável apenas nos testes SQLite."
+            "DATABASE_URL deve apontar para PostgreSQL; omita a variável apenas nos testes SQLite."
         )
     return True
 
@@ -91,9 +89,7 @@ class LinhaCompat(Mapping):
     """Linha indexável por nome ou posição e convertível com ``dict(linha)``."""
 
     def __init__(self, row) -> None:
-        self._mapping = {
-            chave: _normalizar_valor(valor) for chave, valor in row._mapping.items()
-        }
+        self._mapping = {chave: _normalizar_valor(valor) for chave, valor in row._mapping.items()}
         self._values = tuple(_normalizar_valor(valor) for valor in row)
 
     def __getitem__(self, key):
@@ -192,9 +188,7 @@ class ConexaoPostgresCompat:
 
 def abrir_conexao_postgres(schema: str) -> ConexaoPostgresCompat:
     connection = _engine(database_url()).connect()
-    connection.exec_driver_sql(
-        f'SET search_path TO "{schema}", public'
-    )
+    connection.exec_driver_sql(f'SET search_path TO "{schema}", public')
     return ConexaoPostgresCompat(connection, schema)
 
 

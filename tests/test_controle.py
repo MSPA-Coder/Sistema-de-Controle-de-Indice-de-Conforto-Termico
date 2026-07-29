@@ -1,16 +1,13 @@
-# -*- coding: utf-8 -*-
-
-import os
 import threading
 import unittest
 
 from app import database as db
-from tests.postgres_test_utils import TestCasePostgres
 from app.coletor.controle import (
     GerenciadorControleZonas,
     ZonaOcupadaError,
 )
 from app.zona_service import ZonaCalculoError
+from tests.postgres_test_utils import TestCasePostgres
 
 
 class _ZonaServiceFalso:
@@ -47,12 +44,9 @@ class TestGerenciadorControleZonas(TestCasePostgres):
         self.servico = _ZonaServiceFalso()
         self.gerenciador = GerenciadorControleZonas(self.servico)
 
-
     @staticmethod
     def _criar_zona(nome):
-        return db.criar_zona(
-            {"nome": nome, "especie": "frangos", "indice": "ITU"}
-        )["id"]
+        return db.criar_zona({"nome": nome, "especie": "frangos", "indice": "ITU"})["id"]
 
     def test_ciclo_automatico_processa_somente_modo_automatico(self):
         zona_manual = self._criar_zona("Manual")
@@ -117,9 +111,7 @@ class TestGerenciadorControleZonas(TestCasePostgres):
             with self.assertRaises(ZonaOcupadaError):
                 self.gerenciador.calcular_manual(zona_id, {"tbs": 25})
             with self.assertRaises(ZonaOcupadaError):
-                self.gerenciador.alterar_controle(
-                    zona_id, {"modo": "automatico"}
-                )
+                self.gerenciador.alterar_controle(zona_id, {"modo": "automatico"})
             self.assertEqual("manual", db.obter_controle_zona(zona_id)["modo"])
         finally:
             liberar.set()
@@ -157,14 +149,12 @@ class TestGerenciadorControleZonas(TestCasePostgres):
 
         zona_id = self._criar_zona("Notificada")
         db.salvar_controle_zona(zona_id, {"modo": "automatico"})
-        db.salvar_configuracoes(
-            {"enviarEmails": True, "emailDestino": "produtor@fazenda.com.br"}
-        )
+        db.salvar_configuracoes({"enviarEmails": True, "emailDestino": "produtor@fazenda.com.br"})
 
         enfileirados = []
         original = notificacoes.fila_notificacoes.enfileirar
-        notificacoes.fila_notificacoes.enfileirar = (
-            lambda destino, conteudo, smtp_config: enfileirados.append(destino)
+        notificacoes.fila_notificacoes.enfileirar = lambda destino, conteudo, smtp_config: (
+            enfileirados.append(destino)
         )
         try:
             resultados = self.gerenciador.executar_ciclo_automatico()
@@ -183,8 +173,8 @@ class TestGerenciadorControleZonas(TestCasePostgres):
 
         enfileirados = []
         original = notificacoes.fila_notificacoes.enfileirar
-        notificacoes.fila_notificacoes.enfileirar = (
-            lambda destino, conteudo, smtp_config: enfileirados.append(destino)
+        notificacoes.fila_notificacoes.enfileirar = lambda destino, conteudo, smtp_config: (
+            enfileirados.append(destino)
         )
         try:
             resultados = self.gerenciador.executar_ciclo_automatico()

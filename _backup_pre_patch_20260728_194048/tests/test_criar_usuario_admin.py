@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 test_criar_usuario_admin.py
 ==============================

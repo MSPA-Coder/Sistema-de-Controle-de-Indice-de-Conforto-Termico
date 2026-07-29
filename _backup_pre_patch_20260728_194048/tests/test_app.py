@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 
 import os
 import tempfile
@@ -6,11 +5,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from app import app_factory
-from app import auth
+import run_ict as flask_app
+from app import app_factory, auth
 from app import database as db
 from app.coletor import estado as coletor_estado
-import run_ict as flask_app
 from tests.auth_test_utils import cliente_autenticado
 
 

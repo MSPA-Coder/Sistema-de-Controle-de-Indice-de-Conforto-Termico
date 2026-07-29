@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Cliente HTTP privado usado pelo ICT para falar com o coletor."""
 
 from __future__ import annotations
@@ -11,6 +10,7 @@ import urllib.request
 from flask import current_app, jsonify
 
 from .. import auth
+from ..circuit_breaker import circuit_breaker_coletor, CircuitBreakerAbertoError
 
 COLETOR_URL_PADRAO = "http://127.0.0.1:5001"
 TIMEOUT_COLETOR_SEGUNDOS = 5
@@ -34,22 +34,42 @@ def chamar_coletor(caminho: str, *, metodo: str, dados: dict | None = None):
         },
     )
 
-    try:
-        with urllib.request.urlopen(
-            requisicao, timeout=TIMEOUT_COLETOR_SEGUNDOS
-        ) as resposta:
+    def fazer_requisicao():
+        with urllib.request.urlopen(requisicao, timeout=TIMEOUT_COLETOR_SEGUNDOS) as resposta:
             payload = json.loads(resposta.read().decode("utf-8") or "{}")
             return jsonify(payload), resposta.status
+
+    def fallback():
+        current_app.logger.warning(
+            "Circuit breaker ativado para coletor. Retornando fallback para %s", caminho
+        )
+        return (
+            jsonify(
+                {
+                    "erro": (
+                        "O serviço coletor está temporariamente indisponível. "
+                        "Tente novamente em alguns instantes."
+                    ),
+                    "circuit_breaker": "ativo",
+                }
+            ),
+            503,
+        )
+
+    try:
+        return circuit_breaker_coletor.executar(fazer_requisicao, chave=caminho, fallback=fallback)
+    except CircuitBreakerAbertoError as erro:
+        current_app.logger.warning("Circuit breaker aberto para %s: %s", caminho, erro)
+        return fallback()
     except urllib.error.HTTPError as erro:
         try:
             payload = json.loads(erro.read().decode("utf-8") or "{}")
         except (ValueError, UnicodeDecodeError):
             payload = {"erro": "O serviço coletor devolveu uma resposta inválida."}
         return jsonify(payload), erro.code
-    except (urllib.error.URLError, TimeoutError, OSError):
-        current_app.logger.exception(
-            "Não foi possível falar com o serviço coletor em %s", url_base
-        )
+    except (urllib.error.URLError, TimeoutError, OSError) as erro:
+        current_app.logger.exception("Não foi possível falar com o serviço coletor em %s", url_base)
+        # Circuit breaker registrará a falha automaticamente
         return (
             jsonify(
                 {

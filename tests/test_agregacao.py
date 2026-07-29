@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Testes da camada de agregacao (15min/hora) descrita em agregacao.py."""
 
 import datetime
@@ -17,7 +16,15 @@ def _inserir_leitura_bruta(zona_id, valor, criado_em, status="Conforto", entrada
             INSERT INTO leituras (especie, indice, valor, status, entradas, criado_em, zona_id)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            ("frangos", "ITU", valor, status, __import__("json").dumps(entradas), criado_em, zona_id),
+            (
+                "frangos",
+                "ITU",
+                valor,
+                status,
+                __import__("json").dumps(entradas),
+                criado_em,
+                zona_id,
+            ),
         )
 
 
@@ -92,6 +99,7 @@ class TestAgregacao15minEHora(TestCasePostgres):
         # Status da MEDIA (73.25) e calculado de novo a partir do valor
         # medio -- nao e a moda dos status individuais.
         from app import thermal_indices as ti
+
         esperado = ti.classificar_status(resumo["valor_medio"], "frangos", "ITU")
         self.assertEqual(esperado, resumo["status_da_media"])
 

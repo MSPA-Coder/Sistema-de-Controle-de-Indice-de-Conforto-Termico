@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Consultas e análises públicas servidas pelo ICT."""
 
 from __future__ import annotations

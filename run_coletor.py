@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Lançador do serviço privado COLETOR.
 
 Para rodar:

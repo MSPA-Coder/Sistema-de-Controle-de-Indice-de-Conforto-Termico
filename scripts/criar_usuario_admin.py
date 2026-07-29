@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Cria um usuário administrador diretamente no banco -- sem passar pelo
 HTTP (que exigiria já estar logado como administrador para acessar
 `/usuarios`).
@@ -99,7 +98,10 @@ def main() -> int:
     login = _ler_login(argumentos.login)
     senha = argumentos.senha or _ler_senha()
     if len(senha) < auth.SENHA_TAMANHO_MINIMO:
-        print(f"A senha precisa ter pelo menos {auth.SENHA_TAMANHO_MINIMO} caracteres.", file=sys.stderr)
+        print(
+            f"A senha precisa ter pelo menos {auth.SENHA_TAMANHO_MINIMO} caracteres.",
+            file=sys.stderr,
+        )
         return 1
 
     try:

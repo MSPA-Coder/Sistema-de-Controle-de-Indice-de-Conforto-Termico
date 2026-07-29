@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Contrato do `.env` local, que é somente leitura para a aplicação."""
 
 import os

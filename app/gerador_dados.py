@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Geracao de series meteorologicas historicas e carga termica animal.
 
 Dados climaticos horarios sao obtidos da API historica Open-Meteo com o
@@ -111,12 +110,8 @@ def validar_parametros(dados: dict, total_zonas: int) -> ParametrosGeracao:
         except ValueError as erro:
             raise GeracaoDadosError("data_final deve estar no formato AAAA-MM-DD.") from erro
     else:
-        data_final = datetime.date.today() - datetime.timedelta(
-            days=ATRASO_PADRAO_ERA5_DIAS
-        )
-    data_final_maxima = datetime.date.today() - datetime.timedelta(
-        days=ATRASO_PADRAO_ERA5_DIAS
-    )
+        data_final = datetime.date.today() - datetime.timedelta(days=ATRASO_PADRAO_ERA5_DIAS)
+    data_final_maxima = datetime.date.today() - datetime.timedelta(days=ATRASO_PADRAO_ERA5_DIAS)
     if data_final > data_final_maxima:
         raise GeracaoDadosError(
             "A data final precisa ser igual ou anterior a "
@@ -161,7 +156,7 @@ def calcular_bulbo_umido(tbs: float, ur: float) -> float:
         t * math.atan(0.151977 * math.sqrt(rh + 8.313659))
         + math.atan(t + rh)
         - math.atan(rh - 1.676331)
-        + 0.00391838 * (rh ** 1.5) * math.atan(0.023101 * rh)
+        + 0.00391838 * (rh**1.5) * math.atan(0.023101 * rh)
         - 4.686035
     )
     return min(t, resultado)
@@ -196,9 +191,7 @@ def _baixar_json(url: str) -> dict:
             contexto_tls = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         except Exception:
             contexto_tls = ssl.create_default_context(cafile=certifi.where())
-        with urllib.request.urlopen(
-            requisicao, timeout=45, context=contexto_tls
-        ) as resposta:
+        with urllib.request.urlopen(requisicao, timeout=45, context=contexto_tls) as resposta:
             return json.loads(resposta.read().decode("utf-8"))
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as erro:
         raise GeracaoDadosError(
@@ -225,9 +218,7 @@ def obter_clima_horario(
             tempos_cache, series_cache = _serie_clima(cache)
         except (KeyError, TypeError, ValueError):
             tempos_cache, series_cache = [], {}
-        completa, _ = _analisar_cobertura(
-            tempos_cache, series_cache, inicio_utc, fim_utc_exclusivo
-        )
+        completa, _ = _analisar_cobertura(tempos_cache, series_cache, inicio_utc, fim_utc_exclusivo)
         if completa:
             return ClimaHorario(cache, tempos_cache, series_cache)
         # Uma resposta consultada antes da consolidação do ERA5 não pode
@@ -253,19 +244,16 @@ def obter_clima_horario(
         raise GeracaoDadosError("A fonte meteorológica não retornou a série horária esperada.")
     faltando = [variavel for variavel in VARIAVEIS_OPEN_METEO if variavel not in hourly]
     if faltando:
-        raise GeracaoDadosError(
-            "A fonte meteorológica não retornou: " + ", ".join(faltando)
-        )
+        raise GeracaoDadosError("A fonte meteorológica não retornou: " + ", ".join(faltando))
     # Parse unico da resposta fresca: mesma serie reaproveitada abaixo tanto
     # para checar cobertura quanto para devolver pronta em `ClimaHorario`.
     tempos, series = _serie_clima(bruto)
-    completa, ultima_hora = _analisar_cobertura(
-        tempos, series, inicio_utc, fim_utc_exclusivo
-    )
+    completa, ultima_hora = _analisar_cobertura(tempos, series, inicio_utc, fim_utc_exclusivo)
     if not completa:
         ultima = (
-            ultima_hora.astimezone(datetime.timezone.utc).strftime("%d/%m/%Y às %H:%M UTC")
-            if ultima_hora is not None else "nenhuma hora"
+            ultima_hora.astimezone(datetime.UTC).strftime("%d/%m/%Y às %H:%M UTC")
+            if ultima_hora is not None
+            else "nenhuma hora"
         )
         raise GeracaoDadosError(
             "O ERA5 ainda não consolidou todo o período solicitado. "
@@ -283,8 +271,8 @@ def _serie_clima(bruto: dict) -> tuple[list[datetime.datetime], dict[str, list]]
         texto = str(item)
         dt = datetime.datetime.fromisoformat(texto)
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=datetime.timezone.utc)
-        tempos.append(dt.astimezone(datetime.timezone.utc))
+            dt = dt.replace(tzinfo=datetime.UTC)
+        tempos.append(dt.astimezone(datetime.UTC))
     series = {apelido: horario[variavel] for variavel, apelido in VARIAVEIS_OPEN_METEO.items()}
     return tempos, series
 
@@ -313,10 +301,8 @@ def _analisar_cobertura(
         if all(_numero_valido(serie[indice]) is not None for serie in series.values())
     }
     ultima_hora = max(completos) if completos else None
-    cursor = inicio_utc.astimezone(datetime.timezone.utc).replace(
-        minute=0, second=0, microsecond=0
-    )
-    limite = fim_utc_exclusivo.astimezone(datetime.timezone.utc)
+    cursor = inicio_utc.astimezone(datetime.UTC).replace(minute=0, second=0, microsecond=0)
+    limite = fim_utc_exclusivo.astimezone(datetime.UTC)
     if limite.minute or limite.second or limite.microsecond:
         limite = limite.replace(minute=0, second=0, microsecond=0) + datetime.timedelta(hours=1)
     while cursor <= limite:
@@ -398,7 +384,10 @@ def _clima_no_instante(
 
 def _janelas_ordenha(ordenhas: int) -> tuple[float, ...]:
     return {
-        0: (), 1: (6.0,), 2: (5.0, 17.0), 3: (5.0, 13.0, 21.0),
+        0: (),
+        1: (6.0,),
+        2: (5.0, 17.0),
+        3: (5.0, 13.0, 21.0),
         4: (4.0, 10.0, 16.0, 22.0),
     }[ordenhas]
 
@@ -488,7 +477,7 @@ def simular_animais(
     em_ordenha = max(0, min(em_pe, em_ordenha))
 
     coeficiente = {"bovinos": 6.0, "suinos": 7.0, "frangos": 9.5}[especie]
-    calor_por_animal = coeficiente * (peso ** 0.75) * rotina["fator_metabolico"]
+    calor_por_animal = coeficiente * (peso**0.75) * rotina["fator_metabolico"]
     if especie == "bovinos":
         calor_por_animal += producao * 12.0
     calor_total = calor_por_animal * quantidade
@@ -579,8 +568,7 @@ def _metadados_origem_json() -> str:
             "ponto_orvalho_c": "calculado por Magnus a partir de TBS e UR ERA5",
             "tbu_c": "calculado por Stull a partir de TBS e UR ERA5",
             "animais": (
-                "simulação de grupo parametrizada por área, densidade e peso; "
-                "CIGR/ASABE/NASEM"
+                "simulação de grupo parametrizada por área, densidade e peso; CIGR/ASABE/NASEM"
             ),
         },
         ensure_ascii=False,
@@ -594,7 +582,9 @@ def gerar(dados: dict, zonas: list[dict]) -> dict:
     parametros = validar_parametros(dados, len(zonas))
     configs = dados_db.obter_configuracoes_zonas(zonas)
     por_id = {config["zona_id"]: config for config in configs}
-    incompletas = [zona["nome"] for zona in zonas if not por_id.get(zona["id"], {}).get("configurada")]
+    incompletas = [
+        zona["nome"] for zona in zonas if not por_id.get(zona["id"], {}).get("configurada")
+    ]
     if incompletas:
         raise GeracaoDadosError(
             "Complete localização, quantidade e peso dos animais nestas zonas: "
@@ -630,8 +620,8 @@ def gerar(dados: dict, zonas: list[dict]) -> dict:
                     parametros.data_inicio, datetime.time.min, tzinfo=fuso
                 )
                 fim_local = inicio_local + datetime.timedelta(days=parametros.dias)
-                inicio_utc = inicio_local.astimezone(datetime.timezone.utc)
-                fim_utc = fim_local.astimezone(datetime.timezone.utc)
+                inicio_utc = inicio_local.astimezone(datetime.UTC)
+                fim_utc = fim_local.astimezone(datetime.UTC)
                 resposta_clima = obter_clima_horario(
                     config["latitude"], config["longitude"], inicio_utc, fim_utc
                 )
@@ -642,7 +632,7 @@ def gerar(dados: dict, zonas: list[dict]) -> dict:
                 for instante_local in _iterar_instantes(
                     inicio_local, fim_local, parametros.intervalo_minutos
                 ):
-                    instante_utc = instante_local.astimezone(datetime.timezone.utc)
+                    instante_utc = instante_local.astimezone(datetime.UTC)
                     clima = _clima_no_instante(
                         tempos, series, instante_utc, parametros.intervalo_minutos
                     )
@@ -654,10 +644,16 @@ def gerar(dados: dict, zonas: list[dict]) -> dict:
                         zona, tbs, tbu, tpo, clima["vento"], clima["radiacao"]
                     )
                     animais = simular_animais(
-                        config, instante_local, tbs, ur,
-                        parametros.intervalo_minutos, rng,
+                        config,
+                        instante_local,
+                        tbs,
+                        ur,
+                        parametros.intervalo_minutos,
+                        rng,
                     )
-                    qualidade = "reanálise_interpolada" if clima["interpolado"] else "reanálise_horária"
+                    qualidade = (
+                        "reanálise_interpolada" if clima["interpolado"] else "reanálise_horária"
+                    )
                     medicao = {
                         "execucao_id": execucao_id,
                         "zona_id": zona["id"],
@@ -680,9 +676,7 @@ def gerar(dados: dict, zonas: list[dict]) -> dict:
                         "status_termico": status,
                         "area_util_m2": round(float(config["area_util_m2"]), 3),
                         "densidade_categoria": config["densidade_categoria"],
-                        "densidade_animais_m2": round(
-                            float(config["densidade_animais_m2"]), 6
-                        ),
+                        "densidade_animais_m2": round(float(config["densidade_animais_m2"]), 6),
                         "origem_variaveis": origem_variaveis_json,
                         "indicador_qualidade": qualidade,
                         "entradas_indice": {k: round(v, 4) for k, v in entradas.items()},

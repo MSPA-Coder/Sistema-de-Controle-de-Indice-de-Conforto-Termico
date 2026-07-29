@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 test_auth.py
 =============
@@ -11,7 +10,6 @@ pura de `usuarios`.
 
 from __future__ import annotations
 
-import os
 import unittest
 from unittest.mock import patch
 
@@ -63,7 +61,6 @@ class BaseTestComApp(TestCasePostgres):
     def setUp(self):
         super().setUp()
         self.app = criar_app_ict(config=_config_teste())
-
 
 
 class TestLoginLogout(BaseTestComApp):
@@ -187,9 +184,7 @@ class TestProtecaoCsrf(BaseTestComApp):
         self.client = self.app.test_client()
 
     def test_post_sem_token_e_recusado(self):
-        resposta = self.client.post(
-            "/login", data={"login": "ninguem", "senha": "incorreta"}
-        )
+        resposta = self.client.post("/login", data={"login": "ninguem", "senha": "incorreta"})
         self.assertEqual(400, resposta.status_code)
 
     def test_formulario_com_token_e_aceito(self):
@@ -346,7 +341,9 @@ class TestPaginaDeUsuarios(BaseTestComApp):
     def test_lista_usuarios_mostra_contas_existentes(self):
         db.criar_usuario(
             {
-                "nome": "Otto Operador", "login": "otto", "perfil": "operador",
+                "nome": "Otto Operador",
+                "login": "otto",
+                "perfil": "operador",
                 "senha_hash": auth.gerar_hash_senha(SENHA_TESTE),
             }
         )
@@ -357,8 +354,11 @@ class TestPaginaDeUsuarios(BaseTestComApp):
         resposta = self.client.post(
             "/usuarios/novo",
             data={
-                "nome": "Otto Operador", "login": "otto", "perfil": "operador",
-                "senha": SENHA_TESTE, "ativo": "on",
+                "nome": "Otto Operador",
+                "login": "otto",
+                "perfil": "operador",
+                "senha": SENHA_TESTE,
+                "ativo": "on",
             },
             follow_redirects=False,
         )
@@ -379,7 +379,10 @@ class TestPaginaDeUsuarios(BaseTestComApp):
         resposta = self.client.post(
             "/usuarios/novo",
             data={
-                "nome": "Outra Ana", "login": "ana", "perfil": "operador", "senha": SENHA_TESTE,
+                "nome": "Outra Ana",
+                "login": "ana",
+                "perfil": "operador",
+                "senha": SENHA_TESTE,
             },
         )
         self.assertEqual(200, resposta.status_code)
@@ -388,7 +391,9 @@ class TestPaginaDeUsuarios(BaseTestComApp):
     def test_editar_usuario_troca_perfil(self):
         outro = db.criar_usuario(
             {
-                "nome": "Otto", "login": "otto", "perfil": "operador",
+                "nome": "Otto",
+                "login": "otto",
+                "perfil": "operador",
                 "senha_hash": auth.gerar_hash_senha(SENHA_TESTE),
             }
         )
@@ -418,9 +423,7 @@ class TestPaginaDeUsuarios(BaseTestComApp):
         self.assertTrue(db.obter_usuario(self.admin["id"])["ativo"])
 
     def test_admin_nao_consegue_se_excluir(self):
-        resposta = self.client.post(
-            f"/usuarios/{self.admin['id']}/excluir", follow_redirects=True
-        )
+        resposta = self.client.post(f"/usuarios/{self.admin['id']}/excluir", follow_redirects=True)
         self.assertIn("própria conta", resposta.get_data(as_text=True))
         self.assertIsNotNone(db.obter_usuario(self.admin["id"]))
 
@@ -432,7 +435,9 @@ class TestPaginaDeUsuarios(BaseTestComApp):
         # tela.
         segundo_admin = db.criar_usuario(
             {
-                "nome": "Beto Admin", "login": "beto", "perfil": "administrador",
+                "nome": "Beto Admin",
+                "login": "beto",
+                "perfil": "administrador",
                 "senha_hash": auth.gerar_hash_senha(SENHA_TESTE),
             }
         )
@@ -451,7 +456,9 @@ class TestPaginaDeUsuarios(BaseTestComApp):
     def test_excluir_outro_usuario_funciona_normalmente(self):
         outro = db.criar_usuario(
             {
-                "nome": "Otto", "login": "otto", "perfil": "operador",
+                "nome": "Otto",
+                "login": "otto",
+                "perfil": "operador",
                 "senha_hash": auth.gerar_hash_senha(SENHA_TESTE),
             }
         )

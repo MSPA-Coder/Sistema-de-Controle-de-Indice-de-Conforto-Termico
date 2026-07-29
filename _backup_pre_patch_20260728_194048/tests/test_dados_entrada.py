@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import datetime
 import json
 import os
@@ -8,8 +7,8 @@ import unittest
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
 
-from app import database as db
 from app import dados_entrada_db as dados_db
+from app import database as db
 from app import gerador_dados as gerador
 from app.app_factory import criar_app_ict
 from app.dados_entrada_cidades import referencias_publicas
@@ -129,7 +128,7 @@ class TestDadosEntrada(unittest.TestCase):
         self.assertEqual([30, 40, 47, 50], quantidades)
         self.assertEqual(sorted(quantidades), quantidades)
 
-        instante = datetime.datetime(2024, 1, 10, 12, tzinfo=datetime.timezone.utc)
+        instante = datetime.datetime(2024, 1, 10, 12, tzinfo=datetime.UTC)
         calor_baixo = gerador.simular_animais(
             configs[0], instante, 25, 70, 5, random.Random(123)
         )["calor_sensivel_animais_w"]
@@ -147,7 +146,7 @@ class TestDadosEntrada(unittest.TestCase):
             )
 
     def test_recusa_fonte_com_lacuna_no_periodo_solicitado(self):
-        inicio = datetime.datetime(2024, 1, 10, tzinfo=datetime.timezone.utc)
+        inicio = datetime.datetime(2024, 1, 10, tzinfo=datetime.UTC)
         fim = inicio + datetime.timedelta(days=1)
         resposta = self._clima_falso(
             "https://exemplo.test?start_date=2024-01-09&end_date=2024-01-12"
@@ -163,7 +162,7 @@ class TestDadosEntrada(unittest.TestCase):
 
     def test_cache_incompleto_e_descartado_e_fonte_e_consultada_novamente(self):
         self._configurar_zona()
-        inicio = datetime.datetime(2024, 1, 10, tzinfo=datetime.timezone.utc)
+        inicio = datetime.datetime(2024, 1, 10, tzinfo=datetime.UTC)
         fim = inicio + datetime.timedelta(days=1)
         resposta_incompleta = self._clima_falso(
             "https://exemplo.test?start_date=2024-01-09&end_date=2024-01-12"
@@ -183,7 +182,7 @@ class TestDadosEntrada(unittest.TestCase):
 
     def test_cache_malformado_e_descartado_sem_lancar_excecao(self):
         self._configurar_zona()
-        inicio = datetime.datetime(2024, 1, 10, tzinfo=datetime.timezone.utc)
+        inicio = datetime.datetime(2024, 1, 10, tzinfo=datetime.UTC)
         fim = inicio + datetime.timedelta(days=1)
         chave = gerador._chave_cache(-23.55, -46.63, "2024-01-09", "2024-01-12")
         # Uma entrada sem "hourly" espelha um cache corrompido: `_serie_clima`

@@ -1,14 +1,10 @@
-# -*- coding: utf-8 -*-
 """Smoke test do backend PostgreSQL sem deixar dados de teste persistidos."""
 
 from __future__ import annotations
 
-import os
 from datetime import datetime
 
-from app import dados_entrada_db
-from app import database
-from app import db_backend
+from app import dados_entrada_db, database, db_backend
 
 
 def main() -> int:
@@ -62,9 +58,7 @@ def main() -> int:
     # Uma execução já exportada deve permanecer idempotente.
     concluidas = [item for item in execucoes if item["status"] == "concluida"]
     if concluidas:
-        resultado = dados_entrada_db.copiar_medicoes_para_historico(
-            concluidas[0]["id"]
-        )
+        resultado = dados_entrada_db.copiar_medicoes_para_historico(concluidas[0]["id"])
         if resultado["novas_copiadas"] != 0:
             raise RuntimeError("Exportação idempotente duplicaria medições.")
 

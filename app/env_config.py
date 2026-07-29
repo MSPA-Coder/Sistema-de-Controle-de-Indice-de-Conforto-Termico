@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Carregamento mínimo do `.env` para execução local.
 
 O arquivo contém somente parâmetros de implantação e não é editável pelo

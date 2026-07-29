@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 test_criar_usuario_admin.py
 ==============================
@@ -62,7 +61,12 @@ class TestCriarUsuarioAdmin(TestCasePostgres):
     def test_segundo_administrador_pede_confirmacao_e_recusa_se_negado(self):
         self._rodar("--nome", "Ana", "--login", "ana", "--senha", "senha-forte-123")
         codigo = self._rodar(
-            "--nome", "Beto", "--login", "beto", "--senha", "senha-forte-456",
+            "--nome",
+            "Beto",
+            "--login",
+            "beto",
+            "--senha",
+            "senha-forte-456",
             entrada_stdin="n\n",
         )
         self.assertEqual(1, codigo)
@@ -71,7 +75,12 @@ class TestCriarUsuarioAdmin(TestCasePostgres):
     def test_segundo_administrador_e_criado_se_confirmado(self):
         self._rodar("--nome", "Ana", "--login", "ana", "--senha", "senha-forte-123")
         codigo = self._rodar(
-            "--nome", "Beto", "--login", "beto", "--senha", "senha-forte-456",
+            "--nome",
+            "Beto",
+            "--login",
+            "beto",
+            "--senha",
+            "senha-forte-456",
             entrada_stdin="s\n",
         )
         self.assertEqual(0, codigo)

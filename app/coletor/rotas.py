@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """API privada do serviço coletor.
 
 Nenhuma rota deste módulo é destinada ao navegador. O ICT autentica a
@@ -12,14 +11,13 @@ import hmac
 
 from flask import Blueprint, current_app, jsonify, request
 
-from .. import auth
+from .. import auth, notificacoes
 from .. import database as db
-from .. import notificacoes
 from .. import thermal_indices as ti
 from ..models import Email
 from ..zona_service import ZonaCalculoError
-from .estado import gerenciador_controle, testar_conexao_equipamento
 from .controle import ModoOperacaoError, ZonaOcupadaError
+from .estado import gerenciador_controle, testar_conexao_equipamento
 
 coletor_bp = Blueprint("coletor", __name__)
 
@@ -115,9 +113,7 @@ def alterar_controle_zona(zona_id):
     dados = request.get_json(force=True, silent=True) or {}
     try:
         return jsonify(
-            gerenciador_controle.alterar_controle(
-                zona_id, dados, logger=current_app.logger
-            )
+            gerenciador_controle.alterar_controle(zona_id, dados, logger=current_app.logger)
         )
     except db.ZonaNaoEncontradaError as erro:
         return jsonify({"erro": str(erro)}), 404

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 modbus_client.py
 ================
@@ -178,9 +177,7 @@ def ler_estado_atuador(equipamento: dict[str, Any]) -> bool | None:
                 return None
             return bool(resposta.bits[0])
 
-        resposta = cliente.read_holding_registers(
-            endereco, count=1, device_id=unidade
-        )
+        resposta = cliente.read_holding_registers(endereco, count=1, device_id=unidade)
         if resposta.isError() or not getattr(resposta, "registers", None):
             return None
         return bool(resposta.registers[0])

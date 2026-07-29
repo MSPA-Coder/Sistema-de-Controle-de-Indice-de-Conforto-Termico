@@ -1,10 +1,9 @@
-# -*- coding: utf-8 -*-
 """Página principal e consultas públicas compartilhadas pelas abas do ICT."""
 
 from __future__ import annotations
 
-import math
 import datetime
+import math
 
 from flask import Blueprint, current_app, jsonify, render_template, request
 
@@ -55,7 +54,9 @@ def index():
     # quais botões existem e quais APIs podem ser chamadas.
     aba_inicial = "principal"
     usuario = auth.usuario_atual()
-    areas_permitidas = auth.AREAS_POR_PERFIL.get(usuario["perfil"], frozenset()) if usuario else frozenset()
+    areas_permitidas = (
+        auth.AREAS_POR_PERFIL.get(usuario["perfil"], frozenset()) if usuario else frozenset()
+    )
     return render_template(
         "index.html",
         indices_por_especie=ti.INDICES_POR_ESPECIE,

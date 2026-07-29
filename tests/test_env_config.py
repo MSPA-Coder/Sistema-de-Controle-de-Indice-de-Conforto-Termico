@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Contrato do `.env` local, que é somente leitura para a aplicação."""
 
 import os
@@ -17,9 +16,7 @@ class TestEnvConfig(unittest.TestCase):
         self.tempdir = tempfile.TemporaryDirectory()
         self.caminho_original = env_config.CAMINHO_ENV
         env_config.CAMINHO_ENV = Path(self.tempdir.name) / ".env"
-        self.ambiente_original = {
-            chave: os.environ.pop(chave, None) for chave in env_config.CHAVES
-        }
+        self.ambiente_original = {chave: os.environ.pop(chave, None) for chave in env_config.CHAVES}
 
     def tearDown(self):
         env_config.CAMINHO_ENV = self.caminho_original
@@ -45,9 +42,7 @@ class TestEnvConfig(unittest.TestCase):
         self.assertEqual(path_original, os.environ.get("PATH"))
 
     def test_nao_sobrescreve_variavel_injetada_pelo_processo(self):
-        env_config.CAMINHO_ENV.write_text(
-            "COLETOR_URL=http://arquivo:5001\n", encoding="utf-8"
-        )
+        env_config.CAMINHO_ENV.write_text("COLETOR_URL=http://arquivo:5001\n", encoding="utf-8")
         os.environ["COLETOR_URL"] = "http://compose:5000"
         env_config.carregar()
         self.assertEqual("http://compose:5000", os.environ["COLETOR_URL"])

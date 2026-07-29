@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 thermal_indices.py
 ===================
@@ -61,51 +60,93 @@ def _congelar(estrutura: Any) -> Any:
 # ---------------------------------------------------------------------------
 ESPECIES_VALIDAS: tuple[str, ...] = ("frangos", "bovinos", "suinos")
 
-NOME_ESPECIE = _congelar({
-    "frangos": "Avicultura (frangos de corte)",
-    "bovinos": "Bovinocultura (bovinos de leite)",
-    "suinos": "Suinocultura (suínos)",
-})
+NOME_ESPECIE = _congelar(
+    {
+        "frangos": "Avicultura (frangos de corte)",
+        "bovinos": "Bovinocultura (bovinos de leite)",
+        "suinos": "Suinocultura (suínos)",
+    }
+)
 
-INDICES_POR_ESPECIE = _congelar({
-    "frangos": ("ITU", "ITUV", "IGNU"),
-    "bovinos": ("ITU", "IGNU"),
-    "suinos": ("ITU", "IGNU"),
-})
+INDICES_POR_ESPECIE = _congelar(
+    {
+        "frangos": ("ITU", "ITUV", "IGNU"),
+        "bovinos": ("ITU", "IGNU"),
+        "suinos": ("ITU", "IGNU"),
+    }
+)
 
-NOME_INDICE = _congelar({
-    "ITU": "Índice de Temperatura e Umidade",
-    "ITUV": "Índice de Temperatura, Umidade e Velocidade",
-    "IGNU": "Índice de Globo Negro e Umidade",
-})
+NOME_INDICE = _congelar(
+    {
+        "ITU": "Índice de Temperatura e Umidade",
+        "ITUV": "Índice de Temperatura, Umidade e Velocidade",
+        "IGNU": "Índice de Globo Negro e Umidade",
+    }
+)
 
 # Campos de entrada exigidos por indice (nomes conforme a propria dissertacao)
-CAMPOS_POR_INDICE = _congelar({
-    "ITU": ("tbs", "tbu"),
-    "ITUV": ("tbs", "tbu", "v"),
-    "IGNU": ("tgn", "tpo"),
-})
+CAMPOS_POR_INDICE = _congelar(
+    {
+        "ITU": ("tbs", "tbu"),
+        "ITUV": ("tbs", "tbu", "v"),
+        "IGNU": ("tgn", "tpo"),
+    }
+)
 
-CAMPO_METADADOS = _congelar({
-    "tbs": {"label": "Temperatura de Bulbo Seco / Ambiente", "unidade": "°C", "min": -10, "max": 55, "passo": 0.1},
-    "tbu": {"label": "Temperatura de Bulbo Úmido", "unidade": "°C", "min": -10, "max": 55, "passo": 0.1},
-    "ur": {"label": "Umidade Relativa do Ar", "unidade": "%", "min": 0, "max": 100, "passo": 0.1},
-    "v": {"label": "Velocidade do Ar", "unidade": "m/s", "min": 0.01, "max": 15, "passo": 0.01},
-    "tgn": {"label": "Temperatura de Globo Negro", "unidade": "°C", "min": -10, "max": 65, "passo": 0.1},
-    "tpo": {"label": "Temperatura de Ponto de Orvalho", "unidade": "°C", "min": -20, "max": 45, "passo": 0.1},
-})
+CAMPO_METADADOS = _congelar(
+    {
+        "tbs": {
+            "label": "Temperatura de Bulbo Seco / Ambiente",
+            "unidade": "°C",
+            "min": -10,
+            "max": 55,
+            "passo": 0.1,
+        },
+        "tbu": {
+            "label": "Temperatura de Bulbo Úmido",
+            "unidade": "°C",
+            "min": -10,
+            "max": 55,
+            "passo": 0.1,
+        },
+        "ur": {
+            "label": "Umidade Relativa do Ar",
+            "unidade": "%",
+            "min": 0,
+            "max": 100,
+            "passo": 0.1,
+        },
+        "v": {"label": "Velocidade do Ar", "unidade": "m/s", "min": 0.01, "max": 15, "passo": 0.01},
+        "tgn": {
+            "label": "Temperatura de Globo Negro",
+            "unidade": "°C",
+            "min": -10,
+            "max": 65,
+            "passo": 0.1,
+        },
+        "tpo": {
+            "label": "Temperatura de Ponto de Orvalho",
+            "unidade": "°C",
+            "min": -20,
+            "max": 45,
+            "passo": 0.1,
+        },
+    }
+)
 
-RANGE_VALIDACAO = _congelar({
-    # (minimo, maximo) - a dissertacao valida o programa gerando dados
-    # aleatorios entre 0 e 45°C para temperaturas e 0,01 a 5,00 m/s para
-    # velocidade do ar (secao 4.2). Aqui aceitamos uma folga adicional para
-    # nao travar leituras de campo ligeiramente fora da faixa validada.
-    "tbs": (-10.0, 55.0),
-    "tbu": (-10.0, 55.0),
-    "tgn": (-10.0, 65.0),
-    "tpo": (-20.0, 45.0),
-    "v": (0.01, 15.0),
-})
+RANGE_VALIDACAO = _congelar(
+    {
+        # (minimo, maximo) - a dissertacao valida o programa gerando dados
+        # aleatorios entre 0 e 45°C para temperaturas e 0,01 a 5,00 m/s para
+        # velocidade do ar (secao 4.2). Aqui aceitamos uma folga adicional para
+        # nao travar leituras de campo ligeiramente fora da faixa validada.
+        "tbs": (-10.0, 55.0),
+        "tbu": (-10.0, 55.0),
+        "tgn": (-10.0, 65.0),
+        "tpo": (-20.0, 45.0),
+        "v": (0.01, 15.0),
+    }
+)
 
 
 class EntradaInvalidaError(ValueError):
@@ -123,7 +164,7 @@ def calcular_itu(tbs: float, tbu: float) -> float:
 def calcular_ituv(tbs: float, tbu: float, v: float) -> float:
     """ITUV - Eq. 5 (Tao & Xin, 2003). Usado apenas para frangos (aves de corte)."""
     v = v if v > 0 else 0.01  # base da potencia nao pode ser <= 0
-    return (0.85 * tbs + 0.15 * tbu) * (v ** -0.058)
+    return (0.85 * tbs + 0.15 * tbu) * (v**-0.058)
 
 
 def calcular_ignu(tgn: float, tpo: float) -> float:
@@ -172,11 +213,13 @@ def calcular_ponto_orvalho(tbs: float, tbu: float, altitude_m: float = 0.0) -> f
     return (237.3 * fator) / (17.27 - fator)
 
 
-CALCULADORAS = _congelar({
-    "ITU": calcular_itu,
-    "ITUV": calcular_ituv,
-    "IGNU": calcular_ignu,
-})
+CALCULADORAS = _congelar(
+    {
+        "ITU": calcular_itu,
+        "ITUV": calcular_ituv,
+        "IGNU": calcular_ignu,
+    }
+)
 
 
 def validar_entradas(indice: str, entradas: dict) -> dict:
@@ -186,9 +229,7 @@ def validar_entradas(indice: str, entradas: dict) -> dict:
     campos = CAMPOS_POR_INDICE[indice]
     faltando = [c for c in campos if c not in entradas or entradas[c] in (None, "")]
     if faltando:
-        raise EntradaInvalidaError(
-            f"Preencha todos os campos exigidos: {', '.join(faltando)}."
-        )
+        raise EntradaInvalidaError(f"Preencha todos os campos exigidos: {', '.join(faltando)}.")
 
     convertidas = {}
     for campo in campos:
@@ -199,8 +240,7 @@ def validar_entradas(indice: str, entradas: dict) -> dict:
         minimo, maximo = RANGE_VALIDACAO[campo]
         if not (minimo <= valor <= maximo):
             raise EntradaInvalidaError(
-                f"O valor de '{campo}' ({valor}) está fora da faixa esperada "
-                f"({minimo} a {maximo})."
+                f"O valor de '{campo}' ({valor}) está fora da faixa esperada ({minimo} a {maximo})."
             )
         if campo == "v" and valor <= 0:
             raise EntradaInvalidaError("A velocidade do ar deve ser maior que zero.")
@@ -223,66 +263,76 @@ def validar_entradas(indice: str, entradas: dict) -> dict:
 # uma interpretacao monotonica razoavel, seguindo o mesmo padrao das demais
 # linhas da tabela. Se voce tiver os valores exatos de Sales et al. (2006) e
 # Ferreira (2001), e so ajustar os numeros abaixo.
-LIMITES = _congelar({
-    "ITU": {
-        "frangos": {"conforto": 74, "alerta": 79, "perigo": 84},  # Thom, 1959
-        "bovinos": {"conforto": 70, "alerta": 78, "perigo": 83},  # Hahn, 1985
-        "suinos": {"conforto": 61, "alerta": 65, "perigo": 69},  # Sales et al., 2006 (*)
-    },
-    "ITUV": {
-        "frangos": {"conforto": 24, "alerta": 34, "perigo": 39},  # Xiao & Xin, 2003
-    },
-    "IGNU": {
-        # Teixeira (1983): a tabela original so define "conforto" (<=76) e
-        # ">76"; por isso alerta/perigo repetem o mesmo limite (o indice pula
-        # direto para "Emergencia" acima de 76 - confirmado pela Tabela 7).
-        "frangos": {"conforto": 76, "alerta": 76, "perigo": 76},  # Teixeira, 1983
-        "bovinos": {"conforto": 74, "alerta": 78, "perigo": 84},  # Baeta, 1985
-        "suinos": {"conforto": 69.6, "alerta": 82.6, "perigo": 82.6},  # Ferreira, 2001 (*)
-    },
-})
+LIMITES = _congelar(
+    {
+        "ITU": {
+            "frangos": {"conforto": 74, "alerta": 79, "perigo": 84},  # Thom, 1959
+            "bovinos": {"conforto": 70, "alerta": 78, "perigo": 83},  # Hahn, 1985
+            "suinos": {"conforto": 61, "alerta": 65, "perigo": 69},  # Sales et al., 2006 (*)
+        },
+        "ITUV": {
+            "frangos": {"conforto": 24, "alerta": 34, "perigo": 39},  # Xiao & Xin, 2003
+        },
+        "IGNU": {
+            # Teixeira (1983): a tabela original so define "conforto" (<=76) e
+            # ">76"; por isso alerta/perigo repetem o mesmo limite (o indice pula
+            # direto para "Emergencia" acima de 76 - confirmado pela Tabela 7).
+            "frangos": {"conforto": 76, "alerta": 76, "perigo": 76},  # Teixeira, 1983
+            "bovinos": {"conforto": 74, "alerta": 78, "perigo": 84},  # Baeta, 1985
+            "suinos": {"conforto": 69.6, "alerta": 82.6, "perigo": 82.6},  # Ferreira, 2001 (*)
+        },
+    }
+)
 
 STATUS_ORDEM = ("Conforto", "Alerta", "Perigo", "Emergência")
 
-STATUS_PESO = _congelar({
-    "conforto": 0,
-    "alerta": 1,
-    "perigo": 2,
-    "emergencia": 3,
-})
+STATUS_PESO = _congelar(
+    {
+        "conforto": 0,
+        "alerta": 1,
+        "perigo": 2,
+        "emergencia": 3,
+    }
+)
 
-CORES_STATUS = _congelar({
-    "Conforto": "#3E8E5B",
-    "Alerta": "#E3A73E",
-    "Perigo": "#C1443C",
-    "Emergencia": "#171512",
-})
+CORES_STATUS = _congelar(
+    {
+        "Conforto": "#3E8E5B",
+        "Alerta": "#E3A73E",
+        "Perigo": "#C1443C",
+        "Emergencia": "#171512",
+    }
+)
 
 # Mensagens de orientacao - reproduzidas das telas do proprio programa
 # descrito na dissertacao (Figuras 17/19, 20/22, 16/25 e 18).
-MENSAGENS_STATUS = _congelar({
-    "Conforto": "As condições de temperatura são adequadas.",
-    "Alerta": "São necessárias medidas para a diminuição da temperatura.",
-    "Perigo": (
-        "As condições de temperatura exigem atenção imediata. "
-        "Caso seja possível, ligue ventiladores ou nebulizadores."
-    ),
-    "Emergencia": (
-        "Condições extremas. Abaixe a temperatura imediatamente. "
-        "Ligue ventiladores e nebulizadores e considere a retirada dos animais."
-    ),
-})
+MENSAGENS_STATUS = _congelar(
+    {
+        "Conforto": "As condições de temperatura são adequadas.",
+        "Alerta": "São necessárias medidas para a diminuição da temperatura.",
+        "Perigo": (
+            "As condições de temperatura exigem atenção imediata. "
+            "Caso seja possível, ligue ventiladores ou nebulizadores."
+        ),
+        "Emergencia": (
+            "Condições extremas. Abaixe a temperatura imediatamente. "
+            "Ligue ventiladores e nebulizadores e considere a retirada dos animais."
+        ),
+    }
+)
 
 # Intensidade de acionamento dos equipamentos remotos (secao 4.3): em
 # "Conforto" os equipamentos ficam desligados; a intensidade cresce com a
 # gravidade, chegando ao nivel maximo (com todos os equipamentos disponiveis)
 # em "Emergencia".
-INTENSIDADE_EQUIPAMENTO = _congelar({
-    "Conforto": None,
-    "Alerta": "baixa",
-    "Perigo": "media",
-    "Emergencia": "maxima",
-})
+INTENSIDADE_EQUIPAMENTO = _congelar(
+    {
+        "Conforto": None,
+        "Alerta": "baixa",
+        "Perigo": "media",
+        "Emergencia": "maxima",
+    }
+)
 
 
 def cor_do_status(status: str) -> str:
@@ -313,9 +363,7 @@ def classificar_status(valor: float, especie: str, indice: str) -> str:
     """Classifica um valor de indice em Conforto / Alerta / Perigo / Emergencia
     conforme a Tabela 4 da dissertacao, para a especie e indice informados."""
     if not indice_disponivel(especie, indice):
-        raise EntradaInvalidaError(
-            f"O índice {indice} não é aplicável à espécie '{especie}'."
-        )
+        raise EntradaInvalidaError(f"O índice {indice} não é aplicável à espécie '{especie}'.")
     limites = LIMITES[indice][especie]
     if valor <= limites["conforto"]:
         return "Conforto"
@@ -329,9 +377,7 @@ def classificar_status(valor: float, especie: str, indice: str) -> str:
 def calcular_e_classificar(especie: str, indice: str, entradas: dict) -> tuple[float, str]:
     """Funcao de conveniencia: valida, calcula e classifica em um so passo."""
     if not indice_disponivel(especie, indice):
-        raise EntradaInvalidaError(
-            f"O índice {indice} não é aplicável à espécie '{especie}'."
-        )
+        raise EntradaInvalidaError(f"O índice {indice} não é aplicável à espécie '{especie}'.")
     entradas_validas = validar_entradas(indice, entradas)
     valor = round(CALCULADORAS[indice](**entradas_validas), 2)
     status = classificar_status(valor, especie, indice)

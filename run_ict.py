@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Lançador da Interface de Conforto Térmico (ICT)."""
 
 from app.app_factory import AppConfig, criar_app_ict, executar_ict

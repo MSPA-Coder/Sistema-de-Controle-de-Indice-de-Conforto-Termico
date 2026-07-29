@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 zona_service.py
 ================
@@ -27,11 +26,14 @@ from __future__ import annotations
 
 import datetime
 import threading
-from typing import Callable
+from typing import TYPE_CHECKING
 
 from . import modbus_client
 from . import thermal_indices as ti
 from .models import Resfriamento, Temperatura
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 class ZonaCalculoError(ti.EntradaInvalidaError):
@@ -171,13 +173,10 @@ class ZonaService:
                     )
                     self._historicos_grafico[zona["id"]] = historico_base
                 self._historicos_grafico[zona["id"]].append(leitura)
-                self._historicos_grafico[zona["id"]] = self._historicos_grafico[
-                    zona["id"]
-                ][-self._limite_historico_grafico:]
-                return [
-                    self._copiar_leitura(item)
-                    for item in self._historicos_grafico[zona["id"]]
+                self._historicos_grafico[zona["id"]] = self._historicos_grafico[zona["id"]][
+                    -self._limite_historico_grafico :
                 ]
+                return [self._copiar_leitura(item) for item in self._historicos_grafico[zona["id"]]]
         except Exception:
             if logger:
                 logger.exception("Falha ao atualizar historico visual da zona %s", zona["id"])
@@ -275,9 +274,7 @@ class ZonaService:
                 f"Nenhum sensor da zona '{zona['nome']}' respondeu com dados "
                 f"suficientes para calcular o índice {zona['indice']}."
             )
-        return self._calcular_com_entradas(
-            zona, entradas, leitura["sensores_com_falha"], logger
-        )
+        return self._calcular_com_entradas(zona, entradas, leitura["sensores_com_falha"], logger)
 
     def calcular_manual(self, zona_id: int, entradas: dict, logger=None) -> dict:
         zona = self._obter_zona(zona_id)
@@ -322,9 +319,7 @@ class ZonaService:
                 )
             except Exception:
                 if logger:
-                    logger.exception(
-                        "Falha ao persistir janela em tempo real da zona %s", zona_id
-                    )
+                    logger.exception("Falha ao persistir janela em tempo real da zona %s", zona_id)
 
         gravado = False
         try:
@@ -355,9 +350,7 @@ class ZonaService:
         estado_atuadores = resfriador.estado()
         permitido, bloqueio_atuadores = self._permissao_acionamento(zona_id)
         if permitido:
-            resultado_atuadores = self._aplicar_atuadores(
-                equipamentos, estado_atuadores, logger
-            )
+            resultado_atuadores = self._aplicar_atuadores(equipamentos, estado_atuadores, logger)
         else:
             resultado_atuadores = {
                 "falhas": [],
@@ -382,9 +375,7 @@ class ZonaService:
             self._salvar_estado_equipamentos(*argumentos_estado)
         except Exception:
             if logger:
-                logger.exception(
-                    "Falha ao persistir estado dos equipamentos da zona %s", zona_id
-                )
+                logger.exception("Falha ao persistir estado dos equipamentos da zona %s", zona_id)
 
         if self._em_modo_simulado() and self._simulador:
             # Mantem o estado interno do simulador (resfriamento gradual)
@@ -421,7 +412,9 @@ class ZonaService:
         }
 
     @staticmethod
-    def _entradas_para_historico(indice: str, entradas_validas: dict, entradas_preparadas: dict) -> dict:
+    def _entradas_para_historico(
+        indice: str, entradas_validas: dict, entradas_preparadas: dict
+    ) -> dict:
         entradas_historico = dict(entradas_validas)
         extras = ("tbs", "tbu", "ur", "tpo") if indice == "IGNU" else ("ur", "tpo")
         for campo in extras:
@@ -438,9 +431,7 @@ class ZonaService:
         except (TypeError, ValueError):
             return None
 
-    def _aplicar_atuadores(
-        self, equipamentos: list[dict], estado: dict, logger
-    ) -> dict:
+    def _aplicar_atuadores(self, equipamentos: list[dict], estado: dict, logger) -> dict:
         falhas: list[str] = []
         confirmacoes: dict[str, list[bool | None]] = {
             "ventilador": [],
@@ -460,9 +451,7 @@ class ZonaService:
             if not sucesso:
                 falhas.append(equipamento["nome"])
                 if logger:
-                    logger.warning(
-                        "Falha ao acionar equipamento Modbus '%s'", equipamento["nome"]
-                    )
+                    logger.warning("Falha ao acionar equipamento Modbus '%s'", equipamento["nome"])
             elif confirmado is None:
                 falhas.append(f"{equipamento['nome']} (sem confirmacao)")
             elif confirmado != ligar:
@@ -476,14 +465,10 @@ class ZonaService:
 
         return {
             "falhas": falhas,
-            "confirmado": {
-                tipo: _consolidar(valores) for tipo, valores in confirmacoes.items()
-            },
+            "confirmado": {tipo: _consolidar(valores) for tipo, valores in confirmacoes.items()},
         }
 
-    def comandar_manual(
-        self, zona_id: int, tipo: str, ligar: bool, logger=None
-    ) -> dict:
+    def comandar_manual(self, zona_id: int, tipo: str, ligar: bool, logger=None) -> dict:
         """Comanda um grupo de atuadores somente no modo manual.
 
         O metodo nao altera sensores nem calcula indice. A persistencia do
@@ -510,14 +495,10 @@ class ZonaService:
             raise ZonaCalculoError(bloqueio or "Acionamento fisico bloqueado.")
 
         equipamentos = [
-            equipamento
-            for equipamento in zona["equipamentos"]
-            if equipamento.get("tipo") == tipo
+            equipamento for equipamento in zona["equipamentos"] if equipamento.get("tipo") == tipo
         ]
         if not equipamentos:
-            raise ZonaCalculoError(
-                f"A zona '{zona['nome']}' nao possui {tipo} cadastrado."
-            )
+            raise ZonaCalculoError(f"A zona '{zona['nome']}' nao possui {tipo} cadastrado.")
 
         estado = {"ventilador": False, "nebulizador": False}
         estado[tipo] = ligar
