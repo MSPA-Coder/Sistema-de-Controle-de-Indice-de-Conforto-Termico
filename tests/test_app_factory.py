@@ -5,6 +5,7 @@ import subprocess
 import sys
 import unittest
 from html.parser import HTMLParser
+from unittest.mock import patch
 
 from app.app_factory import (
     AppConfig,
@@ -47,6 +48,7 @@ class TestFabricasExplicitas(TestCasePostgres):
             "/api/analises",
             "/api/historico-leituras",
             "/api/configuracoes",
+            "/api/configuracao-interface",
             "/api/zonas",
             "/api/zonas/<int:zona_id>/calcular",
             "/api/zonas/<int:zona_id>/controle",
@@ -63,6 +65,29 @@ class TestFabricasExplicitas(TestCasePostgres):
             {"db": "up", "servico": "ict", "status": "ok"},
             resposta.get_json(),
         )
+
+    def test_health_ict_nao_consume_limite_de_requisicoes(self):
+        # O Docker verifica /health repetidamente. Se essa rota entrar no
+        # limitador global, a própria verificação marca um serviço saudável
+        # como indisponível após alguns minutos.
+        with patch.dict(os.environ, {"CONFORTO_TESTING": "0"}):
+            app = criar_app_ict()
+
+        cliente = app.test_client()
+        respostas = [cliente.get("/health").status_code for _ in range(25)]
+
+        self.assertEqual([200] * 25, respostas)
+
+    def test_polling_do_dashboard_tem_limite_proprio(self):
+        with patch.dict(os.environ, {"CONFORTO_TESTING": "0"}):
+            app = criar_app_ict()
+
+        cliente = cliente_autenticado(app)
+        respostas = [
+            cliente.get("/api/zonas/historicos-recentes?limite=30").status_code for _ in range(25)
+        ]
+
+        self.assertEqual([200] * 25, respostas)
 
     def test_coletor_expoe_somente_health_e_api_interna(self):
         rotas = _rotas(criar_app_coletor())

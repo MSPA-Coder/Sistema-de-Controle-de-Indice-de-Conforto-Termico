@@ -150,8 +150,9 @@ def _criar_app_base(processo: str, config: AppConfig) -> Flask:
     # testes que não são o teste dedicado dessa proteção.
     app.testing = _ler_bool_env("CONFORTO_TESTING", False)
 
-    # Inicializar rate limiting
-    _criar_limiter(app)
+    # Inicializar rate limiting. A referência também permite isentar os
+    # health checks, que são verificações internas recorrentes do Docker.
+    app.extensions["conforto_rate_limiter"] = _criar_limiter(app)
 
     db.iniciar_banco()
 
@@ -194,6 +195,7 @@ def criar_app_ict(config: AppConfig | None = None) -> Flask:
 
     config = config or AppConfig.from_env("ict")
     app = _criar_app_base("ict", config)
+    limiter: Limiter = app.extensions["conforto_rate_limiter"]
 
     app.secret_key = auth.obter_ou_criar_chave_secreta()
     app.config["SESSION_COOKIE_NAME"] = (
@@ -211,6 +213,7 @@ def criar_app_ict(config: AppConfig | None = None) -> Flask:
     app.permanent_session_lifetime = datetime.timedelta(hours=12)
 
     @app.get("/health")
+    @limiter.exempt
     def health_ict():
         """Health check completo que valida DB e status do coletor."""
         import logging
@@ -249,6 +252,18 @@ def criar_app_ict(config: AppConfig | None = None) -> Flask:
     app.register_blueprint(ict_bp)
     app.register_blueprint(administracao_bp)
     app.register_blueprint(operacao_bp)
+    # Estas três consultas são o polling autenticado e previsível da
+    # Dashboard. O limite dedicado preserva a proteção global mais estrita
+    # para as demais rotas, sem interromper a atualização legítima a cada
+    # três segundos.
+    for endpoint in (
+        "comum.historicos_recentes_zonas",
+        "comum.status_operacao",
+        "comum.eventos_operacao",
+    ):
+        limiter.limit("60 per minute; 5000 per hour", override_defaults=True)(
+            app.view_functions[endpoint]
+        )
     auth.registrar_autenticacao(app)
     return app
 
@@ -258,10 +273,12 @@ def criar_app_coletor(config: AppConfig | None = None) -> Flask:
 
     config = config or AppConfig.from_env("coletor")
     app = _criar_app_base("coletor", config)
+    limiter: Limiter = app.extensions["conforto_rate_limiter"]
 
     # Importação deliberadamente exclusiva desta fábrica.
-    from .coletor.rotas import coletor_bp
+    from .coletor.rotas import coletor_bp, health
 
+    limiter.exempt(health)
     app.register_blueprint(coletor_bp)
     return app
 

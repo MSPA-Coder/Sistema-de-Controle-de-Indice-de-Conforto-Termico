@@ -665,16 +665,6 @@
   </form>
 </dialog>
 
-<script>
-  window.CONFIG_APP = {
-    indicesPorEspecie: {{ indices_por_especie | tojson }},
-    nomeEspecie: {{ nome_especie | tojson }},
-    nomeIndice: {{ nome_indice | tojson }},
-    camposPorIndice: {{ campos_por_indice | tojson }},
-    campoMetadados: {{ campo_metadados | tojson }},
-    abaInicial: {{ aba_inicial | tojson }}
-  };
-</script>
 <script src="{{ url_for('static', filename='js/vendor/chart.umd.js') }}"></script>
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>

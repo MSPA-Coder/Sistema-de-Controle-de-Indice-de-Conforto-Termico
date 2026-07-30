@@ -52,20 +52,12 @@ def _parametro_data(nome: str) -> tuple[str | None, tuple | None]:
 def index():
     # Todas as abas pertencem ao ICT; somente o perfil da sessão decide
     # quais botões existem e quais APIs podem ser chamadas.
-    aba_inicial = "principal"
     usuario = auth.usuario_atual()
     areas_permitidas = (
         auth.AREAS_POR_PERFIL.get(usuario["perfil"], frozenset()) if usuario else frozenset()
     )
     return render_template(
         "index.html",
-        indices_por_especie=ti.INDICES_POR_ESPECIE,
-        nome_especie=ti.NOME_ESPECIE,
-        nome_indice=ti.NOME_INDICE,
-        campos_por_indice=ti.CAMPOS_POR_INDICE,
-        campo_metadados=ti.CAMPO_METADADOS,
-        limites=ti.LIMITES,
-        aba_inicial=aba_inicial,
         usuario_atual=usuario,
         areas_permitidas=areas_permitidas,
         perfil_label=auth.PERFIL_LABEL,
@@ -77,9 +69,34 @@ def favicon():
     return "", 204
 
 
+@comum_bp.route("/api/configuracao-interface", methods=["GET"])
+def configuracao_interface():
+    """Metadados térmicos necessários antes de inicializar a interface."""
+    return jsonify(
+        {
+            "indicesPorEspecie": ti.INDICES_POR_ESPECIE,
+            "nomeEspecie": ti.NOME_ESPECIE,
+            "nomeIndice": ti.NOME_INDICE,
+            "camposPorIndice": ti.CAMPOS_POR_INDICE,
+            "campoMetadados": ti.CAMPO_METADADOS,
+            "abaInicial": "principal",
+        }
+    )
+
+
 @comum_bp.route("/api/zonas", methods=["GET"])
 def listar_zonas():
     return jsonify(db.listar_zonas())
+
+
+@comum_bp.route("/api/zonas/historicos-recentes", methods=["GET"])
+def historicos_recentes_zonas():
+    """Janelas curtas de todas as zonas, usadas pelo Dashboard ao vivo."""
+    limite, erro = _parametro_inteiro("limite", 30)
+    if erro:
+        return jsonify(erro[0]), erro[1]
+    limite = max(1, min(200, limite or 30))
+    return jsonify(db.obter_historicos_recentes_zonas(limite=limite))
 
 
 @comum_bp.route("/api/zonas/<int:zona_id>/historico", methods=["GET"])

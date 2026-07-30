@@ -606,6 +606,50 @@ def obter_leituras_recentes_zona(zona_id: int, limite: int = 30) -> list[dict]:
     return dados
 
 
+def obter_historicos_recentes_zonas(limite: int = 30) -> dict[int, list[dict]]:
+    """Devolve a janela recente de todas as zonas em uma só consulta comum.
+
+    O Dashboard precisa desenhar uma série curta para cada zona ativa. Buscar
+    cada série por HTTP fazia o volume de requisições crescer linearmente
+    com o número de zonas e acabava concorrendo com a proteção contra abuso.
+    A tabela de leituras recentes já é uma janela pequena; lê-la de uma vez
+    preserva o contrato cronológico sem varrer o histórico completo.
+
+    Para uma zona que ainda não tenha janela recente, mantém o fallback do
+    endpoint individual para o histórico persistido.
+    """
+    limite = max(1, min(200, int(limite)))
+    with _conexao(escrita=False) as conn:
+        zonas = [
+            linha["id"] for linha in conn.execute("SELECT id FROM zonas ORDER BY id").fetchall()
+        ]
+        linhas_recentes = conn.execute(
+            "SELECT * FROM leituras_recentes_zona ORDER BY zona_id, id DESC"
+        ).fetchall()
+
+        historicos: dict[int, list[dict]] = {zona_id: [] for zona_id in zonas}
+        for linha in linhas_recentes:
+            zona_id = linha["zona_id"]
+            itens = historicos.get(zona_id)
+            if itens is not None and len(itens) < limite:
+                itens.append(dict(linha))
+
+        for zona_id, itens in historicos.items():
+            if itens:
+                itens.reverse()
+            else:
+                linhas = conn.execute(
+                    "SELECT * FROM leituras WHERE zona_id = ? ORDER BY id DESC LIMIT ?",
+                    (zona_id, limite),
+                ).fetchall()
+                itens.extend(dict(linha) for linha in reversed(linhas))
+
+    for itens in historicos.values():
+        for item in itens:
+            item["entradas"] = json.loads(item["entradas"])
+    return historicos
+
+
 def obter_historico_leituras(
     limite: int = 30,
     deslocamento: int | None = None,

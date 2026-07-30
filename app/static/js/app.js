@@ -25,7 +25,27 @@ window.fetch = function fetchComCsrf(entrada, opcoes = {}) {
   return FETCH_NATIVO(entrada, opcoes);
 };
 
-const CONFIG_APP = window.CONFIG_APP;
+let CONFIG_APP;
+
+async function carregarConfiguracaoInterface() {
+  const resposta = await fetch("/api/configuracao-interface");
+  if (!resposta.ok) {
+    throw new Error("A configuracao da interface nao esta disponivel.");
+  }
+
+  const configuracao = await resposta.json();
+  if (
+    !configuracao ||
+    typeof configuracao !== "object" ||
+    !configuracao.indicesPorEspecie ||
+    !configuracao.camposPorIndice ||
+    !configuracao.campoMetadados
+  ) {
+    throw new Error("A configuracao da interface esta incompleta.");
+  }
+
+  CONFIG_APP = configuracao;
+}
 
 const CLASSE_STATUS = {
   "Conforto": "conforto",
@@ -621,20 +641,17 @@ async function carregarHistorico(opcoes = {}) {
     return;
   }
   try {
-    const historicos = new Map();
-    await Promise.all(
-      zonasPrincipal.map(async (zonaItem) => {
-        const resposta = await fetch("/api/zonas/" + zonaItem.id + "/historico");
-        if (!resposta.ok) return;
-        const historico = await resposta.json();
-        historicos.set(zonaItem.id, historico);
-        atualizarLinhaComHistoricoZonaPrincipal(zonaItem, historico);
-        atualizarGraficoIndiceZonaPrincipal(zonaItem, historico);
-      })
-    );
+    const resposta = await fetch("/api/zonas/historicos-recentes?limite=30");
+    if (!resposta.ok) throw new Error("Falha ao carregar os históricos recentes das zonas.");
+    const historicos = await resposta.json();
+    zonasPrincipal.forEach((zonaItem) => {
+      const historico = historicos[String(zonaItem.id)] || [];
+      atualizarLinhaComHistoricoZonaPrincipal(zonaItem, historico);
+      atualizarGraficoIndiceZonaPrincipal(zonaItem, historico);
+    });
 
     if (zona) {
-      const historicoSelecionado = historicos.get(zona.id) || [];
+      const historicoSelecionado = historicos[String(zona.id)] || [];
       ultimosHistoricosGrafico = { [zona.indice]: historicoSelecionado };
       atualizarGraficoEntradas(ultimosHistoricosGrafico);
     } else {
@@ -4196,6 +4213,14 @@ function esconderErro() {
 // Inicializacao
 // ---------------------------------------------------------------------------
 document.addEventListener("DOMContentLoaded", async () => {
+  try {
+    await carregarConfiguracaoInterface();
+  } catch (erro) {
+    console.error("Nao foi possivel carregar a configuracao da interface:", erro);
+    mostrarErro("Nao foi possivel carregar a configuracao da interface.");
+    return;
+  }
+
   moverControlesParaConfiguracoes();
   inicializarAbas();
 

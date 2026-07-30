@@ -7,6 +7,7 @@ from unittest.mock import patch
 import run_ict as flask_app
 from app import app_factory, auth
 from app import database as db
+from app import thermal_indices as ti
 from app.coletor import estado as coletor_estado
 from tests.auth_test_utils import cliente_autenticado
 from tests.postgres_test_utils import TestCasePostgres
@@ -107,6 +108,22 @@ class TestConfiguracoesApi(TestCasePostgres):
         )
         self.assertEqual("bovinos", resposta.json["especie"])
         self.assertIn(resposta.json["indice"], ("ITU", "IGNU"))
+
+    def test_configuracao_interface_e_servida_por_api_sem_script_inline(self):
+        configuracao = self.client.get("/api/configuracao-interface")
+        pagina = self.client.get("/")
+
+        self.assertEqual(200, configuracao.status_code)
+        self.assertEqual("no-store", configuracao.headers.get("Cache-Control"))
+        self.assertEqual(
+            list(ti.INDICES_POR_ESPECIE["frangos"]),
+            configuracao.json["indicesPorEspecie"]["frangos"],
+        )
+        self.assertEqual(
+            ti.CAMPO_METADADOS["tbs"]["unidade"],
+            configuracao.json["campoMetadados"]["tbs"]["unidade"],
+        )
+        self.assertNotIn("window.CONFIG_APP", pagina.get_data(as_text=True))
 
 
 class TestServidorLocal(unittest.TestCase):
@@ -236,10 +253,10 @@ class TestCabecalhosDeSeguranca(TestCasePostgres):
         self.assertEqual("no-referrer", resposta.headers.get("Referrer-Policy"))
         self.assertEqual("no-store", resposta.headers.get("Cache-Control"))
 
-    def test_pagina_inicial_renderiza_configuracao_dos_indices(self):
+    def test_pagina_inicial_nao_insere_configuracao_inline(self):
         resposta = self.client.get("/")
         self.assertEqual(200, resposta.status_code)
-        self.assertIn(b"indicesPorEspecie", resposta.data)
+        self.assertNotIn(b"window.CONFIG_APP", resposta.data)
 
 
 class TestErroInternoNaoVazaDetalhe(TestCasePostgres):
@@ -582,6 +599,41 @@ class TestZonasApi(TestCasePostgres):
         resposta = self.client.get(f"/api/zonas/{zona_id}/historico")
         self.assertEqual(200, resposta.status_code)
         self.assertEqual([], resposta.json)
+
+    def test_historicos_recentes_de_todas_as_zonas_agrupa_e_ordenam_por_zona(self):
+        zona_a = self._criar_zona(nome="Zona A").json["id"]
+        zona_b = self._criar_zona(nome="Zona B").json["id"]
+        db.salvar_leitura_recente_zona(
+            zona_a,
+            "frangos",
+            "ITU",
+            70.0,
+            "Conforto",
+            {"tbs": 25.0, "tbu": 20.0},
+        )
+        db.salvar_leitura_recente_zona(
+            zona_a,
+            "frangos",
+            "ITU",
+            74.0,
+            "Alerta",
+            {"tbs": 27.0, "tbu": 21.0},
+        )
+        db.salvar_leitura_recente_zona(
+            zona_b,
+            "frangos",
+            "ITU",
+            72.0,
+            "Conforto",
+            {"tbs": 26.0, "tbu": 20.0},
+        )
+
+        resposta = self.client.get("/api/zonas/historicos-recentes?limite=1")
+
+        self.assertEqual(200, resposta.status_code)
+        self.assertEqual([74.0], [leitura["valor"] for leitura in resposta.json[str(zona_a)]])
+        self.assertEqual([72.0], [leitura["valor"] for leitura in resposta.json[str(zona_b)]])
+        self.assertEqual({"tbs": 27.0, "tbu": 21.0}, resposta.json[str(zona_a)][0]["entradas"])
 
     def test_historico_leituras_persistido_exibe_zona(self):
         zona = self._criar_zona().json
