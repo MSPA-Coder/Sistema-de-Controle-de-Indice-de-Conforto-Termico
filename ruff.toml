@@ -22,6 +22,10 @@ ignore = [
 [lint.isort]
 known-first-party = ["app", "migrations", "scripts", "tests"]
 
+[lint.per-file-ignores]
+"scripts/criar_usuario_admin.py" = ["E402"]
+"scripts/seed_zonas.py" = ["E402"]
+
 [format]
 quote-style = "double"
 indent-style = "space"

@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterator
 from contextlib import contextmanager
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 from app.database import DB_PATH, TIMEOUT_CONEXAO_SEGUNDOS
 
@@ -12,7 +15,7 @@ from app.database import DB_PATH, TIMEOUT_CONEXAO_SEGUNDOS
 @contextmanager
 def get_conexao() -> Iterator[sqlite3.Connection]:
     """Gerencia conexão com o banco de dados.
-    
+
     Yields:
         Conexão SQLite que será fechada automaticamente.
     """

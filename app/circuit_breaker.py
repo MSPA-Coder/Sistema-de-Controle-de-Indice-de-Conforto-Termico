@@ -9,9 +9,12 @@ from __future__ import annotations
 
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Callable, TypeVar, Any
+from typing import TYPE_CHECKING, TypeVar
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 T = TypeVar("T")
 
@@ -141,7 +144,7 @@ class CircuitBreaker:
                 self._registrar_sucesso(circuito)
             return resultado
 
-        except Exception as erro:
+        except Exception:
             with self._lock:
                 self._registrar_falha(circuito)
 

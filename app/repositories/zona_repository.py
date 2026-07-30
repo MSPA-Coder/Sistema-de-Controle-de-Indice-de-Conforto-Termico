@@ -31,11 +31,14 @@ class ZonaRepository:
         """Obtém uma zona pelo ID."""
         with get_conexao() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT id, nome, descricao, criado_em, atualizado_em
                 FROM zonas
                 WHERE id = ?
-            """, (zona_id,))
+            """,
+                (zona_id,),
+            )
             linha = cursor.fetchone()
             return dict(linha) if linha else None
 
@@ -44,10 +47,13 @@ class ZonaRepository:
         """Cria uma nova zona."""
         with get_conexao() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT INTO zonas (nome, descricao)
                 VALUES (?, ?)
-            """, (nome, descricao))
+            """,
+                (nome, descricao),
+            )
             conn.commit()
             return cursor.lastrowid
 
@@ -88,13 +94,14 @@ class ZonaRepository:
     @staticmethod
     def obter_com_leituras(zona_id: int) -> dict[str, Any] | None:
         """Obtém zona com suas leituras recentes (JOIN otimizado).
-        
+
         Elimina problema N+1 ao buscar zona e leituras em uma única query.
         """
         with get_conexao() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
-                SELECT 
+            cursor.execute(
+                """
+                SELECT
                     z.id, z.nome, z.descricao, z.criado_em, z.atualizado_em,
                     l.id as leitura_id, l.temperatura, l.umidade, l.timestamp
                 FROM zonas z
@@ -102,7 +109,9 @@ class ZonaRepository:
                 WHERE z.id = ?
                 ORDER BY l.timestamp DESC
                 LIMIT 100
-            """, (zona_id,))
+            """,
+                (zona_id,),
+            )
 
             linhas = cursor.fetchall()
             if not linhas:
@@ -115,17 +124,19 @@ class ZonaRepository:
                 "descricao": primeira["descricao"],
                 "criado_em": primeira["criado_em"],
                 "atualizado_em": primeira["atualizado_em"],
-                "leituras": []
+                "leituras": [],
             }
 
             for linha in linhas:
                 dados = dict(linha)
                 if dados["leitura_id"]:
-                    zona["leituras"].append({
-                        "id": dados["leitura_id"],
-                        "temperatura": dados["temperatura"],
-                        "umidade": dados["umidade"],
-                        "timestamp": dados["timestamp"]
-                    })
+                    zona["leituras"].append(
+                        {
+                            "id": dados["leitura_id"],
+                            "temperatura": dados["temperatura"],
+                            "umidade": dados["umidade"],
+                            "timestamp": dados["timestamp"],
+                        }
+                    )
 
             return zona

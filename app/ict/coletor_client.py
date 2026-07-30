@@ -10,7 +10,7 @@ import urllib.request
 from flask import current_app, jsonify
 
 from .. import auth
-from ..circuit_breaker import circuit_breaker_coletor, CircuitBreakerAbertoError
+from ..circuit_breaker import CircuitBreakerAbertoError, circuit_breaker_coletor
 
 COLETOR_URL_PADRAO = "http://127.0.0.1:5001"
 TIMEOUT_COLETOR_SEGUNDOS = 5
@@ -53,7 +53,7 @@ def chamar_coletor(caminho: str, *, metodo: str, dados: dict | None = None):
                     "circuit_breaker": "ativo",
                 }
             ),
-            503,
+            502,
         )
 
     try:
@@ -67,7 +67,7 @@ def chamar_coletor(caminho: str, *, metodo: str, dados: dict | None = None):
         except (ValueError, UnicodeDecodeError):
             payload = {"erro": "O serviço coletor devolveu uma resposta inválida."}
         return jsonify(payload), erro.code
-    except (urllib.error.URLError, TimeoutError, OSError) as erro:
+    except (urllib.error.URLError, TimeoutError, OSError):
         current_app.logger.exception("Não foi possível falar com o serviço coletor em %s", url_base)
         # Circuit breaker registrará a falha automaticamente
         return (

@@ -46,6 +46,7 @@ def _criar_limiter(app: Flask) -> Limiter:
         default_limits=["100 per hour", "20 per minute"],
         storage_uri="memory://",
         strategy="fixed-window",
+        enabled=not app.testing,
     )
     return limiter
 

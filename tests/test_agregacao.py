@@ -128,7 +128,7 @@ class TestAgregacao15minEHora(TestCasePostgres):
         _inserir_leitura_bruta(self.zona["id"], 71.0, recente.isoformat(timespec="seconds"))
         agregacao.executar_para_zona(self.zona)
 
-        hoje = datetime.date.today().isoformat()
+        hoje = recente.date().isoformat()
         filtrados = db.obter_resumos_horarios(self.zona["id"], data_inicio=hoje, data_fim=hoje)
         self.assertEqual(1, len(filtrados))
 

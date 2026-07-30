@@ -11,7 +11,7 @@ import json
 import logging
 import os
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 # Logger dedicado para auditoria
@@ -107,7 +107,7 @@ def log_evento(
         usuario: Informações do usuário (obtidas automaticamente se None)
     """
     registro = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "evento": evento,
         "categoria": categoria,
         "acao": acao,
@@ -131,7 +131,7 @@ def _sanitizar_detalhes(detalhes: dict[str, Any]) -> dict[str, Any]:
     Remove ou mascara campos que podem conter informações sensíveis
     como senhas, tokens, segredos, etc.
     """
-    CAMPOS_SENSIVEIS = frozenset(
+    campos_sensiveis = frozenset(
         {
             "senha",
             "password",
@@ -147,12 +147,12 @@ def _sanitizar_detalhes(detalhes: dict[str, Any]) -> dict[str, Any]:
         }
     )
 
-    PADRAO_MASCARA = "***REDACTED***"
+    padrao_mascara = "***REDACTED***"
 
     def _sanitizar_valor(chave: str, valor: Any) -> Any:
         chave_lower = chave.lower()
-        if any(sensivel in chave_lower for sensivel in CAMPOS_SENSIVEIS):
-            return PADRAO_MASCARA
+        if any(sensivel in chave_lower for sensivel in campos_sensiveis):
+            return padrao_mascara
 
         if isinstance(valor, dict):
             return {k: _sanitizar_valor(k, v) for k, v in valor.items()}
@@ -240,7 +240,9 @@ def log_acesso_negado(recurso: str, usuario_login: str, perfil_necessario: str) 
     )
 
 
-def log_alteracao_sensivel(operacao: str, entidade: str, entidade_id: int, usuario_login: str) -> None:
+def log_alteracao_sensivel(
+    operacao: str, entidade: str, entidade_id: int, usuario_login: str
+) -> None:
     """Registra alteração em dado sensível."""
     log_evento(
         evento=EventosAuditoria.CONFIGURACAO_ALTERADA,

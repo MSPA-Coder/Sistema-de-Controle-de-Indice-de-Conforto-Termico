@@ -42,6 +42,12 @@ htmlcov/
 # Database
 *.db
 *.db-journal
+instance/*
+!instance/.gitkeep
+
+# Certificates and secrets
+.certs/*
+.secrets/
 
 # Environment variables
 .env

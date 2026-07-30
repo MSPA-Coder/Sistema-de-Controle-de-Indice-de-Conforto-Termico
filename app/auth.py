@@ -437,7 +437,7 @@ def _destino_pos_login(bruto: str) -> str:
 @auth_bp.route("/login", methods=["GET", "POST"])
 @obter_limiter().limit("5 per minute")
 def login():
-    from .audit_log import log_login_sucesso, log_login_falha
+    from .audit_log import log_login_falha, log_login_sucesso
 
     if g.usuario is not None:
         return redirect(url_for("comum.index"))
@@ -466,7 +466,7 @@ def login():
             motivo = "usuario_inexistente" if usuario is None else "credenciais_invalidas"
             if usuario and not usuario["ativo"]:
                 motivo = "usuario_inativo"
-            
+
             log_login_falha(login_digitado, motivo)
             erro = "Login ou senha inválidos."
         else:

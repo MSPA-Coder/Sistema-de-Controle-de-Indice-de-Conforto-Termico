@@ -60,7 +60,7 @@ class TestFabricasExplicitas(TestCasePostgres):
         resposta = criar_app_ict().test_client().get("/health")
         self.assertEqual(200, resposta.status_code)
         self.assertEqual(
-            {"servico": "ict", "status": "ok"},
+            {"db": "up", "servico": "ict", "status": "ok"},
             resposta.get_json(),
         )
 

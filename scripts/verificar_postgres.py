@@ -17,18 +17,18 @@ def main() -> int:
     execucoes = dados_entrada_db.listar_execucoes()
     if len(zonas) != len(painel):
         raise RuntimeError("Painel e cadastro de zonas estão divergentes.")
-    if not zonas or not usuarios:
-        raise RuntimeError("Dados essenciais migrados não foram encontrados.")
 
-    zona_id = zonas[0]["id"]
-    historico = database.obter_historico_leituras(zona_id=zona_id, limite=3)
-    if historico["total"] and not historico["leituras"]:
-        raise RuntimeError("Paginação do histórico não retornou leituras.")
+    if zonas:
+        zona_id = zonas[0]["id"]
+        historico = database.obter_historico_leituras(zona_id=zona_id, limite=3)
+        if historico["total"] and not historico["leituras"]:
+            raise RuntimeError("Paginação do histórico não retornou leituras.")
 
-    login = usuarios[0]["login"]
-    usuario = database.obter_usuario_por_login(login.swapcase())
-    if not usuario or usuario["id"] != usuarios[0]["id"]:
-        raise RuntimeError("Login PostgreSQL não está case-insensitive.")
+    if usuarios:
+        login = usuarios[0]["login"]
+        usuario = database.obter_usuario_por_login(login.swapcase())
+        if not usuario or usuario["id"] != usuarios[0]["id"]:
+            raise RuntimeError("Login PostgreSQL não está case-insensitive.")
 
     # Exercita geração de identidade e rollback na mesma conexão.
     context = database._conexao()

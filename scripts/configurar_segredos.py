@@ -19,14 +19,23 @@ ARQUIVOS = {
     "postgres_password.txt": 36,
     "internal_token.txt": 48,
 }
+APP_UID = 10001
+APP_GID = 10001
 
 
 def _gravar(caminho: Path, quantidade_bytes: int, *, force: bool) -> bool:
     if caminho.exists() and not force:
         return False
-    caminho.write_text(secrets.token_urlsafe(quantidade_bytes), encoding="utf-8")
-    with contextlib.suppress(OSError):
-        os.chmod(caminho, 0o600)
+    temporario = caminho.with_name(f".{caminho.name}.{secrets.token_hex(8)}.tmp")
+    try:
+        temporario.write_text(secrets.token_urlsafe(quantidade_bytes), encoding="utf-8")
+        with contextlib.suppress(OSError):
+            os.chown(temporario, APP_UID, APP_GID)
+            os.chmod(temporario, 0o400)
+        os.replace(temporario, caminho)
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            temporario.unlink()
     return True
 
 

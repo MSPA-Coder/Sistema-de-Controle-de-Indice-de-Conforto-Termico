@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 from app.repositories.base import get_conexao
 
@@ -21,20 +23,26 @@ class LeituraRepository:
         with get_conexao() as conn:
             cursor = conn.cursor()
             if zona_id:
-                cursor.execute("""
+                cursor.execute(
+                    """
                     SELECT id, zona_id, temperatura, umidade, timestamp, criado_em
                     FROM leituras
                     WHERE zona_id = ?
                     ORDER BY timestamp DESC
                     LIMIT ?
-                """, (zona_id, limite))
+                """,
+                    (zona_id, limite),
+                )
             else:
-                cursor.execute("""
+                cursor.execute(
+                    """
                     SELECT id, zona_id, temperatura, umidade, timestamp, criado_em
                     FROM leituras
                     ORDER BY timestamp DESC
                     LIMIT ?
-                """, (limite,))
+                """,
+                    (limite,),
+                )
 
             return [dict(linha) for linha in cursor.fetchall()]
 
@@ -43,45 +51,46 @@ class LeituraRepository:
         """Cria uma nova leitura."""
         with get_conexao() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT INTO leituras (zona_id, temperatura, umidade)
                 VALUES (?, ?, ?)
-            """, (zona_id, temperatura, umidade))
+            """,
+                (zona_id, temperatura, umidade),
+            )
             conn.commit()
             return cursor.lastrowid
 
     @staticmethod
-    def obter_por_periodo(
-        zona_id: int,
-        inicio: datetime,
-        fim: datetime
-    ) -> list[dict[str, Any]]:
+    def obter_por_periodo(zona_id: int, inicio: datetime, fim: datetime) -> list[dict[str, Any]]:
         """Obtém leituras em um período específico."""
         with get_conexao() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT id, zona_id, temperatura, umidade, timestamp, criado_em
                 FROM leituras
                 WHERE zona_id = ? AND timestamp BETWEEN ? AND ?
                 ORDER BY timestamp ASC
-            """, (zona_id, inicio.isoformat(), fim.isoformat()))
+            """,
+                (zona_id, inicio.isoformat(), fim.isoformat()),
+            )
 
             return [dict(linha) for linha in cursor.fetchall()]
 
     @staticmethod
     def obter_medias_periodo(
-        zona_id: int,
-        inicio: datetime,
-        fim: datetime
+        zona_id: int, inicio: datetime, fim: datetime
     ) -> dict[str, float | None]:
         """Obtém médias de temperatura e umidade em um período.
-        
+
         Query otimizada com agregação no banco para evitar processamento em Python.
         """
         with get_conexao() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
-                SELECT 
+            cursor.execute(
+                """
+                SELECT
                     AVG(temperatura) as media_temperatura,
                     AVG(umidade) as media_umidade,
                     MIN(temperatura) as min_temperatura,
@@ -89,7 +98,9 @@ class LeituraRepository:
                     COUNT(*) as total_leituras
                 FROM leituras
                 WHERE zona_id = ? AND timestamp BETWEEN ? AND ?
-            """, (zona_id, inicio.isoformat(), fim.isoformat()))
+            """,
+                (zona_id, inicio.isoformat(), fim.isoformat()),
+            )
 
             linha = cursor.fetchone()
             if linha:
@@ -98,14 +109,14 @@ class LeituraRepository:
                     "media_umidade": linha[1],
                     "min_temperatura": linha[2],
                     "max_temperatura": linha[3],
-                    "total_leituras": linha[4]
+                    "total_leituras": linha[4],
                 }
             return {
                 "media_temperatura": None,
                 "media_umidade": None,
                 "min_temperatura": None,
                 "max_temperatura": None,
-                "total_leituras": 0
+                "total_leituras": 0,
             }
 
     @staticmethod
@@ -113,9 +124,12 @@ class LeituraRepository:
         """Exclui leituras mais antigas que N dias."""
         with get_conexao() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 DELETE FROM leituras
                 WHERE timestamp < datetime('now', ?)
-            """, (f"-{dias} days",))
+            """,
+                (f"-{dias} days",),
+            )
             conn.commit()
             return cursor.rowcount

@@ -30,11 +30,14 @@ class ConfiguracaoRepository:
         """Obtém configuração por chave específica."""
         with get_conexao() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT valor
                 FROM configuracoes
                 WHERE chave = ?
-            """, (chave,))
+            """,
+                (chave,),
+            )
 
             linha = cursor.fetchone()
             return linha[0] if linha else None
@@ -44,10 +47,13 @@ class ConfiguracaoRepository:
         """Define ou atualiza uma configuração."""
         with get_conexao() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT OR REPLACE INTO configuracoes (chave, valor, atualizado_em)
                 VALUES (?, ?, CURRENT_TIMESTAMP)
-            """, (chave, valor))
+            """,
+                (chave, valor),
+            )
             conn.commit()
             return True
 
@@ -63,7 +69,7 @@ class ConfiguracaoRepository:
     @staticmethod
     def obter_sanitizadas() -> dict[str, str]:
         """Obtém configurações com valores sensíveis mascarados.
-        
+
         Útil para logging e exibição sem expor credenciais.
         """
         configs = ConfiguracaoRepository.obter_todas()
@@ -77,7 +83,7 @@ class ConfiguracaoRepository:
             "secret",
             "token",
             "api_key",
-            "apikey"
+            "apikey",
         ]
 
         for chave in configs:
@@ -92,12 +98,15 @@ class ConfiguracaoRepository:
         """Obtém configurações de um grupo específico por prefixo."""
         with get_conexao() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT chave, valor
                 FROM configuracoes
                 WHERE chave LIKE ?
                 ORDER BY chave
-            """, (f"{prefixo}%",))
+            """,
+                (f"{prefixo}%",),
+            )
 
             return {linha[0]: linha[1] for linha in cursor.fetchall()}
 
@@ -108,10 +117,13 @@ class ConfiguracaoRepository:
             cursor = conn.cursor()
             total = 0
             for chave, valor in configuracoes.items():
-                cursor.execute("""
+                cursor.execute(
+                    """
                     INSERT OR REPLACE INTO configuracoes (chave, valor, atualizado_em)
                     VALUES (?, ?, CURRENT_TIMESTAMP)
-                """, (chave, valor))
+                """,
+                    (chave, valor),
+                )
                 total += 1
             conn.commit()
             return total
