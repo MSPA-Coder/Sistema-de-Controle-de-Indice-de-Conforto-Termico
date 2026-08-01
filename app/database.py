@@ -2079,19 +2079,24 @@ def _decodificar_configuracoes(linhas) -> dict:
     return configuracoes
 
 
-def obter_configuracoes() -> dict:
-    """Obtém configurações do banco com cache em memória."""
-    # Tenta obter do cache primeiro
-    valor_cached = _cache_configuracoes.get("configuracoes_gerais")
-    if valor_cached is not None:
-        return cast("dict", valor_cached)
+def obter_configuracoes(*, usar_cache: bool = True) -> dict:
+    """Obtém configurações do banco, opcionalmente usando o cache local.
+
+    Processos ICT e coletor possuem caches independentes. Flags operacionais
+    que protegem o acesso a hardware devem usar ``usar_cache=False`` para que
+    uma mudança persistida pelo ICT seja observada já no próximo ciclo.
+    """
+    if usar_cache:
+        valor_cached = _cache_configuracoes.get("configuracoes_gerais")
+        if valor_cached is not None:
+            return cast("dict", valor_cached)
 
     with _conexao(escrita=False) as conn:
         linhas = conn.execute("SELECT chave, valor FROM configuracoes").fetchall()
 
     resultado = _sanitizar_configuracoes(_decodificar_configuracoes(linhas))
-    # Armazena no cache
-    _cache_configuracoes.set("configuracoes_gerais", resultado)
+    if usar_cache:
+        _cache_configuracoes.set("configuracoes_gerais", resultado)
     return resultado
 
 

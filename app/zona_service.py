@@ -186,7 +186,13 @@ class ZonaService:
         if not self._simulador:
             return False
         try:
-            return bool(self._obter_configuracoes().get("modoSimuladoZonas", True))
+            try:
+                configuracoes = self._obter_configuracoes(usar_cache=False)
+            except TypeError:
+                # Fakes legados de testes aceitam somente chamada sem
+                # argumentos; no runtime a funcao e db.obter_configuracoes.
+                configuracoes = self._obter_configuracoes()
+            return bool(configuracoes.get("modoSimuladoZonas", True))
         except Exception:
             # Falha ao ler a configuracao: assume simulado por seguranca
             # (evita tentar falar com hardware real por engano quando nao

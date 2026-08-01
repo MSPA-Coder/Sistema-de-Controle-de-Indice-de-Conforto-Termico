@@ -48,7 +48,7 @@ def testar_conexao_equipamento(equipamento: dict) -> dict:
     """Confere se um equipamento responde no barramento Modbus (ou no
     simulador, conforme `modoSimuladoZonas`). Chamada exclusivamente pela
     API HTTP interna do coletor; o ICT nunca importa este módulo."""
-    modo_simulado = bool(db.obter_configuracoes().get("modoSimuladoZonas", True))
+    modo_simulado = bool(db.obter_configuracoes(usar_cache=False).get("modoSimuladoZonas", True))
     if modo_simulado:
         return {"conectado": zona_simulador.testar_conexao(equipamento), "modo_simulado": True}
 
