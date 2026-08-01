@@ -70,6 +70,7 @@ class TestCacheComTTL(unittest.TestCase):
 
         # Espera expirar
         import time
+
         time.sleep(0.6)
 
         # Deve ter expirado

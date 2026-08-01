@@ -124,12 +124,16 @@ def alterar_controle_zona(zona_id):
 @coletor_bp.route("/api/interno/zonas/<int:zona_id>/comando", methods=["POST"])
 def comandar_atuador_zona(zona_id):
     dados = request.get_json(force=True, silent=True) or {}
+    tipo = dados.get("tipo")
+    ligar = dados.get("ligar")
+    if not isinstance(tipo, str) or not isinstance(ligar, bool):
+        return jsonify({"erro": "tipo deve ser texto e ligar deve ser booleano."}), 400
     try:
         return jsonify(
             gerenciador_controle.comandar_manual(
                 zona_id,
-                dados.get("tipo", ""),
-                dados.get("ligar"),
+                tipo,
+                ligar,
                 logger=current_app.logger,
             )
         )

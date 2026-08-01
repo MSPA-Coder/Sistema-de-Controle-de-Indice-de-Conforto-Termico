@@ -1,22 +1,16 @@
-"""Persistencia isolada para geracao de dados de entrada.
+"""Persistência isolada para geração de dados de entrada no PostgreSQL.
 
-As séries usam o schema PostgreSQL ``dados_entrada`` em produção. A suíte
-unitária usa um banco SQLite temporário.
-A copia para o historico e explicita, transacional e idempotente.
+A cópia para o histórico é explícita, transacional e idempotente.
 """
 
 from __future__ import annotations
 
 import datetime
 import json
-import os
-import sqlite3
-import threading
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from . import database as historico_db
 from . import db_backend
 from .dados_entrada_cidades import (
     CATEGORIAS_DENSIDADE,
@@ -27,101 +21,28 @@ from .dados_entrada_cidades import (
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-DB_PATH: str | None = None
-TIMEOUT_CONEXAO_SEGUNDOS = 30.0
-_write_lock = threading.Lock()
-
 
 class ConfiguracaoDadosEntradaError(ValueError):
     """Configuracao de zona ou operacao de dados de entrada invalida."""
 
 
-def caminho_banco() -> str:
-    if DB_PATH:
-        return DB_PATH
-    return os.path.join(os.path.dirname(historico_db.DB_PATH), "dados_entrada.db")
-
-
 @contextmanager
 def _conexao(*, escrita: bool = True) -> Iterator:
-    if db_backend.postgres_ativo():
-        conn = db_backend.abrir_conexao_postgres("dados_entrada")
-        try:
-            yield conn
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
-        return
-
-    lock = _write_lock if escrita else _SemLock()
-    with lock:
-        caminho = caminho_banco()
-        os.makedirs(os.path.dirname(caminho), exist_ok=True)
-        conn = sqlite3.connect(caminho, timeout=TIMEOUT_CONEXAO_SEGUNDOS)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode = WAL")
-        conn.execute("PRAGMA synchronous = NORMAL")
-        conn.execute("PRAGMA foreign_keys = ON")
-        try:
-            yield conn
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
-
-
-class _SemLock:
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *_args):
-        return False
+    conn = db_backend.abrir_conexao_postgres("dados_entrada")
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 @contextmanager
 def sessao_geracao() -> Iterator[_SessaoGeracao]:
-    """Uma conexao reaproveitada por todos os lotes de uma execucao.
-
-    Evita abrir e fechar uma conexao SQLite a cada lote de medicoes, como
-    acontecia antes (por padrao a cada 1000-2000 linhas -- em uma geracao
-    grande, ate `gerador_dados.MAXIMO_MEDICOES` linhas, isso podia significar
-    centenas ou milhares de conexoes abertas e fechadas para uma unica
-    execucao). A MESMA conexao fica aberta do primeiro ao ultimo lote, de
-    todas as zonas.
-
-    O lock de escrita (`_write_lock`), porem, continua sendo adquirido e
-    liberado a cada lote (em `_SessaoGeracao.inserir_medicoes`), nao uma
-    unica vez para a sessao inteira. Isso e deliberado: se o lock ficasse
-    preso do inicio ao fim da geracao, uma zona com clima lento para baixar
-    (rede) prenderia junto esse lock -- compartilhado com o resto do app
-    (salvar configuracao de zona, apagar medicoes, copiar para o historico)
-    -- pelo tempo todo da geracao, mesmo enquanto nada esta de fato sendo
-    escrito. Cada lote continua sendo sua propria transacao (commit por
-    lote), exatamente como antes: uma falha na metade da geracao so
-    descarta o lote em andamento, e o `DELETE` em `falhar_execucao` remove
-    os lotes de outras zonas ja confirmados.
-    """
-    if db_backend.postgres_ativo():
-        conn = db_backend.abrir_conexao_postgres("dados_entrada")
-        try:
-            yield _SessaoGeracao(conn)
-        finally:
-            conn.close()
-        return
-
-    caminho = caminho_banco()
-    os.makedirs(os.path.dirname(caminho), exist_ok=True)
-    with _write_lock:
-        conn = sqlite3.connect(caminho, timeout=TIMEOUT_CONEXAO_SEGUNDOS)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode = WAL")
-        conn.execute("PRAGMA synchronous = NORMAL")
-        conn.execute("PRAGMA foreign_keys = ON")
+    """Reutiliza uma conexão PostgreSQL durante a geração em lotes."""
+    conn = db_backend.abrir_conexao_postgres("dados_entrada")
     try:
         yield _SessaoGeracao(conn)
     finally:
@@ -129,13 +50,7 @@ def sessao_geracao() -> Iterator[_SessaoGeracao]:
 
 
 class _SessaoGeracao:
-    """Insere lotes de medicoes reaproveitando uma unica conexao aberta.
-
-    Cada chamada a `inserir_medicoes` adquire `_write_lock` e confirma (ou
-    desfaz, em caso de erro) sua propria transacao -- exatamente como cada
-    lote fazia antes. A unica mudanca e que a conexao SQLite em si e
-    reaproveitada entre os lotes, em vez de reaberta a cada um.
-    """
+    """Insere cada lote em sua própria transação PostgreSQL."""
 
     __slots__ = ("_conn",)
 
@@ -145,151 +60,16 @@ class _SessaoGeracao:
     def inserir_medicoes(self, medicoes: list[dict]) -> None:
         if not medicoes:
             return
-        with _write_lock:
-            try:
-                _inserir_medicoes_na_conexao(self._conn, medicoes)
-                self._conn.commit()
-            except Exception:
-                self._conn.rollback()
-                raise
+        try:
+            _inserir_medicoes_na_conexao(self._conn, medicoes)
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
 
 
 def iniciar_banco() -> None:
-    if db_backend.postgres_ativo():
-        # O Alembic cria e versiona este schema antes de o Flask iniciar.
-        return
-
-    with _conexao() as conn:
-        conn.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS configuracoes_zona (
-                zona_id INTEGER PRIMARY KEY,
-                zona_nome TEXT NOT NULL,
-                especie TEXT NOT NULL,
-                cidade_codigo_ibge TEXT,
-                latitude REAL,
-                longitude REAL,
-                fuso_horario TEXT NOT NULL DEFAULT 'America/Sao_Paulo',
-                altitude_m REAL,
-                area_util_m2 REAL,
-                densidade_categoria TEXT NOT NULL DEFAULT 'media',
-                densidade_animais_m2 REAL,
-                quantidade_animais INTEGER NOT NULL DEFAULT 0,
-                peso_medio_kg REAL,
-                producao_leite_kg_dia REAL NOT NULL DEFAULT 0,
-                ordenhas_dia INTEGER NOT NULL DEFAULT 0,
-                atualizado_em TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS execucoes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                data_inicio TEXT NOT NULL,
-                data_fim TEXT NOT NULL,
-                dias INTEGER NOT NULL,
-                intervalo_minutos INTEGER NOT NULL,
-                semente INTEGER NOT NULL,
-                fonte_clima TEXT NOT NULL,
-                total_zonas INTEGER NOT NULL,
-                total_medicoes INTEGER NOT NULL DEFAULT 0,
-                status TEXT NOT NULL,
-                erro TEXT,
-                criado_em TEXT NOT NULL,
-                concluido_em TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS medicoes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                execucao_id INTEGER NOT NULL REFERENCES execucoes(id) ON DELETE CASCADE,
-                zona_id INTEGER NOT NULL,
-                zona_nome TEXT NOT NULL,
-                especie TEXT NOT NULL,
-                indice TEXT NOT NULL,
-                timestamp_utc TEXT NOT NULL,
-                timestamp_local TEXT NOT NULL,
-                fuso_horario TEXT NOT NULL,
-                tbs_externa_c REAL NOT NULL,
-                ur_externa_pct REAL NOT NULL,
-                ponto_orvalho_c REAL NOT NULL,
-                tbu_c REAL NOT NULL,
-                velocidade_vento_ms REAL NOT NULL,
-                precipitacao_mm REAL,
-                pressao_hpa REAL,
-                radiacao_w_m2 REAL,
-                nebulosidade_pct REAL,
-                valor_indice REAL NOT NULL,
-                status_termico TEXT NOT NULL,
-                area_util_m2 REAL NOT NULL,
-                densidade_categoria TEXT NOT NULL,
-                densidade_animais_m2 REAL NOT NULL,
-                quantidade_animais INTEGER NOT NULL,
-                atividade_predominante TEXT NOT NULL,
-                alimentacao_kg REAL NOT NULL,
-                consumo_agua_l REAL NOT NULL,
-                animais_em_pe INTEGER NOT NULL,
-                animais_deitados INTEGER NOT NULL,
-                animais_em_ordenha INTEGER NOT NULL,
-                calor_sensivel_animais_w REAL NOT NULL,
-                calor_latente_animais_w REAL NOT NULL,
-                vapor_agua_animais_kg_h REAL NOT NULL,
-                origem_variaveis TEXT NOT NULL,
-                indicador_qualidade TEXT NOT NULL,
-                entradas_indice TEXT NOT NULL,
-                simulation_seed INTEGER NOT NULL,
-                UNIQUE (execucao_id, zona_id, timestamp_utc)
-            );
-            CREATE INDEX IF NOT EXISTS idx_medicoes_execucao_zona_data
-                ON medicoes (execucao_id, zona_id, timestamp_utc);
-
-            CREATE TABLE IF NOT EXISTS cache_clima (
-                chave TEXT PRIMARY KEY,
-                resposta_json TEXT NOT NULL,
-                fonte TEXT NOT NULL,
-                consultado_em TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS historico_exportado (
-                medicao_id INTEGER PRIMARY KEY
-                    REFERENCES medicoes(id) ON DELETE CASCADE,
-                copiado_em TEXT NOT NULL
-            );
-            """
-        )
-        colunas_config = {
-            linha["name"]
-            for linha in conn.execute("PRAGMA table_info(configuracoes_zona)").fetchall()
-        }
-        if "cidade_codigo_ibge" not in colunas_config:
-            conn.execute("ALTER TABLE configuracoes_zona ADD COLUMN cidade_codigo_ibge TEXT")
-        migracoes_config = {
-            "area_util_m2": "ALTER TABLE configuracoes_zona ADD COLUMN area_util_m2 REAL",
-            "densidade_categoria": (
-                "ALTER TABLE configuracoes_zona ADD COLUMN densidade_categoria "
-                "TEXT NOT NULL DEFAULT 'media'"
-            ),
-            "densidade_animais_m2": (
-                "ALTER TABLE configuracoes_zona ADD COLUMN densidade_animais_m2 REAL"
-            ),
-        }
-        for coluna, sql in migracoes_config.items():
-            if coluna not in colunas_config:
-                conn.execute(sql)
-        colunas_medicao = {
-            linha["name"] for linha in conn.execute("PRAGMA table_info(medicoes)").fetchall()
-        }
-        migracoes_medicao = {
-            "area_util_m2": (
-                "ALTER TABLE medicoes ADD COLUMN area_util_m2 REAL NOT NULL DEFAULT 0"
-            ),
-            "densidade_categoria": (
-                "ALTER TABLE medicoes ADD COLUMN densidade_categoria TEXT NOT NULL DEFAULT 'media'"
-            ),
-            "densidade_animais_m2": (
-                "ALTER TABLE medicoes ADD COLUMN densidade_animais_m2 REAL NOT NULL DEFAULT 0"
-            ),
-        }
-        for coluna, sql in migracoes_medicao.items():
-            if coluna not in colunas_medicao:
-                conn.execute(sql)
+    """O schema ``dados_entrada`` é criado exclusivamente pelo Alembic."""
 
 
 def _agora() -> str:
@@ -336,8 +116,11 @@ def _config_publica(config: dict) -> dict:
 
 
 def _numero(dados: dict, chave: str, minimo: float, maximo: float) -> float:
+    bruto = dados.get(chave)
+    if bruto is None:
+        raise ConfiguracaoDadosEntradaError(f"Informe um valor numÃ©rico para {chave}.")
     try:
-        valor = float(dados.get(chave))
+        valor = float(bruto)
     except (TypeError, ValueError) as erro:
         raise ConfiguracaoDadosEntradaError(f"Informe um valor numérico para {chave}.") from erro
     if not minimo <= valor <= maximo:
@@ -417,8 +200,11 @@ def salvar_configuracoes_zonas(dados: list[dict], zonas: list[dict]) -> list[dic
     zonas_por_id = {zona["id"]: zona for zona in zonas}
     validadas = []
     for item in dados:
+        zona_id_bruto = item.get("zona_id")
+        if zona_id_bruto is None:
+            raise ConfiguracaoDadosEntradaError("ID de zona invÃ¡lido.")
         try:
-            zona_id = int(item.get("zona_id"))
+            zona_id = int(zona_id_bruto)
         except (TypeError, ValueError) as erro:
             raise ConfiguracaoDadosEntradaError("ID de zona inválido.") from erro
         zona = zonas_por_id.get(zona_id)
@@ -716,155 +502,61 @@ def excluir_cache_clima(chave: str) -> None:
 
 
 def copiar_medicoes_para_historico(execucao_id: int) -> dict:
-    """Copia uma geracao concluida para ``historico.db`` uma unica vez.
-
-    A tabela ``historico_exportado`` registra cada medicao ja copiada. A
-    insercao no historico e a marcacao acontecem na mesma transacao SQLite,
-    portanto uma falha nunca deixa uma copia parcial marcada como concluida.
-    """
-    iniciar_banco()
-    if db_backend.postgres_ativo():
-        with _conexao() as conn:
-            execucao = conn.execute(
-                "SELECT status, total_medicoes FROM execucoes WHERE id=?",
+    """Copia uma geração concluída ao schema ``historico`` uma única vez."""
+    with _conexao() as conn:
+        execucao = conn.execute(
+            "SELECT status, total_medicoes FROM execucoes WHERE id=?",
+            (execucao_id,),
+        ).fetchone()
+        if execucao is None:
+            raise ConfiguracaoDadosEntradaError(f"Execução {execucao_id} não encontrada.")
+        if execucao["status"] != "concluida":
+            raise ConfiguracaoDadosEntradaError("Somente uma geração concluída pode ser copiada.")
+        pendentes = int(
+            conn.execute(
+                """
+            SELECT COUNT(*) FROM medicoes m
+            LEFT JOIN historico_exportado he ON he.medicao_id = m.id
+            WHERE m.execucao_id=? AND he.medicao_id IS NULL
+            """,
                 (execucao_id,),
-            ).fetchone()
-            if execucao is None:
-                raise ConfiguracaoDadosEntradaError(f"Execução {execucao_id} não encontrada.")
-            if execucao["status"] != "concluida":
-                raise ConfiguracaoDadosEntradaError(
-                    "Somente uma geração concluída pode ser copiada."
-                )
-
-            pendentes = int(
-                conn.execute(
-                    """
-                SELECT COUNT(*)
-                FROM medicoes m
+            ).fetchone()[0]
+        )
+        agora = _agora()
+        if pendentes:
+            conn.execute(
+                """
+                INSERT INTO historico.leituras
+                    (especie, indice, valor, status, entradas, criado_em, zona_id)
+                SELECT m.especie, m.indice, m.valor_indice, m.status_termico,
+                       m.entradas_indice, substr(m.timestamp_local, 1, 16), m.zona_id
+                FROM medicoes m LEFT JOIN historico_exportado he ON he.medicao_id = m.id
+                WHERE m.execucao_id=? AND he.medicao_id IS NULL
+                ORDER BY m.zona_id, m.timestamp_utc
+                """,
+                (execucao_id,),
+            )
+            conn.execute(
+                """
+                INSERT INTO historico_exportado (medicao_id, copiado_em)
+                SELECT m.id, ? FROM medicoes m
                 LEFT JOIN historico_exportado he ON he.medicao_id = m.id
                 WHERE m.execucao_id=? AND he.medicao_id IS NULL
                 """,
-                    (execucao_id,),
-                ).fetchone()[0]
+                (agora, execucao_id),
             )
-            agora = _agora()
-            if pendentes:
-                conn.execute(
-                    """
-                    INSERT INTO historico.leituras
-                        (especie, indice, valor, status, entradas, criado_em, zona_id)
-                    SELECT m.especie, m.indice, m.valor_indice,
-                           m.status_termico, m.entradas_indice,
-                           substr(m.timestamp_local, 1, 16), m.zona_id
-                    FROM medicoes m
-                    LEFT JOIN historico_exportado he ON he.medicao_id = m.id
-                    WHERE m.execucao_id=? AND he.medicao_id IS NULL
-                    ORDER BY m.zona_id, m.timestamp_utc
-                    """,
-                    (execucao_id,),
-                )
-                conn.execute(
-                    """
-                    INSERT INTO historico_exportado (medicao_id, copiado_em)
-                    SELECT m.id, ?
-                    FROM medicoes m
-                    LEFT JOIN historico_exportado he ON he.medicao_id = m.id
-                    WHERE m.execucao_id=? AND he.medicao_id IS NULL
-                    """,
-                    (agora, execucao_id),
-                )
-            total_copiado = int(
-                conn.execute(
-                    """
-                SELECT COUNT(*) FROM historico_exportado he
-                JOIN medicoes m ON m.id = he.medicao_id
-                WHERE m.execucao_id=?
-                """,
-                    (execucao_id,),
-                ).fetchone()[0]
-            )
-        return {
-            "execucao_id": execucao_id,
-            "novas_copiadas": pendentes,
-            "total_copiado": total_copiado,
-            "arquivo_destino": "PostgreSQL (schema historico)",
-        }
-
-    with _write_lock:
-        conn = sqlite3.connect(caminho_banco(), timeout=TIMEOUT_CONEXAO_SEGUNDOS)
-        conn.row_factory = sqlite3.Row
-        try:
-            conn.execute("PRAGMA foreign_keys = ON")
-            conn.execute("ATTACH DATABASE ? AS historico", (historico_db.DB_PATH,))
-            conn.execute("BEGIN IMMEDIATE")
-            execucao = conn.execute(
-                "SELECT status, total_medicoes FROM execucoes WHERE id=?",
+        total_copiado = int(
+            conn.execute(
+                """
+            SELECT COUNT(*) FROM historico_exportado he
+            JOIN medicoes m ON m.id = he.medicao_id WHERE m.execucao_id=?
+            """,
                 (execucao_id,),
-            ).fetchone()
-            if execucao is None:
-                raise ConfiguracaoDadosEntradaError(f"Execução {execucao_id} não encontrada.")
-            if execucao["status"] != "concluida":
-                raise ConfiguracaoDadosEntradaError(
-                    "Somente uma geração concluída pode ser copiada."
-                )
-
-            pendentes = int(
-                conn.execute(
-                    """
-                SELECT COUNT(*)
-                FROM medicoes m
-                LEFT JOIN historico_exportado he ON he.medicao_id = m.id
-                WHERE m.execucao_id=? AND he.medicao_id IS NULL
-                """,
-                    (execucao_id,),
-                ).fetchone()[0]
-            )
-            agora = _agora()
-            if pendentes:
-                conn.execute(
-                    """
-                    INSERT INTO historico.leituras
-                        (especie, indice, valor, status, entradas, criado_em, zona_id)
-                    SELECT m.especie, m.indice, m.valor_indice,
-                           m.status_termico, m.entradas_indice,
-                           substr(m.timestamp_local, 1, 16), m.zona_id
-                    FROM medicoes m
-                    LEFT JOIN historico_exportado he ON he.medicao_id = m.id
-                    WHERE m.execucao_id=? AND he.medicao_id IS NULL
-                    ORDER BY m.zona_id, m.timestamp_utc
-                    """,
-                    (execucao_id,),
-                )
-                conn.execute(
-                    """
-                    INSERT INTO historico_exportado (medicao_id, copiado_em)
-                    SELECT m.id, ?
-                    FROM medicoes m
-                    LEFT JOIN historico_exportado he ON he.medicao_id = m.id
-                    WHERE m.execucao_id=? AND he.medicao_id IS NULL
-                    """,
-                    (agora, execucao_id),
-                )
-            total_copiado = int(
-                conn.execute(
-                    """
-                SELECT COUNT(*) FROM historico_exportado he
-                JOIN medicoes m ON m.id = he.medicao_id
-                WHERE m.execucao_id=?
-                """,
-                    (execucao_id,),
-                ).fetchone()[0]
-            )
-            conn.commit()
-            conn.execute("DETACH DATABASE historico")
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
+            ).fetchone()[0]
+        )
     return {
         "execucao_id": execucao_id,
         "novas_copiadas": pendentes,
         "total_copiado": total_copiado,
-        "arquivo_destino": os.path.basename(historico_db.DB_PATH),
+        "arquivo_destino": "PostgreSQL (schema historico)",
     }

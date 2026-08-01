@@ -84,8 +84,8 @@ class TestDadosEntrada(TestCasePostgres):
         self.assertEqual("concluida", execucao["status"])
         colunas, linhas = dados_db.obter_medicoes_csv(resultado["execucao_id"])
         self.assertEqual(288, len(linhas))
-        primeira = dict(zip(colunas, linhas[0]))
-        segunda = dict(zip(colunas, linhas[1]))
+        primeira = dict(zip(colunas, linhas[0], strict=True))
+        segunda = dict(zip(colunas, linhas[1], strict=True))
         self.assertLessEqual(primeira["ponto_orvalho_c"], primeira["tbs_externa_c"])
         self.assertEqual("reanálise_horária", primeira["indicador_qualidade"])
         self.assertEqual("reanálise_interpolada", segunda["indicador_qualidade"])
@@ -145,12 +145,14 @@ class TestDadosEntrada(TestCasePostgres):
         )
         resposta["hourly"]["temperature_2m"][25] = None
 
-        with patch.object(gerador, "_baixar_json", return_value=resposta):
-            with self.assertRaisesRegex(
+        with (
+            patch.object(gerador, "_baixar_json", return_value=resposta),
+            self.assertRaisesRegex(
                 gerador.GeracaoDadosError,
                 "não consolidou todo o período",
-            ):
-                gerador.obter_clima_horario(-23.55, -46.63, inicio, fim)
+            ),
+        ):
+            gerador.obter_clima_horario(-23.55, -46.63, inicio, fim)
 
     def test_cache_incompleto_e_descartado_e_fonte_e_consultada_novamente(self):
         self._configurar_zona()
@@ -434,7 +436,8 @@ class TestDadosEntrada(TestCasePostgres):
             patch.object(gerador, "_baixar_json", side_effect=self._clima_falso),
             patch.object(
                 gerador, "_clima_no_instante", side_effect=_falha_a_partir_da_segunda_zona
-            ),self.assertRaises(RuntimeError)
+            ),
+            self.assertRaises(RuntimeError),
         ):
             gerador.gerar(
                 {"dias": 1, "intervalo_minutos": 60, "data_final": "2024-01-10"},

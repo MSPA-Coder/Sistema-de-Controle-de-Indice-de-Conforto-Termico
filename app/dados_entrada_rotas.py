@@ -37,9 +37,12 @@ def obter_referencias():
 @dados_entrada_bp.route("/api/dados-entrada/configuracoes", methods=["PUT"])
 def salvar_configuracoes():
     dados = request.get_json(force=True, silent=True) or {}
+    zonas = dados.get("zonas")
+    if not isinstance(zonas, list) or not all(isinstance(zona, dict) for zona in zonas):
+        return jsonify({"erro": "zonas deve ser uma lista de configurações."}), 400
     try:
         configuracoes = dados_db.salvar_configuracoes_zonas(
-            dados.get("zonas"), db.listar_zonas(apenas_ativas=True)
+            zonas, db.listar_zonas(apenas_ativas=True)
         )
     except dados_db.ConfiguracaoDadosEntradaError as erro:
         return jsonify({"erro": str(erro)}), 400
@@ -110,7 +113,10 @@ def excluir_medicoes():
 def copiar_para_historico():
     dados = request.get_json(force=True, silent=True) or {}
     try:
-        execucao_id = int(dados.get("execucao_id"))
+        bruto_execucao_id = dados.get("execucao_id")
+        if bruto_execucao_id is None:
+            raise ValueError
+        execucao_id = int(bruto_execucao_id)
         resultado = dados_db.copiar_medicoes_para_historico(execucao_id)
         return jsonify({"ok": True, **resultado})
     except (TypeError, ValueError):

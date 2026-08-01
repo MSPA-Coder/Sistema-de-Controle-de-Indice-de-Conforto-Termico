@@ -12,7 +12,7 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -168,7 +168,7 @@ class CacheComTTL:
                 # Tenta obter do cache
                 valor_cached = self.get(chave)
                 if valor_cached is not None:
-                    return valor_cached
+                    return cast("T", valor_cached)
 
                 # Executa a função e armazena no cache
                 resultado = func(*args, **kwargs)

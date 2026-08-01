@@ -9,14 +9,10 @@ name: conforto-termico-teste
 # apagar tudo a qualquer momento.
 #
 # Uso:
-#   docker compose -f compose.test.yaml up -d
-#   $env:DB_HOST="localhost"; $env:DB_PORT="5433"
-#   $env:DB_USER="conforto_teste"; $env:DB_NAME="conforto_termico_teste"
-#   $env:DB_PASSWORD_FILE="$(Resolve-Path .secrets/postgres_password_teste.txt)"
-#   $env:CONFORTO_TESTING="1"
-#   python -m alembic upgrade head   # uma vez, ou deixe o TestCasePostgres fazer isso
-#   python -m unittest discover -s tests
-#   docker compose -f compose.test.yaml down
+#   docker compose -f compose.test.yaml --profile tools build test
+#   docker compose -f compose.test.yaml up -d --wait postgres_teste
+#   docker compose -f compose.test.yaml --profile tools run --rm test
+#   docker compose -f compose.test.yaml down --volumes
 #
 # (ver README.md, seção "Testes", para o passo a passo completo e o
 # equivalente em bash/PowerShell)
@@ -42,6 +38,34 @@ services:
       timeout: 2s
       retries: 15
 
+  test:
+    image: conforto-termico:test
+    build:
+      context: .
+      target: quality
+      secrets:
+        - local_ca
+    environment:
+      DB_HOST: postgres_teste
+      DB_PORT: "5432"
+      DB_NAME: conforto_termico_teste
+      DB_USER: conforto_teste
+      DB_PASSWORD_FILE: /run/secrets/postgres_password_teste
+      CONFORTO_TESTING: "1"
+      RUFF_CACHE_DIR: /workspace/instance/ruff-cache
+      MYPY_CACHE_DIR: /workspace/instance/mypy-cache
+      COVERAGE_FILE: /workspace/instance/.coverage
+      TZ: America/Sao_Paulo
+    secrets:
+      - postgres_password_teste
+    depends_on:
+      postgres_teste:
+        condition: service_healthy
+    profiles: ["tools"]
+    command: ["python", "-m", "unittest", "discover", "-v"]
+
 secrets:
+  local_ca:
+    file: .certs/local-root-ca.crt
   postgres_password_teste:
     file: .secrets/postgres_password_teste.txt

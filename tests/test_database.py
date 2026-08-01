@@ -2,7 +2,6 @@ import datetime
 import os
 import tempfile
 import threading
-import time
 import unittest
 from unittest.mock import patch
 
@@ -22,12 +21,12 @@ class TestBackupPostgres(unittest.TestCase):
             "postgresql+psycopg://conforto:segredo@postgres/conforto_termico"
         )
         with tempfile.TemporaryDirectory() as diretorio:
-            db_path_original = db.DB_PATH
-            db.DB_PATH = os.path.join(diretorio, "historico.db")
+            instance_dir_original = db.INSTANCE_DIR
+            db.INSTANCE_DIR = diretorio
             try:
                 backup = db.criar_backup_banco()
             finally:
-                db.DB_PATH = db_path_original
+                db.INSTANCE_DIR = instance_dir_original
 
         comando = executar.call_args.args[0]
         self.assertIn("--format=custom", comando)
@@ -202,7 +201,7 @@ class TestIntervaloMinimoLeituras(TestCasePostgres):
 
         backup = db.criar_backup_banco()
 
-        self.assertEqual(os.path.dirname(db.DB_PATH), os.path.dirname(backup["caminho"]))
+        self.assertEqual(db.INSTANCE_DIR, os.path.dirname(backup["caminho"]))
         self.assertEqual(4321, backup["tamanho_bytes"])
 
     def test_historico_leituras_paginado_inclui_zona(self):
@@ -333,7 +332,9 @@ class TestIntervaloMinimoLeituras(TestCasePostgres):
                 "2024-02-29T23:59:59",
                 "2024-03-01 00:00:00",
             )
-            conn.executemany("UPDATE leituras SET criado_em=? WHERE id=?", zip(datas, ids))
+            conn.executemany(
+                "UPDATE leituras SET criado_em=? WHERE id=?", zip(datas, ids, strict=True)
+            )
 
         pagina = db.obter_historico_leituras(
             limite=30,
@@ -383,45 +384,6 @@ class TestIntervaloMinimoLeituras(TestCasePostgres):
         self.assertEqual(760, configuracoes["altitudeMetros"])
         self.assertEqual(65, configuracoes["limiteUmidadeNebulizador"])
         self.assertNotIn("campoIgnorado", configuracoes)
-
-
-class TestLimpezaDeConfiguracaoObsoletaNaInicializacaoSqlite(unittest.TestCase):
-    """`iniciar_banco()` remove a antiga chave global `modoAutomatico` a cada
-    chamada -- mas isso só existe no ramo SQLite. Sob PostgreSQL a mesma
-    limpeza é feita uma única vez, na migração `0002_otimiza_postgres`, e
-    não no caminho de inicialização de cada processo (ver o comentário
-    daquela migração). Fica deliberadamente em SQLite, como
-    `TestConcorrenciaLeituraEscrita`."""
-
-    def setUp(self):
-        self._patch_postgres_ativo = patch(
-            "app.database.db_backend.postgres_ativo", return_value=False
-        )
-        self._patch_postgres_ativo.start()
-        self.addCleanup(self._patch_postgres_ativo.stop)
-        self.tempdir = tempfile.TemporaryDirectory()
-        self.db_path_original = db.DB_PATH
-        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
-        db.iniciar_banco()
-
-    def tearDown(self):
-        db.DB_PATH = self.db_path_original
-        self.tempdir.cleanup()
-
-    def test_inicializacao_remove_configuracao_automatica_global_obsoleta(self):
-        with db._conexao() as conn:
-            conn.execute(
-                "INSERT INTO configuracoes (chave, valor, atualizado_em) "
-                "VALUES ('modoAutomatico', 'true', '2024-01-01T00:00:00')"
-            )
-
-        db.iniciar_banco()
-
-        with db._conexao(escrita=False) as conn:
-            linha = conn.execute(
-                "SELECT 1 FROM configuracoes WHERE chave = 'modoAutomatico'"
-            ).fetchone()
-        self.assertIsNone(linha)
 
 
 class TestSanitizacaoDeConfiguracoes(TestCasePostgres):
@@ -519,6 +481,13 @@ class TestSanitizacaoDeConfiguracoes(TestCasePostgres):
         db.salvar_configuracoes({"smtpSenha": "senha-antiga"})
         salvas = db.salvar_configuracoes({"smtpSenha": "senha-nova"})
         self.assertEqual("senha-nova", salvas["smtpSenha"])
+
+    def test_atualizacao_parcial_preserva_chaves_omitidas(self):
+        db.salvar_configuracoes({"habilitarSons": True, "smtpHost": "smtp.exemplo.com"})
+        salvas = db.salvar_configuracoes({"statusMinimoEmail": "perigo"})
+        self.assertTrue(salvas["habilitarSons"])
+        self.assertEqual("smtp.exemplo.com", salvas["smtpHost"])
+        self.assertEqual("perigo", salvas["statusMinimoEmail"])
 
 
 class TestZonasCRUD(TestCasePostgres):
@@ -1240,100 +1209,6 @@ class TestEquipamentosCRUD(TestCasePostgres):
         self.assertIsNone(db.obter_equipamento(equipamento["id"]))
 
 
-class TestConcorrenciaLeituraEscrita(unittest.TestCase):
-    """`_conexao(escrita=False)` (usada por toda leitura) nao deve esperar
-    por uma escrita em andamento neste processo: em modo WAL, um leitor
-    trabalha com sua propria snapshot, entao serializa-lo atras do escritor
-    custaria latencia sem nenhum ganho de correcao. Ja duas ESCRITAS devem
-    continuar se serializando (ver `_write_lock`).
-
-    Fica no SQLite deliberadamente (não migra para `TestCasePostgres`): o
-    `_write_lock` só existe no ramo SQLite de `_conexao()` -- sob PostgreSQL
-    a função retorna antes de tocar nele (concorrência ali é do próprio
-    banco, não deste processo). Testar isto em PostgreSQL não exerceria o
-    código em questão.
-
-    `postgres_ativo()` é mockado para `False` porque ele lê `DB_HOST`/
-    `DATABASE_URL` do ambiente do processo inteiro -- quando a suíte roda
-    com essas variáveis definidas (para as classes `TestCasePostgres` desta
-    mesma execução), manipular só `db.DB_PATH` não bastaria para forçar o
-    ramo SQLite aqui."""
-
-    def setUp(self):
-        self._patch_postgres_ativo = patch(
-            "app.database.db_backend.postgres_ativo", return_value=False
-        )
-        self._patch_postgres_ativo.start()
-        self.addCleanup(self._patch_postgres_ativo.stop)
-        self.tempdir = tempfile.TemporaryDirectory()
-        self.db_path_original = db.DB_PATH
-        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
-        db.iniciar_banco()
-
-    def tearDown(self):
-        db.DB_PATH = self.db_path_original
-        self.tempdir.cleanup()
-
-    def test_leitura_nao_espera_escrita_em_andamento(self):
-        escrita_em_andamento = threading.Event()
-        pode_liberar_escrita = threading.Event()
-
-        def escrita_lenta():
-            with db._conexao():
-                escrita_em_andamento.set()
-                pode_liberar_escrita.wait(timeout=2)
-
-        thread_escrita = threading.Thread(target=escrita_lenta)
-        thread_escrita.start()
-        self.assertTrue(escrita_em_andamento.wait(timeout=2), "escrita não começou a tempo")
-
-        inicio = time.monotonic()
-        db.obter_historico_leituras()
-        duracao = time.monotonic() - inicio
-
-        pode_liberar_escrita.set()
-        thread_escrita.join(timeout=2)
-
-        self.assertLess(
-            duracao,
-            0.5,
-            "uma leitura esperou por uma escrita em andamento; "
-            "verifique se a consulta do histórico ainda usa escrita=False",
-        )
-
-    def test_duas_escritas_continuam_serializadas(self):
-        primeira_em_andamento = threading.Event()
-        pode_liberar_primeira = threading.Event()
-        segunda_comecou_em = []
-
-        def primeira_escrita():
-            with db._conexao():
-                primeira_em_andamento.set()
-                pode_liberar_primeira.wait(timeout=2)
-
-        def segunda_escrita():
-            self.assertTrue(primeira_em_andamento.wait(timeout=2))
-            with db._conexao():
-                segunda_comecou_em.append(time.monotonic())
-
-        thread1 = threading.Thread(target=primeira_escrita)
-        thread2 = threading.Thread(target=segunda_escrita)
-        thread1.start()
-        thread1.join(timeout=0)  # so garante que a thread foi agendada
-        self.assertTrue(primeira_em_andamento.wait(timeout=2))
-
-        thread2.start()
-        time.sleep(0.1)
-        # A segunda escrita nao pode ter entrado em `_conexao()` enquanto a
-        # primeira ainda segura o lock.
-        self.assertEqual([], segunda_comecou_em)
-
-        pode_liberar_primeira.set()
-        thread1.join(timeout=2)
-        thread2.join(timeout=2)
-        self.assertEqual(1, len(segunda_comecou_em))
-
-
 class TestUsuariosCRUD(TestCasePostgres):
     """CRUD de `usuarios` na camada de persistencia.
     Testes de sessao/login/HTTP ficam em test_auth.py; aqui so a logica de
@@ -1463,6 +1338,40 @@ class TestUsuariosCRUD(TestCasePostgres):
             {"nome": "Ana", "login": "ana", "perfil": "operador", "ativo": True},
         )
         self.assertEqual("operador", resultado["perfil"])
+
+    def test_rebaixamentos_concorrentes_preservam_um_administrador_ativo(self):
+        primeiro = db.criar_usuario(self._dados(login="ana"))
+        segundo = db.criar_usuario(self._dados(login="bruno", nome="Bruno"))
+        inicio = threading.Barrier(3)
+        resultados = []
+
+        def rebaixar(usuario):
+            inicio.wait()
+            try:
+                db.atualizar_usuario(
+                    usuario["id"],
+                    {
+                        "nome": usuario["nome"],
+                        "login": usuario["login"],
+                        "perfil": "operador",
+                        "ativo": True,
+                    },
+                )
+                resultados.append("ok")
+            except db.UltimoAdministradorError:
+                resultados.append("bloqueado")
+
+        threads = [
+            threading.Thread(target=rebaixar, args=(usuario,)) for usuario in (primeiro, segundo)
+        ]
+        for thread in threads:
+            thread.start()
+        inicio.wait()
+        for thread in threads:
+            thread.join(timeout=5)
+
+        self.assertEqual(sorted(resultados), ["bloqueado", "ok"])
+        self.assertEqual(1, db.contar_usuarios_ativos_por_perfil("administrador"))
 
     def test_excluir_usuario_inexistente_devolve_false(self):
         self.assertFalse(db.excluir_usuario(9999))

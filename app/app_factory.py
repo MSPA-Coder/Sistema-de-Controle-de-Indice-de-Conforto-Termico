@@ -19,6 +19,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
+from typing import TYPE_CHECKING, cast
 
 from flask import Flask, jsonify, request
 from flask.json.provider import DefaultJSONProvider
@@ -28,6 +29,9 @@ from werkzeug.exceptions import HTTPException
 
 from . import auth, env_config
 from . import database as db
+
+if TYPE_CHECKING:
+    from flask.sansio.app import App
 
 # Útil para execução local. No Docker, as variáveis injetadas pelo Compose
 # têm precedência e pertencem à implantação, não à interface ICT.
@@ -137,13 +141,13 @@ class ProvedorJSON(DefaultJSONProvider):
 
 def _criar_app_base(processo: str, config: AppConfig) -> Flask:
     app = Flask(__name__)
-    app.json = ProvedorJSON(app)
+    app.json = ProvedorJSON(cast("App", app))
     app.config["MAX_CONTENT_LENGTH"] = config.max_content_length
     app.config["CONFORTO_PROCESSO"] = processo
     app.config["CONFORTO_DEBUG"] = config.debug
     # `app.testing` (padrão Flask) é o único sinal de "isto é uma app de
     # teste" -- deliberadamente independente do backend de persistência
-    # (SQLite ou PostgreSQL). `CONFORTO_TESTING` é ligado uma única vez por
+    # (PostgreSQL). `CONFORTO_TESTING` é ligado uma única vez por
     # `tests/__init__.py` antes de qualquer teste importar uma fábrica ou o
     # `run_ict.app` de módulo; nunca é definido em produção/Docker. Ver
     # `auth._proteger_csrf`, que usa `app.testing` para dispensar CSRF nos

@@ -187,10 +187,12 @@ class TestServidorLocal(unittest.TestCase):
                 if not chave.startswith("CONFORTO_")
             }
 
-            with patch.object(app_factory, "CONFIG_SERVIDOR_PATH", config_path):
-                with patch.dict(os.environ, ambiente_limpo, clear=True):
-                    ict = app_factory.AppConfig.from_env("ict")
-                    coletor = app_factory.AppConfig.from_env("coletor")
+            with (
+                patch.object(app_factory, "CONFIG_SERVIDOR_PATH", config_path),
+                patch.dict(os.environ, ambiente_limpo, clear=True),
+            ):
+                ict = app_factory.AppConfig.from_env("ict")
+                coletor = app_factory.AppConfig.from_env("coletor")
 
         self.assertEqual(5100, ict.port)
         self.assertEqual(5101, coletor.port)
@@ -238,7 +240,7 @@ class TestManutencaoApi(TestCasePostgres):
         self.assertTrue(resposta.json["ok"])
         caminho = resposta.json["backup"]["caminho"]
         self.assertTrue(os.path.exists(caminho))
-        self.assertEqual(os.path.dirname(db.DB_PATH), os.path.dirname(caminho))
+        self.assertEqual(db.INSTANCE_DIR, os.path.dirname(caminho))
 
 
 class TestCabecalhosDeSeguranca(TestCasePostgres):
@@ -706,6 +708,7 @@ class TestZonasApi(TestCasePostgres):
                 zip(
                     ("2024-01-31 23:59:59", "2024-02-01T00:00:00", "2024-02-29 23:59:59"),
                     ids,
+                    strict=True,
                 ),
             )
 

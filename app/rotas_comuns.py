@@ -238,9 +238,9 @@ def diagnostico():
     responde)."""
     try:
         total = db.contar_leituras()
-        payload = {"banco_ok": True, "total_leituras_gravadas": total}
+        payload: dict[str, object] = {"banco_ok": True, "total_leituras_gravadas": total}
         if current_app.config.get("CONFORTO_DEBUG"):
-            payload["arquivo_banco"] = db.DB_PATH
+            payload["banco"] = "PostgreSQL"
         return jsonify(payload)
     except Exception:
         current_app.logger.exception("Falha ao consultar diagnostico do banco")

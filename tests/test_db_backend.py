@@ -9,9 +9,12 @@ from app import db_backend
 
 
 class TestSelecaoBackend(unittest.TestCase):
-    def test_sem_database_url_usa_sqlite_para_testes(self):
-        with patch.dict(os.environ, {}, clear=True):
-            self.assertFalse(db_backend.postgres_ativo())
+    def test_sem_configuracao_postgresql_falha_cedo(self):
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            self.assertRaisesRegex(RuntimeError, "DB_HOST"),
+        ):
+            db_backend.postgres_ativo()
 
     def test_url_postgresql_ativa_backend_de_producao(self):
         with patch.dict(
@@ -25,7 +28,7 @@ class TestSelecaoBackend(unittest.TestCase):
         with (
             patch.dict(
                 os.environ,
-                {"DATABASE_URL": "sqlite:////workspace/instance/producao.db"},
+                {"DATABASE_URL": "mysql://usuario:senha@localhost/banco"},
                 clear=True,
             ),
             self.assertRaisesRegex(RuntimeError, "deve apontar para PostgreSQL"),
@@ -54,9 +57,11 @@ class TestSelecaoBackend(unittest.TestCase):
         self.assertNotIn("senha-com-#-e-@", url)
 
     def test_configuracao_postgresql_sem_segredo_falha_cedo(self):
-        with patch.dict(os.environ, {"DB_HOST": "postgres"}, clear=True):
-            with self.assertRaisesRegex(RuntimeError, "DB_PASSWORD_FILE"):
-                db_backend.database_url()
+        with (
+            patch.dict(os.environ, {"DB_HOST": "postgres"}, clear=True),
+            self.assertRaisesRegex(RuntimeError, "DB_PASSWORD_FILE"),
+        ):
+            db_backend.database_url()
 
     def test_normaliza_json_e_data_para_contrato_compartilhado(self):
         self.assertEqual(

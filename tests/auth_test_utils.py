@@ -18,7 +18,7 @@ _contador_login = itertools.count(1)
 
 
 def criar_usuario_teste(perfil: str = "administrador", *, ativo: bool = True) -> dict:
-    """Cria (e persiste no banco corrente -- ver `db.DB_PATH`) um usuario
+    """Cria e persiste no banco de teste corrente um usuario
     novo do perfil pedido, com login unico dentro do processo de teste."""
     login = f"teste_{perfil}_{next(_contador_login)}"
     return db.criar_usuario(

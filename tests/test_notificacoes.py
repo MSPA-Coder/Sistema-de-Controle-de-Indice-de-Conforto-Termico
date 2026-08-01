@@ -37,8 +37,8 @@ class TestFilaNotificacoes(unittest.TestCase):
         self.fila.parar()
 
     def test_worker_processa_item_enfileirado(self):
-        with patch("app.notificacoes.Email") as EmailFalso:
-            EmailFalso.return_value.enviar.return_value = True
+        with patch("app.notificacoes.Email") as email_falso:
+            email_falso.return_value.enviar.return_value = True
             self.fila.iniciar()
             self.fila.enfileirar("destino@fazenda.com.br", "conteudo qualquer", {"host": None})
             # `parar()` enfileira um sentinela DEPOIS do item real e so
@@ -46,18 +46,18 @@ class TestFilaNotificacoes(unittest.TestCase):
             # precisar de polling manual.
             self.fila.parar(timeout=2)
 
-            EmailFalso.assert_called_once_with("destino@fazenda.com.br", "conteudo qualquer")
-            EmailFalso.return_value.enviar.assert_called_once_with({"host": None})
+            email_falso.assert_called_once_with("destino@fazenda.com.br", "conteudo qualquer")
+            email_falso.return_value.enviar.assert_called_once_with({"host": None})
 
     def test_falha_no_envio_nao_derruba_o_worker(self):
-        with patch("app.notificacoes.Email") as EmailFalso:
-            EmailFalso.return_value.enviar.side_effect = RuntimeError("smtp indisponível")
+        with patch("app.notificacoes.Email") as email_falso:
+            email_falso.return_value.enviar.side_effect = RuntimeError("smtp indisponível")
             self.fila.iniciar()
             self.fila.enfileirar("a@fazenda.com.br", "x", {})
             self.fila.enfileirar("b@fazenda.com.br", "y", {})
             self.fila.parar(timeout=2)
 
-        self.assertEqual(2, EmailFalso.return_value.enviar.call_count)
+        self.assertEqual(2, email_falso.return_value.enviar.call_count)
 
     def test_parar_sem_ter_iniciado_nao_levanta_erro(self):
         self.fila.parar()  # nao deve levantar excecao

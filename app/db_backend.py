@@ -1,8 +1,7 @@
-"""Backend PostgreSQL de produção com suporte explícito a SQLite nos testes.
+"""Conexão PostgreSQL da aplicação.
 
-SQLite só é selecionado quando ``DATABASE_URL`` não está definida. Uma URL
-definida com outro dialeto é rejeitada para evitar que um erro de implantação
-faça a aplicação gravar silenciosamente em um banco SQLite local.
+Não há fallback de persistência: uma configuração ausente ou de outro dialeto
+falha antes de a aplicação iniciar.
 """
 
 from __future__ import annotations
@@ -36,9 +35,8 @@ def database_url() -> str:
 
     senha = _ler_segredo("DB_PASSWORD_FILE")
     host = os.environ.get("DB_HOST", "").strip()
-    if not senha and not host:
-        # Ausência completa de configuração seleciona o SQLite dos testes.
-        return ""
+    if not host:
+        raise RuntimeError("DB_HOST é obrigatório no ambiente PostgreSQL.")
     if not senha:
         raise RuntimeError("DB_PASSWORD_FILE é obrigatório no ambiente PostgreSQL.")
 
@@ -57,12 +55,8 @@ def database_url() -> str:
 
 def postgres_ativo() -> bool:
     url = database_url()
-    if not url:
-        return False
     if not url.lower().startswith(("postgresql://", "postgresql+")):
-        raise RuntimeError(
-            "DATABASE_URL deve apontar para PostgreSQL; omita a variável apenas nos testes SQLite."
-        )
+        raise RuntimeError("DATABASE_URL deve apontar para PostgreSQL.")
     return True
 
 
@@ -105,7 +99,7 @@ class LinhaCompat(Mapping):
 
 
 def _normalizar_valor(valor):
-    """Mantém o contrato simples compartilhado com as linhas do SQLite."""
+    """Mantém o contrato simples compartilhado com as consultas da aplicação."""
 
     if isinstance(valor, (dict, list)):
         return json.dumps(valor, ensure_ascii=False)
@@ -123,7 +117,7 @@ class ResultadoCompat:
 
     @property
     def rowcount(self) -> int:
-        return self._result.rowcount
+        return int(self._result.rowcount)
 
     @property
     def lastrowid(self) -> int | None:

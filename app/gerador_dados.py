@@ -24,6 +24,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from typing import Any
 from zoneinfo import ZoneInfo
 
 import certifi
@@ -89,8 +90,11 @@ class ClimaHorario:
 
 
 def _inteiro(dados: dict, chave: str, minimo: int, maximo: int) -> int:
+    bruto = dados.get(chave)
+    if bruto is None:
+        raise GeracaoDadosError(f"Informe um nÃºmero inteiro para {chave}.")
     try:
-        valor = int(dados.get(chave))
+        valor = int(bruto)
     except (TypeError, ValueError) as erro:
         raise GeracaoDadosError(f"Informe um número inteiro para {chave}.") from erro
     if not minimo <= valor <= maximo:
@@ -119,7 +123,7 @@ def validar_parametros(dados: dict, total_zonas: int) -> ParametrosGeracao:
         )
     data_inicio = data_final - datetime.timedelta(days=dias - 1)
     try:
-        semente = int(dados.get("semente", 20260718))
+        semente = int(dados.get("semente", 20260718) or 20260718)
     except (TypeError, ValueError) as erro:
         raise GeracaoDadosError("A semente da simulação deve ser inteira.") from erro
 
@@ -159,7 +163,7 @@ def calcular_bulbo_umido(tbs: float, ur: float) -> float:
         + 0.00391838 * (rh**1.5) * math.atan(0.023101 * rh)
         - 4.686035
     )
-    return min(t, resultado)
+    return float(min(t, resultado))
 
 
 def estimar_globo_negro(tbs: float, radiacao: float | None, vento: float) -> float:
@@ -187,12 +191,16 @@ def _baixar_json(url: str) -> dict:
         # O Truststore usa o armazenamento nativo do sistema operacional,
         # incluindo CAs institucionais instaladas no Windows. Certifi fica
         # como fallback defensivo, sempre com verificacao TLS habilitada.
+        contexto_tls: Any
         try:
             contexto_tls = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         except Exception:
             contexto_tls = ssl.create_default_context(cafile=certifi.where())
         with urllib.request.urlopen(requisicao, timeout=45, context=contexto_tls) as resposta:
-            return json.loads(resposta.read().decode("utf-8"))
+            payload = json.loads(resposta.read().decode("utf-8"))
+        if not isinstance(payload, dict):
+            raise GeracaoDadosError("A fonte climÃ¡tica devolveu uma resposta invÃ¡lida.")
+        return payload
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as erro:
         raise GeracaoDadosError(
             "Não foi possível obter o clima histórico real no Open-Meteo. "

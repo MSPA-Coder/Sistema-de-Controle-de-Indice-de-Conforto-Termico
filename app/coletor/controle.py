@@ -10,11 +10,17 @@ from __future__ import annotations
 import datetime
 import threading
 from collections import defaultdict
+from typing import TYPE_CHECKING, TypeVar, cast
 
 from .. import agregacao, notificacoes
 from .. import database as db
 from .. import thermal_indices as ti
-from ..zona_service import ZonaCalculoError
+from ..zona_service import ZonaCalculoError, ZonaService
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+T = TypeVar("T")
 
 
 class ZonaOcupadaError(RuntimeError):
@@ -26,7 +32,7 @@ class ModoOperacaoError(ValueError):
 
 
 class GerenciadorControleZonas:
-    def __init__(self, zona_service):
+    def __init__(self, zona_service: ZonaService):
         self.zona_service = zona_service
         self._locks: defaultdict[int, threading.Lock] = defaultdict(threading.Lock)
         self._locks_guard = threading.Lock()
@@ -45,7 +51,7 @@ class GerenciadorControleZonas:
         with self._locks_guard:
             return self._locks[zona_id]
 
-    def _executar_exclusivo(self, zona_id: int, funcao):
+    def _executar_exclusivo(self, zona_id: int, funcao: Callable[[], T]) -> T:
         lock = self._lock_zona(zona_id)
         if not lock.acquire(blocking=False):
             raise ZonaOcupadaError(f"A zona {zona_id} ja possui um ciclo ou comando em andamento.")
@@ -120,7 +126,7 @@ class GerenciadorControleZonas:
         orfao (nunca mais lido, mas ocupando memoria) ate o processo
         reiniciar. Sem isso tambem existe um segundo risco, mais sutil:
         se uma zona NOVA reaproveitar o mesmo id de uma zona ja excluida
-        (o SQLite reaproveita ids de autoincrement em alguns cenarios),
+        (o banco pode reutilizar identificadores em alguns cenários),
         ela herdaria silenciosamente o historico/histerese da zona
         antiga. Rodar isto uma vez por ciclo (ja e chamado a cada
         `intervaloLeituraSegundos`) resolve os dois problemas sem
@@ -220,7 +226,7 @@ class GerenciadorControleZonas:
                 "qualidade": resposta.get("qualidade"),
             },
         )
-        return resposta
+        return cast("dict", resposta)
 
     def alterar_controle(self, zona_id: int, dados: dict, logger=None) -> dict:
         def _alterar():
@@ -253,7 +259,7 @@ class GerenciadorControleZonas:
                 resposta["desligamento"] = desligamento
             return resposta
 
-        return self._executar_exclusivo(zona_id, _alterar)
+        return cast("dict", self._executar_exclusivo(zona_id, _alterar))
 
     def comandar_manual(self, zona_id: int, tipo: str, ligar: bool, logger=None) -> dict:
         resultado = self._executar_exclusivo(

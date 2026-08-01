@@ -53,7 +53,7 @@ def testar_conexao_equipamento(equipamento: dict) -> dict:
         return {"conectado": zona_simulador.testar_conexao(equipamento), "modo_simulado": True}
 
     conectado = modbus_client.testar_conexao(equipamento)
-    resposta = {"conectado": conectado, "modo_simulado": False}
+    resposta: dict[str, object] = {"conectado": conectado, "modo_simulado": False}
     if not modbus_client.PYMODBUS_DISPONIVEL:
         resposta["aviso"] = (
             "A biblioteca pymodbus não está instalada neste servidor "

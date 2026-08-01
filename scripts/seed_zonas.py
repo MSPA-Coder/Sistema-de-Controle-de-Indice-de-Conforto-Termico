@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
@@ -46,7 +47,7 @@ if str(ROOT_DIR) not in sys.path:
 
 from app import database as db
 
-ZONAS = [
+ZONAS: list[dict[str, Any]] = [
     {
         "zona": {"nome": "Aviário 1 - Galpão A", "especie": "frangos", "indice": "ITU"},
         "sensores": [

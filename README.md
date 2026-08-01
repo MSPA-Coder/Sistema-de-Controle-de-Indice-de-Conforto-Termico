@@ -10,7 +10,7 @@ As fórmulas, faixas de classificação e espécies atendidas têm como referên
 - Monitoramento por zona com sensores, ventiladores e nebulizadores independentes.
 - Modos de operação desligado, manual, automático e manutenção.
 - Simulação de sensores e atuadores para uso sem hardware Modbus.
-- Histórico em PostgreSQL, com séries em tempo real, agregados de 15 minutos e resumos horários. SQLite é usado somente pelos testes unitários.
+- Histórico em PostgreSQL, com séries em tempo real, agregados de 15 minutos e resumos horários.
 - Painéis de acompanhamento, análises por zona e filtros de histórico.
 - Geração de dados de entrada a partir do clima histórico disponibilizado pelo Open-Meteo.
 - Alertas por e-mail, com pré-visualização quando não há SMTP configurado.
@@ -346,61 +346,44 @@ As rotas compartilhadas de leitura ficam em `app/rotas_comuns.py`. Os cálculos 
 
 A API é interna à interface web e não possui versionamento público. Ao alterar um contrato JSON, atualize no mesmo trabalho o backend, o JavaScript consumidor, os testes e esta documentação.
 
-## Testes
+## Testes e qualidade
 
-A suíte tem dois níveis, conforme o que cada teste exercita (ver AGENTS.md,
-seção "Persistência e integridade"):
+Todos os controles são executados no contêiner de qualidade, com PostgreSQL
+descartável. Crie uma senha de teste em `.secrets/postgres_password_teste.txt`
+(arquivo ignorado pelo Git) e execute:
 
-- **Cálculo, validação e regras de domínio** (índices térmicos, formatação,
-  simulação Modbus, e-mail, notificações) não tocam banco algum e rodam em
-  menos de 1 segundo:
+```powershell
+docker compose -f compose.test.yaml --profile tools build test
+docker compose -f compose.test.yaml up -d --wait postgres_teste
+docker compose -f compose.test.yaml --profile tools run --rm test ruff check app scripts tests
+docker compose -f compose.test.yaml --profile tools run --rm test ruff format --check app scripts tests
+docker compose -f compose.test.yaml --profile tools run --rm test mypy app scripts
+docker compose -f compose.test.yaml --profile tools run --rm test sh -c "coverage run -m unittest discover -v && coverage report"
+docker compose -f compose.test.yaml down --volumes
+```
 
-  ```powershell
-  python -m unittest discover -v
-  ```
+O serviço `test` fixa `CONFORTO_TESTING=1` e o banco
+`conforto_termico_teste`; a suíte recusa executar a limpeza em qualquer outro
+alvo. Testes Modbus usam fakes ou simulação, nunca hardware real.
 
-- **Models, repositories, serviços com persistência e rotas que gravam
-  dados** usam um PostgreSQL descartável (nunca o banco operacional). Suba-o
-  uma vez com Docker:
+Antes de concluir uma alteração de infraestrutura, valide também a pilha
+operacional:
 
-  ```powershell
-  "troque-por-uma-senha-qualquer-so-para-teste" | Set-Content -NoNewline .secrets\postgres_password_teste.txt
-  docker compose -f compose.test.yaml up -d --wait
-  ```
+```powershell
+docker compose --env-file .env.docker build schema
+docker compose --env-file .env.docker up -d
+docker compose --env-file .env.docker exec ict python -m scripts.verificar_postgres
+```
 
-  e exporte as variáveis de ambiente antes de rodar a suíte (mesmo comando
-  acima já cobre os dois níveis; os testes sem persistência continuam
-  passando normalmente com essas variáveis definidas):
+## Referência científica
 
-  ```powershell
-  $env:DB_HOST = "localhost"; $env:DB_PORT = "5433"
-  $env:DB_USER = "conforto_teste"; $env:DB_NAME = "conforto_termico_teste"
-  $env:DB_PASSWORD_FILE = (Resolve-Path .secrets\postgres_password_teste.txt)
-  $env:CONFORTO_TESTING = "1"
-  python -m unittest discover -v
-  ```
-
-  Sem essas variáveis, os testes de persistência são pulados (`skipped`) com
-  uma mensagem explicando como configurá-las -- a suíte nunca cai de volta
-  para SQLite silenciosamente. Ao terminar:
-
-  ```powershell
-  docker compose -f compose.test.yaml down
-  ```
-
-Os testes de Modbus usam simulações e não exigem hardware ou conectividade.
-SQLite não é uma opção de implantação: as únicas exceções que ainda o usam
-testam explicitamente comportamento exclusivo do próprio caminho SQLite
-(documentado em cada classe), nunca persistência genérica. Antes de integrar
-uma alteração ampla, valide também a pilha PostgreSQL "de produção" (imagem,
-Compose, migrações) com `scripts.verificar_postgres`.
+As fórmulas e os limites de classificação ficam centralizados em
+`app/thermal_indices.py`. Os limites de ITU para suínos e demais tabelas
+adotadas são documentados pela dissertação de Mariano De Angelo, disponível no
+[repositório institucional da UNIP](https://repositorio.unip.br/wp-content/uploads/tainacan-items/198/12301/eng_marianodeangelo.pdf).
 
 ## Manutenção
 
-As diretrizes permanentes para alterações no código estão em `agents.md`. Em resumo:
-
-- mantenha fórmulas e limites centralizados;
-- trate segurança de atuadores e segredos como contratos;
-- prefira testes de comportamento a testes de detalhes internos;
-- altere ou remova testes quando o requisito correspondente mudar intencionalmente;
-- documente o estado atual do produto, sem registrar etapas intermediárias de desenvolvimento.
+As diretrizes permanentes para alterações estão em `AGENTS.md`. Mantenha
+fórmulas e limites centralizados, trate segredos e segurança de atuadores como
+contratos e preserve alterações locais não relacionadas.

@@ -2,6 +2,7 @@ name: conforto-termico
 
 x-app-build: &app-build
   context: .
+  target: runtime
   secrets:
     - local_ca
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 from types import MappingProxyType
+from typing import Any, cast
 
 PESO_MEDIO_ESTIMADO_KG = MappingProxyType(
     {
@@ -70,26 +71,28 @@ MODELOS_LOTACAO = MappingProxyType(
 def calcular_lotacao(
     especie: str, peso_medio_kg: float, area_util_m2: float, categoria: str
 ) -> dict:
-    fatores = {item["valor"]: item["fator"] for item in CATEGORIAS_DENSIDADE}
+    fatores = {
+        str(item["valor"]): float(cast("float", item["fator"])) for item in CATEGORIAS_DENSIDADE
+    }
     if categoria not in fatores:
         raise ValueError("Categoria de densidade inválida.")
-    modelo = MODELOS_LOTACAO[especie]
+    modelo = cast("dict[str, Any]", MODELOS_LOTACAO[especie])
     peso = float(peso_medio_kg)
     area = float(area_util_m2)
     if peso <= 0 or area <= 0:
         raise ValueError("Peso e área útil devem ser positivos.")
 
     if modelo["tipo"] == "massa_viva":
-        densidade_referencia = modelo["referencia_kg_m2"] / peso
+        densidade_referencia = float(modelo["referencia_kg_m2"]) / peso
     elif modelo["tipo"] == "area_por_animal":
-        densidade_referencia = 1.0 / modelo["referencia_m2_animal"]
+        densidade_referencia = 1.0 / float(modelo["referencia_m2_animal"])
     else:
         faixa = next(
             item
-            for item in modelo["faixas"]
+            for item in cast("tuple[dict[str, Any], ...]", modelo["faixas"])
             if item["peso_max_kg"] is None or peso <= item["peso_max_kg"]
         )
-        densidade_referencia = 1.0 / faixa["referencia_m2_animal"]
+        densidade_referencia = 1.0 / float(faixa["referencia_m2_animal"])
 
     densidade_alvo = densidade_referencia * fatores[categoria]
     quantidade = math.floor(area * densidade_alvo + 1e-9)
@@ -264,7 +267,7 @@ def referencias_publicas() -> dict:
             "modelos": {
                 especie: {
                     chave: ([dict(faixa) for faixa in valor] if chave == "faixas" else valor)
-                    for chave, valor in modelo.items()
+                    for chave, valor in cast("dict[str, Any]", modelo).items()
                 }
                 for especie, modelo in MODELOS_LOTACAO.items()
             },

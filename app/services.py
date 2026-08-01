@@ -9,6 +9,7 @@ from __future__ import annotations
 import random
 import threading
 from dataclasses import dataclass
+from typing import cast
 
 from . import thermal_indices as ti
 
@@ -71,7 +72,7 @@ class EstrategiaResfriamento:
             ajustado = valor * self._fator_resfriamento
         else:
             ajustado = valor / self._fator_resfriamento
-        return max(minimo, min(maximo, ajustado))
+        return cast("float", max(minimo, min(maximo, ajustado)))
 
 
 class SensorSimuladoService:

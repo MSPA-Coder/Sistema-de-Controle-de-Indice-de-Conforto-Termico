@@ -37,7 +37,7 @@ def configurar_audit_log(arquivo_saida: str | None = None) -> None:
     audit_logger.handlers.clear()
 
     if arquivo_saida:
-        handler = logging.FileHandler(arquivo_saida, encoding="utf-8")
+        handler: logging.Handler = logging.FileHandler(arquivo_saida, encoding="utf-8")
     else:
         handler = logging.StreamHandler()
 

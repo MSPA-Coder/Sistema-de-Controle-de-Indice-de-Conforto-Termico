@@ -29,7 +29,7 @@ from __future__ import annotations
 import math
 import unicodedata
 from types import MappingProxyType
-from typing import Any
+from typing import Any, cast
 
 
 def normalizar_chave_texto(valor: str) -> str:
@@ -163,8 +163,9 @@ def calcular_itu(tbs: float, tbu: float) -> float:
 
 def calcular_ituv(tbs: float, tbu: float, v: float) -> float:
     """ITUV - Eq. 5 (Tao & Xin, 2003). Usado apenas para frangos (aves de corte)."""
-    v = v if v > 0 else 0.01  # base da potencia nao pode ser <= 0
-    return (0.85 * tbs + 0.15 * tbu) * (v**-0.058)
+    if v <= 0:
+        raise EntradaInvalidaError("A velocidade do ar deve ser maior que zero.")
+    return float((0.85 * tbs + 0.15 * tbu) * (v**-0.058))
 
 
 def calcular_ignu(tgn: float, tpo: float) -> float:
@@ -174,8 +175,10 @@ def calcular_ignu(tgn: float, tpo: float) -> float:
 
 def calcular_pressao_atmosferica(altitude_m: float = 0.0) -> float:
     """Pressao atmosferica local estimada pela altitude, em kPa."""
-    altitude = max(-500.0, min(9000.0, float(altitude_m)))
-    return 101.325 * ((1 - 2.25577e-5 * altitude) ** 5.2559)
+    altitude = float(altitude_m)
+    if not -500.0 <= altitude <= 9000.0:
+        raise EntradaInvalidaError("A altitude deve estar entre -500 e 9000 metros.")
+    return float(101.325 * ((1 - 2.25577e-5 * altitude) ** 5.2559))
 
 
 def calcular_pressao_vapor_saturado(temperatura_c: float) -> float:
@@ -256,19 +259,16 @@ def validar_entradas(indice: str, entradas: dict) -> dict:
 # abaixo foram lidos diretamente da Tabela 4 e conferidos contra os exemplos
 # numericos do Capitulo IV (ver test_thermal_indices.py).
 #
-# (*) IMPORTANTE: as linhas "suinos" de ITU (Sales et al., 2006) e de IGNU
-# (Ferreira, 2001) vieram incompletas na tabela de origem (e essas duas
-# referencias, note-se, tambem nao aparecem na lista de Referencias
-# Bibliograficas da propria dissertacao). Para essas duas celulas, foi feita
-# uma interpretacao monotonica razoavel, seguindo o mesmo padrao das demais
-# linhas da tabela. Se voce tiver os valores exatos de Sales et al. (2006) e
-# Ferreira (2001), e so ajustar os numeros abaixo.
+# Para suinos, a Tabela 4 da dissertacao de Angelo (UNIP, 2013) fornece os
+# limites de ITU 61-65, 65-69 e 69-73, e os limites IGNU 69,6 e 82,6. A tabela
+# nao subdivide o IGNU suino em todas as quatro faixas; por isso o sistema nao
+# inventa um limite intermediario de perigo.
 LIMITES = _congelar(
     {
         "ITU": {
             "frangos": {"conforto": 74, "alerta": 79, "perigo": 84},  # Thom, 1959
             "bovinos": {"conforto": 70, "alerta": 78, "perigo": 83},  # Hahn, 1985
-            "suinos": {"conforto": 61, "alerta": 65, "perigo": 69},  # Sales et al., 2006 (*)
+            "suinos": {"conforto": 65, "alerta": 69, "perigo": 73},  # Sales et al., 2006
         },
         "ITUV": {
             "frangos": {"conforto": 24, "alerta": 34, "perigo": 39},  # Xiao & Xin, 2003
@@ -279,7 +279,7 @@ LIMITES = _congelar(
             # direto para "Emergencia" acima de 76 - confirmado pela Tabela 7).
             "frangos": {"conforto": 76, "alerta": 76, "perigo": 76},  # Teixeira, 1983
             "bovinos": {"conforto": 74, "alerta": 78, "perigo": 84},  # Baeta, 1985
-            "suinos": {"conforto": 69.6, "alerta": 82.6, "perigo": 82.6},  # Ferreira, 2001 (*)
+            "suinos": {"conforto": 69.6, "alerta": 82.6, "perigo": 82.6},  # Ferreira, 2001
         },
     }
 )
@@ -336,15 +336,15 @@ INTENSIDADE_EQUIPAMENTO = _congelar(
 
 
 def cor_do_status(status: str) -> str:
-    return CORES_STATUS[normalizar_chave_texto(status)]
+    return cast("str", CORES_STATUS[normalizar_chave_texto(status)])
 
 
 def mensagem_do_status(status: str) -> str:
-    return MENSAGENS_STATUS[normalizar_chave_texto(status)]
+    return cast("str", MENSAGENS_STATUS[normalizar_chave_texto(status)])
 
 
 def intensidade_do_status(status: str) -> str | None:
-    return INTENSIDADE_EQUIPAMENTO[normalizar_chave_texto(status)]
+    return cast("str | None", INTENSIDADE_EQUIPAMENTO[normalizar_chave_texto(status)])
 
 
 def status_atinge_minimo(status: str, minimo: str) -> bool:

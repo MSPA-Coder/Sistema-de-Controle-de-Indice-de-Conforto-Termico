@@ -2,12 +2,10 @@
 database.py
 ============
 Persistência do histórico de leituras, configurações, zonas Modbus e
-equipamentos. PostgreSQL é o backend de produção; SQLite permanece somente
-como backend leve da suíte unitária.
+equipamentos no PostgreSQL.
 
 Todas as operações passam por `_conexao()`, que garante commit/rollback e
-fecha a conexão. A serialização local, WAL e timeout de lock se aplicam apenas
-ao SQLite dos testes; o PostgreSQL gerencia concorrência e pooling.
+fecha a conexão. O PostgreSQL gerencia concorrência e pooling.
 Configuracoes persistidas sao sempre sanitizadas em leitura e escrita; valores
 invalidos voltam ao padrao seguro da chave.
 """
@@ -19,11 +17,9 @@ import datetime
 import json
 import os
 import re
-import sqlite3
 import subprocess
-import threading
-from contextlib import contextmanager, nullcontext
-from typing import TYPE_CHECKING
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any, cast
 
 from . import cache as cache_module
 from . import db_backend
@@ -34,25 +30,11 @@ if TYPE_CHECKING:
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INSTANCE_DIR = os.path.join(PROJECT_ROOT, "instance")
-DB_PATH = os.path.join(INSTANCE_DIR, "historico.db")
 
 # Cache global para configurações e dados de referência (TTL: 5 minutos)
 _cache_configuracoes = cache_module.obter_cache(ttl_segundos=300.0)
 
-# So serializa ESCRITAS (INSERT/UPDATE/DELETE/DDL) entre threads deste
-# processo. Leituras (`_conexao(escrita=False)`) nao adquirem nada: em modo
-# WAL (ver `iniciar_banco`) leitores concorrentes tem sua propria snapshot e
-# nao bloqueiam nem sao bloqueados por um escritor, entao serializa-las so
-# custaria latencia sem trazer nenhum ganho de seguranca.
-_write_lock = threading.Lock()
-_SEM_LOCK = nullcontext()
 INTERVALO_MINIMO_LEITURAS = datetime.timedelta(minutes=1)
-
-# Tempo (segundos) que uma conexao espera por um lock antes de desistir com
-# "database is locked". O `_write_lock` ja serializa escritas dentro do MESMO
-# processo; este timeout cobre o caso de outro processo (ex.: uma ferramenta
-# externa) escrevendo no mesmo arquivo ao mesmo tempo.
-TIMEOUT_CONEXAO_SEGUNDOS = 30.0
 
 MODOS_OPERACAO = ("desligado", "manual", "automatico", "manutencao")
 MODO_OPERACAO_PADRAO = "manual"
@@ -115,365 +97,24 @@ _EMAIL_REGEX = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 @contextmanager
 def _conexao(*, escrita: bool = True) -> Iterator:
-    """Abre uma conexão, confirma ou desfaz a transação e sempre a fecha.
+    """Abre uma conexão PostgreSQL, confirma ou desfaz a transação e a fecha.
 
-    No SQLite de testes, `escrita=True` serializa a conexão com qualquer outra
-    escrita em andamento neste processo por meio de `_write_lock`. Isso é o
-    que garante a "unicidade" lógica de operações
-    como "verificar se a zona existe e, se sim, inserir o equipamento":
-    quando o codigo-chamador faz a checagem e a mutacao dentro do MESMO bloco
-    `with _conexao() as conn:`, nenhuma outra thread consegue intercalar uma
-    mudanca no meio do caminho (ver `criar_equipamento`, `atualizar_zona`,
-    `atualizar_equipamento` e `salvar_configuracoes`).
-
-    `escrita=False` dispensa esse lock local nas funções somente leitura. No
-    PostgreSQL, concorrência e isolamento são responsabilidade do próprio
-    banco; o parâmetro não altera a conexão."""
-    if db_backend.postgres_ativo():
-        conn = db_backend.abrir_conexao_postgres("historico")
-        try:
-            yield conn
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
-        return
-
-    lock = _write_lock if escrita else _SEM_LOCK
-    with lock:
-        diretorio_banco = os.path.dirname(DB_PATH)
-        if diretorio_banco:
-            os.makedirs(diretorio_banco, exist_ok=True)
-        conn = sqlite3.connect(DB_PATH, timeout=TIMEOUT_CONEXAO_SEGUNDOS)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode = WAL")
-        conn.execute("PRAGMA synchronous = NORMAL")
-        conn.execute("PRAGMA foreign_keys = ON")
-        try:
-            yield conn
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
-
-
-_TABELAS_CONHECIDAS = frozenset(
-    {"leituras", "zonas", "equipamentos", "configuracoes", "estado_equipamentos"}
-)
-
-
-def _coluna_existe(conn, tabela: str, coluna: str) -> bool:
-    # `tabela` nunca vem de entrada externa hoje, mas o allowlist evita que
-    # um uso futuro descuidado (ex.: nome de tabela vindo de uma variavel
-    # nao confiavel) abra uma brecha de injecao de SQL via f-string.
-    if tabela not in _TABELAS_CONHECIDAS:
-        raise ValueError(f"Tabela desconhecida: {tabela!r}")
-    if db_backend.postgres_ativo():
-        linha = conn.execute(
-            """
-            SELECT 1 FROM information_schema.columns
-            WHERE table_schema = 'historico' AND table_name = ? AND column_name = ?
-            """,
-            (tabela, coluna),
-        ).fetchone()
-        return linha is not None
-    linhas = conn.execute(f"PRAGMA table_info({tabela})").fetchall()
-    return any(linha["name"] == coluna for linha in linhas)
+    O parâmetro ``escrita`` documenta a intenção do chamador e preserva a
+    interface das consultas; o isolamento e a concorrência pertencem ao banco.
+    """
+    conn = db_backend.abrir_conexao_postgres("historico")
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def iniciar_banco() -> None:
-    if db_backend.postgres_ativo():
-        # No Docker, o job `schema` aplica todas as alterações e limpezas de
-        # dados versionadas antes de liberar os serviços da aplicação.
-        return
-
-    with _conexao() as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS leituras (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                especie TEXT NOT NULL,
-                indice TEXT NOT NULL,
-                valor REAL NOT NULL,
-                status TEXT NOT NULL,
-                entradas TEXT NOT NULL,
-                criado_em TEXT NOT NULL
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS configuracoes (
-                chave TEXT PRIMARY KEY,
-                valor TEXT NOT NULL,
-                atualizado_em TEXT NOT NULL
-            )
-            """
-        )
-        # A ativação automática passou a ser definida por zona em
-        # `controle_zonas`; a antiga chave global não tem mais consumidor.
-        conn.execute("DELETE FROM configuracoes WHERE chave = 'modoAutomatico'")
-
-        # --- Usuarios (autenticacao e perfil por pessoa) -----------------
-        # `login` com COLLATE NOCASE: compara/unifica sem diferenciar
-        # maiusculas de minusculas diretamente no indice UNIQUE, para que
-        # "Joao" e "joao" nao virem duas contas por descuido de digitacao.
-        # `senha_hash` nunca guarda a senha em texto puro -- ver `auth.py`
-        # (unico modulo que conhece o algoritmo de hash usado).
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS usuarios (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                nome TEXT NOT NULL,
-                login TEXT NOT NULL COLLATE NOCASE UNIQUE,
-                senha_hash TEXT NOT NULL,
-                perfil TEXT NOT NULL,
-                ativo INTEGER NOT NULL DEFAULT 1,
-                criado_em TEXT NOT NULL,
-                atualizado_em TEXT NOT NULL,
-                ultimo_login_em TEXT
-            )
-            """
-        )
-
-        # --- Zonas Modbus -------------------------------------------------
-        # Uma zona agrupa N sensores + N ventiladores + N nebulizadores
-        # (0 a N de cada) conectados via Modbus, e tem sua propria
-        # especie/indice configurados -- o calculo do indice passa a ser
-        # por zona, com a leitura de cada campo sendo a MEDIA de todos os
-        # sensores daquela zona que medem aquele campo (ver ZonaService).
-        # Criadas ANTES da migracao de `leituras.zona_id` logo abaixo, ja
-        # que essa coluna referencia `zonas(id)`.
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS zonas (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                nome TEXT NOT NULL,
-                especie TEXT NOT NULL,
-                indice TEXT NOT NULL,
-                ativa INTEGER NOT NULL DEFAULT 1,
-                criado_em TEXT NOT NULL
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS equipamentos (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                zona_id INTEGER NOT NULL REFERENCES zonas(id) ON DELETE CASCADE,
-                tipo TEXT NOT NULL,
-                nome TEXT NOT NULL,
-                modo_conexao TEXT NOT NULL,
-                host TEXT,
-                porta INTEGER,
-                porta_serial TEXT,
-                baud_rate INTEGER,
-                unidade_id INTEGER NOT NULL DEFAULT 1,
-                tipo_registrador TEXT NOT NULL,
-                endereco_registrador INTEGER NOT NULL,
-                tipo_dado TEXT NOT NULL DEFAULT 'int16',
-                fator_escala REAL NOT NULL DEFAULT 1.0,
-                campo_medido TEXT,
-                criado_em TEXT NOT NULL
-            )
-            """
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_equipamentos_zona_id ON equipamentos (zona_id)"
-        )
-        # Usado por `listar_zonas(apenas_ativas=True)` nos calculos
-        # automaticos e manuais, que processam somente zonas ativas.
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_zonas_ativa ON zonas (ativa)")
-
-        # Estado ATUAL (ligado/desligado, intensidade) dos atuadores de cada
-        # zona, persistido a cada ciclo de calculo por
-        # `salvar_estado_equipamentos` (ver `zona_service.ZonaService.
-        # calcular`). Uma linha por zona (a PK e o proprio `zona_id`; cada
-        # gravacao faz UPSERT, nunca acumula historico aqui -- para isso
-        # existe a tabela `leituras`). Existe para que o "Painel executivo
-        # por zona" (`obter_painel_zonas`) saiba quantos equipamentos estao
-        # ligados sem depender do estado em memoria do processo que roda a
-        # malha de controle -- essencial a partir do momento em que o
-        # dashboard (leitura) e o coletor (controle) passam a rodar em
-        # processos separados (ver agents.md, secao de arquitetura).
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS estado_equipamentos (
-                zona_id INTEGER PRIMARY KEY REFERENCES zonas(id) ON DELETE CASCADE,
-                ventilador_ligado INTEGER NOT NULL DEFAULT 0,
-                nebulizador_ligado INTEGER NOT NULL DEFAULT 0,
-                intensidade TEXT,
-                atualizado_em TEXT NOT NULL
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS controle_zonas (
-                zona_id INTEGER PRIMARY KEY REFERENCES zonas(id) ON DELETE CASCADE,
-                modo TEXT NOT NULL DEFAULT 'manual',
-                acionamento_habilitado INTEGER NOT NULL DEFAULT 0,
-                atualizado_em TEXT NOT NULL
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS estado_coletor (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                status TEXT NOT NULL,
-                iniciado_em TEXT,
-                heartbeat_em TEXT,
-                ultimo_ciclo_em TEXT,
-                proximo_ciclo_em TEXT,
-                erro TEXT
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS eventos_operacao (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                zona_id INTEGER REFERENCES zonas(id) ON DELETE SET NULL,
-                tipo TEXT NOT NULL,
-                acao TEXT NOT NULL,
-                detalhes TEXT NOT NULL,
-                criado_em TEXT NOT NULL
-            )
-            """
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_eventos_operacao_zona_id "
-            "ON eventos_operacao (zona_id, id)"
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS leituras_recentes_zona (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                zona_id INTEGER NOT NULL REFERENCES zonas(id) ON DELETE CASCADE,
-                especie TEXT NOT NULL,
-                indice TEXT NOT NULL,
-                valor REAL NOT NULL,
-                status TEXT NOT NULL,
-                entradas TEXT NOT NULL,
-                criado_em TEXT NOT NULL
-            )
-            """
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_leituras_recentes_zona_id "
-            "ON leituras_recentes_zona (zona_id, id)"
-        )
-
-        # --- Camada de agregacao (15 min / hora) ---------------------------
-        # `leituras` grava toda leitura individual (1 a cada
-        # `intervaloGravacaoMinutos`, tipicamente 1-5 min). Para analise de
-        # tendencia e relatorios, duas camadas derivadas sao consolidadas a
-        # partir dela por `agregacao.py`:
-        #
-        #  1) `agregados_15min`: media/minimo/maximo do indice E de cada
-        #     variavel de entrada (tbs, tbu, ur, v, tgn, tpo) dentro de cada
-        #     janela fechada de 15 minutos. Alimenta graficos de tendencia
-        #     sem precisar varrer a leitura bruta.
-        #  2) `resumos_horarios`: media do indice na hora, status
-        #     classificado a partir dessa media, e o percentual de leituras
-        #     daquela hora em cada status (Conforto/Alerta/Perigo/
-        #     Emergencia). E a unidade de tempo que a literatura de conforto
-        #     termico usa para reportar os indices (ITU/IGNU horarios).
-        #
-        # Ambas sao UPSERT por (zona_id, indice, janela) -- reprocessar uma
-        # janela ja consolidada apenas recalcula o mesmo resultado.
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS agregados_15min (
-                zona_id INTEGER NOT NULL REFERENCES zonas(id) ON DELETE CASCADE,
-                especie TEXT NOT NULL,
-                indice TEXT NOT NULL,
-                janela_inicio TEXT NOT NULL,
-                amostras INTEGER NOT NULL,
-                valor_medio REAL NOT NULL,
-                valor_minimo REAL NOT NULL,
-                valor_maximo REAL NOT NULL,
-                entradas_medias TEXT NOT NULL,
-                criado_em TEXT NOT NULL,
-                PRIMARY KEY (zona_id, indice, janela_inicio)
-            )
-            """
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_agregados_15min_zona "
-            "ON agregados_15min (zona_id, janela_inicio)"
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS resumos_horarios (
-                zona_id INTEGER NOT NULL REFERENCES zonas(id) ON DELETE CASCADE,
-                especie TEXT NOT NULL,
-                indice TEXT NOT NULL,
-                hora_inicio TEXT NOT NULL,
-                amostras INTEGER NOT NULL,
-                valor_medio REAL NOT NULL,
-                valor_minimo REAL NOT NULL,
-                valor_maximo REAL NOT NULL,
-                status_da_media TEXT NOT NULL,
-                pct_conforto REAL NOT NULL,
-                pct_alerta REAL NOT NULL,
-                pct_perigo REAL NOT NULL,
-                pct_emergencia REAL NOT NULL,
-                criado_em TEXT NOT NULL,
-                PRIMARY KEY (zona_id, indice, hora_inicio)
-            )
-            """
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_resumos_horarios_zona "
-            "ON resumos_horarios (zona_id, hora_inicio)"
-        )
-
-        # Evolucao do resumo legado para distinguir aquilo que o algoritmo
-        # pediu daquilo que o equipamento realmente confirmou. Instalacoes
-        # existentes recebem as colunas sem perder o estado ja persistido.
-        colunas_estado = {
-            "ventilador_desejado": "INTEGER",
-            "nebulizador_desejado": "INTEGER",
-            "ventilador_confirmado": "INTEGER",
-            "nebulizador_confirmado": "INTEGER",
-            "falhas": "TEXT NOT NULL DEFAULT '[]'",
-            "qualidade": "TEXT NOT NULL DEFAULT 'sem_leitura'",
-            "ultimo_ciclo_em": "TEXT",
-        }
-        for coluna, definicao in colunas_estado.items():
-            if not _coluna_existe(conn, "estado_equipamentos", coluna):
-                conn.execute(f"ALTER TABLE estado_equipamentos ADD COLUMN {coluna} {definicao}")
-
-        # MIGRACAO: `zona_id` foi adicionado depois que a tabela `leituras`
-        # ja existia em instalacoes anteriores (recurso de Zonas Modbus).
-        # SQLite nao tem "ADD COLUMN IF NOT EXISTS", entao checamos manual.
-        # Leituras anteriores à migração permanecem sem zona. Novas
-        # gravações exigem uma zona válida em `salvar_leitura`.
-        if not _coluna_existe(conn, "leituras", "zona_id"):
-            conn.execute(
-                "ALTER TABLE leituras ADD COLUMN zona_id INTEGER "
-                "REFERENCES zonas(id) ON DELETE SET NULL"
-            )
-
-        # Indice composto: toda consulta de historico e toda checagem do
-        # intervalo minimo de gravacao filtram por (especie, indice) e
-        # ordenam por id. Sem este indice, cada uma dessas consultas varre
-        # a tabela inteira -- o que fica cada vez mais lento conforme o
-        # historico cresce (a tabela nunca e podada em uso normal).
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_leituras_especie_indice_id "
-            "ON leituras (especie, indice, id)"
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_leituras_zona_indice_id "
-            "ON leituras (zona_id, indice, id)"
-        )
+    """A inicialização de schema é exclusiva das revisões Alembic."""
 
 
 def _intervalo_minimo_leituras(intervalo_minutos: float | int | str | None) -> datetime.timedelta:
@@ -729,38 +370,21 @@ def obter_historico_leituras(
             """,
             parametros,
         ).fetchall()
-        if db_backend.postgres_ativo():
-            where_entradas = (
-                where + " AND jsonb_typeof((l.entradas::jsonb) -> j.key) = 'number'"
-                if where
-                else "WHERE jsonb_typeof((l.entradas::jsonb) -> j.key) = 'number'"
-            )
-            sql_extremos_entradas = f"""
-                SELECT
-                    j.key AS campo,
-                    MIN(CAST(j.value AS DOUBLE PRECISION)) AS minimo,
-                    MAX(CAST(j.value AS DOUBLE PRECISION)) AS maximo
-                FROM leituras l
-                CROSS JOIN LATERAL jsonb_each_text(l.entradas::jsonb) AS j(key, value)
-                {where_entradas}
-                GROUP BY j.key
-            """
-        else:
-            where_entradas = (
-                where + " AND j.type IN ('integer', 'real')"
-                if where
-                else "WHERE j.type IN ('integer', 'real')"
-            )
-            sql_extremos_entradas = f"""
-                SELECT
-                    j.key AS campo,
-                    MIN(CAST(j.value AS REAL)) AS minimo,
-                    MAX(CAST(j.value AS REAL)) AS maximo
-                FROM leituras l
-                JOIN json_each(l.entradas) AS j
-                {where_entradas}
-                GROUP BY j.key
-            """
+        where_entradas = (
+            where + " AND jsonb_typeof((l.entradas::jsonb) -> j.key) = 'number'"
+            if where
+            else "WHERE jsonb_typeof((l.entradas::jsonb) -> j.key) = 'number'"
+        )
+        sql_extremos_entradas = f"""
+            SELECT
+                j.key AS campo,
+                MIN(CAST(j.value AS DOUBLE PRECISION)) AS minimo,
+                MAX(CAST(j.value AS DOUBLE PRECISION)) AS maximo
+            FROM leituras l
+            CROSS JOIN LATERAL jsonb_each_text(l.entradas::jsonb) AS j(key, value)
+            {where_entradas}
+            GROUP BY j.key
+        """
         linhas_extremos_entradas = conn.execute(
             sql_extremos_entradas,
             parametros,
@@ -850,63 +474,40 @@ def janelas_15min_pendentes(zona_id: int, indice: str) -> list[str]:
     agora = datetime.datetime.now().replace(microsecond=0)
     janela_atual_aberta = _formatar_janela(agora, 15)
     with _conexao(escrita=False) as conn:
-        if db_backend.postgres_ativo():
-            linhas = conn.execute(
-                """
-                SELECT DISTINCT
-                    to_char(
+        linhas = conn.execute(
+            """
+            SELECT DISTINCT
+                to_char(
+                    date_bin(
+                        INTERVAL '15 minutes',
+                        l.criado_em::timestamp,
+                        TIMESTAMP '2000-01-01'
+                    ),
+                    'YYYY-MM-DD"T"HH24:MI:SS'
+                ) AS janela_inicio
+            FROM leituras l
+            WHERE l.zona_id = ?
+              AND l.indice = ?
+              AND l.criado_em < ?
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM agregados_15min a
+                  WHERE a.zona_id = l.zona_id
+                    AND a.indice = l.indice
+                    AND a.janela_inicio = to_char(
                         date_bin(
                             INTERVAL '15 minutes',
                             l.criado_em::timestamp,
                             TIMESTAMP '2000-01-01'
                         ),
                         'YYYY-MM-DD"T"HH24:MI:SS'
-                    ) AS janela_inicio
-                FROM leituras l
-                WHERE l.zona_id = ?
-                  AND l.indice = ?
-                  AND l.criado_em < ?
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM agregados_15min a
-                      WHERE a.zona_id = l.zona_id
-                        AND a.indice = l.indice
-                        AND a.janela_inicio = to_char(
-                            date_bin(
-                                INTERVAL '15 minutes',
-                                l.criado_em::timestamp,
-                                TIMESTAMP '2000-01-01'
-                            ),
-                            'YYYY-MM-DD"T"HH24:MI:SS'
-                        )
-                  )
-                ORDER BY janela_inicio
-                """,
-                (zona_id, indice, janela_atual_aberta),
-            ).fetchall()
-            return [linha["janela_inicio"] for linha in linhas]
-
-        linhas = conn.execute(
-            """
-            SELECT criado_em
-            FROM leituras
-            WHERE zona_id = ? AND indice = ?
+                    )
+              )
+            ORDER BY janela_inicio
             """,
-            (zona_id, indice),
+            (zona_id, indice, janela_atual_aberta),
         ).fetchall()
-        ja_feitas = conn.execute(
-            "SELECT janela_inicio FROM agregados_15min WHERE zona_id = ? AND indice = ?",
-            (zona_id, indice),
-        ).fetchall()
-    feitas = {linha["janela_inicio"] for linha in ja_feitas}
-    janelas = {
-        _formatar_janela(datetime.datetime.fromisoformat(linha["criado_em"]), 15)
-        for linha in linhas
-    }
-    pendentes = sorted(
-        janela for janela in janelas if janela not in feitas and janela < janela_atual_aberta
-    )
-    return pendentes
+    return [linha["janela_inicio"] for linha in linhas]
 
 
 def agregar_janela_15min(
@@ -992,54 +593,32 @@ def horas_pendentes(zona_id: int, indice: str) -> list[str]:
         timespec="seconds"
     )
     with _conexao(escrita=False) as conn:
-        if db_backend.postgres_ativo():
-            linhas = conn.execute(
-                """
-                SELECT DISTINCT
-                    to_char(
-                        date_trunc('hour', a.janela_inicio::timestamp),
-                        'YYYY-MM-DD"T"HH24:MI:SS'
-                    ) AS hora_inicio
-                FROM agregados_15min a
-                WHERE a.zona_id = ?
-                  AND a.indice = ?
-                  AND a.janela_inicio < ?
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM resumos_horarios r
-                      WHERE r.zona_id = a.zona_id
-                        AND r.indice = a.indice
-                        AND r.hora_inicio = to_char(
-                            date_trunc('hour', a.janela_inicio::timestamp),
-                            'YYYY-MM-DD"T"HH24:MI:SS'
-                        )
-                  )
-                ORDER BY hora_inicio
-                """,
-                (zona_id, indice, hora_atual_aberta),
-            ).fetchall()
-            return [linha["hora_inicio"] for linha in linhas]
-
         linhas = conn.execute(
             """
-            SELECT janela_inicio
-            FROM agregados_15min
-            WHERE zona_id = ? AND indice = ?
+            SELECT DISTINCT
+                to_char(
+                    date_trunc('hour', a.janela_inicio::timestamp),
+                    'YYYY-MM-DD"T"HH24:MI:SS'
+                ) AS hora_inicio
+            FROM agregados_15min a
+            WHERE a.zona_id = ?
+              AND a.indice = ?
+              AND a.janela_inicio < ?
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM resumos_horarios r
+                  WHERE r.zona_id = a.zona_id
+                    AND r.indice = a.indice
+                    AND r.hora_inicio = to_char(
+                        date_trunc('hour', a.janela_inicio::timestamp),
+                        'YYYY-MM-DD"T"HH24:MI:SS'
+                    )
+              )
+            ORDER BY hora_inicio
             """,
-            (zona_id, indice),
+            (zona_id, indice, hora_atual_aberta),
         ).fetchall()
-        ja_feitas = conn.execute(
-            "SELECT hora_inicio FROM resumos_horarios WHERE zona_id = ? AND indice = ?",
-            (zona_id, indice),
-        ).fetchall()
-    feitas = {linha["hora_inicio"] for linha in ja_feitas}
-    horas = {
-        datetime.datetime.fromisoformat(linha["janela_inicio"])
-        .replace(minute=0, second=0, microsecond=0)
-        .isoformat(timespec="seconds")
-        for linha in linhas
-    }
-    return sorted(hora for hora in horas if hora not in feitas and hora < hora_atual_aberta)
+    return [linha["hora_inicio"] for linha in linhas]
 
 
 def consolidar_resumo_horario(
@@ -1173,59 +752,31 @@ def obter_resumos_horarios(
 
 
 def criar_backup_banco() -> dict:
-    """Cria um backup consistente no diretório de instância.
+    """Cria um dump PostgreSQL consistente no diretório de instância."""
+    from sqlalchemy.engine import make_url
 
-    Em produção, o dump inclui todo o banco da aplicação: os dois schemas,
-    extensões e a revisão Alembic necessária para uma restauração completa.
-    """
-    diretorio = os.path.dirname(DB_PATH)
-    nome_base = os.path.splitext(os.path.basename(DB_PATH))[0] or "historico"
+    os.makedirs(INSTANCE_DIR, exist_ok=True)
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-
-    if db_backend.postgres_ativo():
-        from sqlalchemy.engine import make_url
-
-        os.makedirs(diretorio, exist_ok=True)
-        caminho_backup = os.path.join(diretorio, f"conforto_termico_backup_{timestamp}.dump")
-        url = make_url(db_backend.database_url())
-        ambiente_pg_dump = dict(os.environ)
-        if url.password:
-            ambiente_pg_dump["PGPASSWORD"] = url.password
-        subprocess.run(
-            [
-                "pg_dump",
-                "--format=custom",
-                "--no-owner",
-                "--no-privileges",
-                f"--file={caminho_backup}",
-                f"--host={url.host or 'postgres'}",
-                f"--port={url.port or 5432}",
-                f"--username={url.username or 'conforto'}",
-                f"--dbname={url.database or 'conforto_termico'}",
-            ],
-            check=True,
-            env=ambiente_pg_dump,
-        )
-        return {
-            "arquivo": os.path.basename(caminho_backup),
-            "caminho": caminho_backup,
-            "tamanho_bytes": os.path.getsize(caminho_backup),
-        }
-
-    caminho_backup = os.path.join(diretorio, f"{nome_base}_backup_{timestamp}.db")
-
-    # Usa o mesmo lock de escrita (nao `_conexao()`) porque `Connection.backup`
-    # gerencia suas proprias transacoes na origem e no destino; so precisamos
-    # garantir que nenhuma escrita deste processo comece no meio da copia.
-    with _write_lock:
-        origem = sqlite3.connect(DB_PATH, timeout=TIMEOUT_CONEXAO_SEGUNDOS)
-        destino = sqlite3.connect(caminho_backup)
-        try:
-            origem.backup(destino)
-        finally:
-            destino.close()
-            origem.close()
-
+    caminho_backup = os.path.join(INSTANCE_DIR, f"conforto_termico_backup_{timestamp}.dump")
+    url = make_url(db_backend.database_url())
+    ambiente_pg_dump = dict(os.environ)
+    if url.password:
+        ambiente_pg_dump["PGPASSWORD"] = url.password
+    subprocess.run(
+        [
+            "pg_dump",
+            "--format=custom",
+            "--no-owner",
+            "--no-privileges",
+            f"--file={caminho_backup}",
+            f"--host={url.host or 'postgres'}",
+            f"--port={url.port or 5432}",
+            f"--username={url.username or 'conforto'}",
+            f"--dbname={url.database or 'conforto_termico'}",
+        ],
+        check=True,
+        env=ambiente_pg_dump,
+    )
     return {
         "arquivo": os.path.basename(caminho_backup),
         "caminho": caminho_backup,
@@ -1463,7 +1014,7 @@ def contar_leituras() -> int:
     """Utilitario de diagnostico: total de linhas gravadas na tabela."""
     with _conexao(escrita=False) as conn:
         total = conn.execute("SELECT COUNT(*) FROM leituras").fetchone()[0]
-    return total
+    return int(total)
 
 
 # ---------------------------------------------------------------------------
@@ -1876,7 +1427,7 @@ def excluir_zona(zona_id: int) -> bool:
     que manter uma referencia a uma zona que não existe mais."""
     with _conexao() as conn:
         cursor = conn.execute("DELETE FROM zonas WHERE id = ?", (zona_id,))
-    return cursor.rowcount > 0
+    return int(cursor.rowcount) > 0
 
 
 def obter_estatisticas_zonas() -> list[dict]:
@@ -1995,50 +1546,31 @@ def obter_painel_zonas() -> list[dict]:
             "SELECT zona_id, ventilador_ligado, nebulizador_ligado, intensidade "
             "FROM estado_equipamentos"
         ).fetchall()
-        leituras_por_zona: dict[int, list[sqlite3.Row]] = {}
-        if db_backend.postgres_ativo():
-            linhas_leituras = conn.execute(
-                """
-                SELECT
-                    z.id AS zona_id,
-                    recentes.valor,
-                    recentes.status,
-                    recentes.entradas,
-                    recentes.criado_em
-                FROM zonas z
-                CROSS JOIN LATERAL (
-                    SELECT l.id, l.valor, l.status, l.entradas, l.criado_em
-                    FROM leituras l
-                    WHERE l.zona_id = z.id AND l.indice = z.indice
-                    ORDER BY l.id DESC
-                    LIMIT ?
-                ) recentes
-                ORDER BY z.id, recentes.id
-                """,
-                (LIMITE_LEITURAS_PAINEL_EXECUTIVO,),
-            ).fetchall()
-            for linha in linhas_leituras:
-                leituras_por_zona.setdefault(linha["zona_id"], []).append(linha)
-        else:
-            # O caminho SQLite é mantido apenas para a suíte unitária. No
-            # PostgreSQL, a consulta LATERAL acima evita uma ida ao banco por
-            # zona e ainda usa o índice que entrega as leituras mais recentes.
-            for zona in zonas:
-                leituras_por_zona[zona["id"]] = list(
-                    reversed(
-                        conn.execute(
-                            "SELECT valor, status, entradas, criado_em FROM leituras "
-                            "WHERE zona_id = ? AND indice = ? ORDER BY id DESC LIMIT ?",
-                            (
-                                zona["id"],
-                                zona["indice"],
-                                LIMITE_LEITURAS_PAINEL_EXECUTIVO,
-                            ),
-                        ).fetchall()
-                    )
-                )
+        leituras_por_zona: dict[int, list] = {}
+        linhas_leituras = conn.execute(
+            """
+            SELECT
+                z.id AS zona_id,
+                recentes.valor,
+                recentes.status,
+                recentes.entradas,
+                recentes.criado_em
+            FROM zonas z
+            CROSS JOIN LATERAL (
+                SELECT l.id, l.valor, l.status, l.entradas, l.criado_em
+                FROM leituras l
+                WHERE l.zona_id = z.id AND l.indice = z.indice
+                ORDER BY l.id DESC
+                LIMIT ?
+            ) recentes
+            ORDER BY z.id, recentes.id
+            """,
+            (LIMITE_LEITURAS_PAINEL_EXECUTIVO,),
+        ).fetchall()
+        for linha in linhas_leituras:
+            leituras_por_zona.setdefault(linha["zona_id"], []).append(linha)
 
-    sensores_por_zona: dict[int, list[sqlite3.Row]] = {}
+    sensores_por_zona: dict[int, list] = {}
     for linha in linhas_sensores:
         sensores_por_zona.setdefault(linha["zona_id"], []).append(linha)
 
@@ -2047,7 +1579,7 @@ def obter_painel_zonas() -> list[dict]:
         totais_por_zona.setdefault(linha["zona_id"], {"ventilador": 0, "nebulizador": 0})
         totais_por_zona[linha["zona_id"]][linha["tipo"]] = linha["total"]
 
-    estado_por_zona: dict[int, sqlite3.Row] = {linha["zona_id"]: linha for linha in linhas_estado}
+    estado_por_zona: dict[int, object] = {linha["zona_id"]: linha for linha in linhas_estado}
 
     return [
         _resumir_painel_zona(
@@ -2064,11 +1596,11 @@ def obter_painel_zonas() -> list[dict]:
 
 
 def _resumir_painel_zona(
-    zona: sqlite3.Row,
-    leituras: list[sqlite3.Row],
-    sensores: list[sqlite3.Row],
+    zona,
+    leituras: list,
+    sensores: list,
     totais_equipamento: dict[str, int],
-    estado_atuadores: sqlite3.Row | None,
+    estado_atuadores,
     agora: datetime.datetime,
     inicio_dia: datetime.datetime,
 ) -> dict:
@@ -2398,7 +1930,7 @@ def atualizar_equipamento(equipamento_id: int, dados: dict) -> dict | None:
 def excluir_equipamento(equipamento_id: int) -> bool:
     with _conexao() as conn:
         cursor = conn.execute("DELETE FROM equipamentos WHERE id = ?", (equipamento_id,))
-    return cursor.rowcount > 0
+    return bool(cursor.rowcount > 0)
 
 
 def _coagir_booleano(valor, padrao: bool) -> bool:
@@ -2472,16 +2004,21 @@ def _coagir_texto_livre(valor, padrao: str, tamanho_maximo: int = 255) -> str:
     return limpo[:tamanho_maximo]
 
 
-def _sanitizar_configuracoes(configuracoes: dict) -> dict:
+def _sanitizar_configuracoes(configuracoes: dict, *, base: dict | None = None) -> dict:
     """Valida tipo, faixa e formato de cada chave de configuracao conhecida.
 
-    Mistura os valores recebidos com os padroes (chaves desconhecidas sao
-    descartadas) e entao aplica um "validador" especifico por chave. Um
+    Mistura os valores recebidos com o estado atual (ou os padroes para a
+    primeira gravacao; chaves desconhecidas sao descartadas) e entao aplica
+    um "validador" especifico por chave. Um
     valor invalido (tipo errado, fora da faixa, e-mail malformado) nunca
     lanca excecao: ele simplesmente volta a usar o padrao daquele campo. Ver
     a nota de seguranca no topo do modulo sobre `emailDestino`."""
-    padrao = CONFIGURACOES_PADRAO
-    bruto = {**padrao, **{k: v for k, v in (configuracoes or {}).items() if k in padrao}}
+    padrao: dict[str, Any] = CONFIGURACOES_PADRAO
+    bruto: dict[str, Any] = {
+        **padrao,
+        **{k: v for k, v in (base or {}).items() if k in padrao},
+        **{k: v for k, v in (configuracoes or {}).items() if k in padrao},
+    }
 
     # `indice` depende de `especie` (ITUV so existe para frangos, etc.) --
     # por isso especie e resolvida primeiro e passada para o coercer do
@@ -2547,7 +2084,7 @@ def obter_configuracoes() -> dict:
     # Tenta obter do cache primeiro
     valor_cached = _cache_configuracoes.get("configuracoes_gerais")
     if valor_cached is not None:
-        return valor_cached
+        return cast("dict", valor_cached)
 
     with _conexao(escrita=False) as conn:
         linhas = conn.execute("SELECT chave, valor FROM configuracoes").fetchall()
@@ -2575,21 +2112,19 @@ def salvar_configuracoes(configuracoes: dict) -> dict:
     # campo de senha no navegador sempre chega vazio (nunca e preenchido de
     # volta a partir do servidor).
     #
-    # A leitura do valor atual e a escrita do valor final agora acontecem
-    # dentro da MESMA transacao (mesma conexao, mesmo `with`). Antes, eram
-    # duas conexoes separadas: se duas requisicoes salvassem configuracoes
-    # em paralelo, uma podia ler a senha "antiga" DEPOIS que a outra ja
-    # tinha calculado (mas ainda nao gravado) uma senha nova, e a gravacao
-    # da primeira sobrescreveria a da segunda com um valor desatualizado
-    # ("lost update" classico). Com tudo em uma transacao serializada por
-    # `_write_lock`, isso deixa de ser possivel.
+    # A leitura e a escrita ocorrem na mesma transacao. Em PostgreSQL, um
+    # advisory lock protege o documento de configuracoes contra lost updates
+    # entre processos diferentes; a serialização local do backend anterior não
+    # oferecia essa garantia.
     agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
     with _conexao() as conn:
+        conn.execute("SELECT pg_advisory_xact_lock(hashtext('conforto:configuracoes'))")
+        linhas = conn.execute("SELECT chave, valor FROM configuracoes").fetchall()
+        atuais = _decodificar_configuracoes(linhas)
         if not str(configuracoes.get("smtpSenha", "")).strip():
-            linhas = conn.execute("SELECT chave, valor FROM configuracoes").fetchall()
-            configuracoes["smtpSenha"] = _decodificar_configuracoes(linhas).get("smtpSenha", "")
+            configuracoes.pop("smtpSenha", None)
 
-        salvas = _sanitizar_configuracoes(configuracoes)
+        salvas = _sanitizar_configuracoes(configuracoes, base=atuais)
         conn.executemany(
             """
             INSERT INTO configuracoes (chave, valor, atualizado_em)
@@ -2634,6 +2169,11 @@ class UltimoAdministradorError(UsuarioInvalidoError):
     banco."""
 
 
+def _bloquear_administradores(conn) -> None:
+    """Serializa mudancas que podem remover o ultimo administrador ativo."""
+    conn.execute("SELECT pg_advisory_xact_lock(hashtext('conforto:administradores'))")
+
+
 def _validar_usuario(dados: dict, *, exigir_senha: bool) -> dict:
     nome = str(dados.get("nome", "")).strip()
     if not nome:
@@ -2668,7 +2208,7 @@ def _validar_usuario(dados: dict, *, exigir_senha: bool) -> dict:
     return resultado
 
 
-def _linha_usuario_publica(linha: sqlite3.Row) -> dict:
+def _linha_usuario_publica(linha) -> dict:
     """Mesma logica de `_configuracoes_publicas`: o hash da senha nunca sai
     deste modulo em direcao a uma resposta HTTP."""
     usuario = dict(linha)
@@ -2751,6 +2291,7 @@ def atualizar_usuario(usuario_id: int, dados: dict) -> dict:
     operacao desativaria ou rebaixaria o ultimo administrador ativo."""
     validado = _validar_usuario(dados, exigir_senha=False)
     with _conexao() as conn:
+        _bloquear_administradores(conn)
         atual = conn.execute("SELECT * FROM usuarios WHERE id = ?", (usuario_id,)).fetchone()
         if atual is None:
             raise UsuarioNaoEncontradoError(f"Usuário {usuario_id} não encontrado.")
@@ -2815,6 +2356,7 @@ def excluir_usuario(usuario_id: int) -> bool:
     `atualizar_usuario`, aplicada aqui porque excluir tem o mesmo efeito
     pratico de desativar."""
     with _conexao() as conn:
+        _bloquear_administradores(conn)
         atual = conn.execute("SELECT * FROM usuarios WHERE id = ?", (usuario_id,)).fetchone()
         if atual is None:
             return False
@@ -2829,7 +2371,7 @@ def excluir_usuario(usuario_id: int) -> bool:
                     "Esta é a última conta de administrador ativa e não pode ser excluída."
                 )
         cursor = conn.execute("DELETE FROM usuarios WHERE id = ?", (usuario_id,))
-    return cursor.rowcount > 0
+    return int(cursor.rowcount) > 0
 
 
 def registrar_login_usuario(usuario_id: int) -> None:

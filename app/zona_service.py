@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import datetime
 import threading
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from . import modbus_client
 from . import thermal_indices as ti
@@ -200,15 +200,15 @@ class ZonaService:
 
     def _escrever_modbus(self, equipamento: dict, ligar: bool) -> bool:
         if self._em_modo_simulado():
-            return self._simulador.escrever_valor(equipamento, ligar)
-        return self._escrever_modbus_real(equipamento, ligar)
+            return cast("bool", self._simulador.escrever_valor(equipamento, ligar))
+        return cast("bool", self._escrever_modbus_real(equipamento, ligar))
 
     def _ler_estado_atuador(self, equipamento: dict) -> bool | None:
         if self._em_modo_simulado() and self._simulador:
-            return self._simulador.ler_estado_atuador(equipamento)
+            return cast("bool | None", self._simulador.ler_estado_atuador(equipamento))
         if not self._ler_estado_atuador_real:
             return None
-        return self._ler_estado_atuador_real(equipamento)
+        return cast("bool | None", self._ler_estado_atuador_real(equipamento))
 
     def _controle_da_zona(self, zona_id: int) -> dict:
         controle = self._obter_controle_zona(zona_id)
@@ -289,8 +289,10 @@ class ZonaService:
     def _preparar_entradas_da_zona(self, entradas: dict) -> dict:
         try:
             altitude = float(self._obter_configuracoes().get("altitudeMetros") or 0)
-        except Exception:
-            altitude = 0.0
+        except (TypeError, ValueError) as erro:
+            raise ZonaCalculoError("A altitude configurada é inválida.") from erro
+        if not -500.0 <= altitude <= 9000.0:
+            raise ZonaCalculoError("A altitude configurada deve estar entre -500 e 9000 metros.")
         return _derivar_campos_calculaveis(entradas, altitude)
 
     def _calcular_com_entradas(
@@ -341,8 +343,10 @@ class ZonaService:
             limite_umidade = float(
                 self._obter_configuracoes().get("limiteUmidadeNebulizador") or 70
             )
-        except Exception:
-            limite_umidade = 70.0
+        except (TypeError, ValueError) as erro:
+            raise ZonaCalculoError("O limite de umidade do nebulizador é inválido.") from erro
+        if not 0.0 <= limite_umidade <= 100.0:
+            raise ZonaCalculoError("O limite de umidade do nebulizador deve estar entre 0 e 100%.")
         resfriador.aplicar_limite_umidade_nebulizador(
             self._numero_ou_none(entradas.get("ur")), limite_umidade
         )

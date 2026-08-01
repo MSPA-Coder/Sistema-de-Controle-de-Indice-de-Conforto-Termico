@@ -318,6 +318,20 @@ class TestControleDeAcessoPorArea(BaseTestComApp):
         )
         self.assertEqual(200, cliente_vet.get("/api/configuracoes").status_code)
 
+    def test_veterinario_nao_altera_configuracoes_tecnicas(self):
+        resposta = self._cliente("veterinario").post(
+            "/api/configuracoes", json={"habilitarEquipamentos": True}
+        )
+        self.assertEqual(403, resposta.status_code)
+        self.assertFalse(db.obter_configuracoes()["habilitarEquipamentos"])
+
+    def test_veterinario_altera_preferencia_nao_tecnica(self):
+        resposta = self._cliente("veterinario").post(
+            "/api/configuracoes", json={"habilitarSons": True}
+        )
+        self.assertEqual(200, resposta.status_code)
+        self.assertTrue(db.obter_configuracoes()["habilitarSons"])
+
 
 class TestPaginaDeUsuarios(BaseTestComApp):
     """Fluxo HTTP completo da tela de administracao (`/usuarios`):

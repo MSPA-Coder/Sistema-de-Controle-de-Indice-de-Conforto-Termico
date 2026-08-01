@@ -12,6 +12,7 @@ Rodar com:
 import unittest
 
 from app.thermal_indices import (
+    EntradaInvalidaError,
     calcular_ignu,
     calcular_itu,
     calcular_ituv,
@@ -53,6 +54,12 @@ class TestFormulas(unittest.TestCase):
         self.assertAlmostEqual(calcular_umidade_relativa(25, 20, 0), 63.0, places=1)
         self.assertAlmostEqual(calcular_ponto_orvalho(25, 20, 0), 17.5, places=1)
 
+    def test_recusa_parametros_fisicos_invalidos_sem_fallback(self):
+        with self.assertRaises(EntradaInvalidaError):
+            calcular_ituv(25, 20, 0)
+        with self.assertRaises(EntradaInvalidaError):
+            calcular_pressao_atmosferica(9001)
+
 
 class TestClassificacao(unittest.TestCase):
     def test_itu_frangos(self):
@@ -69,6 +76,12 @@ class TestClassificacao(unittest.TestCase):
         self.assertEqual(classificar_status(81.0, "bovinos", "ITU"), "Perigo")
         self.assertEqual(classificar_status(90.0, "bovinos", "ITU"), "Emergência")
 
+    def test_itu_suinos_usa_limites_da_tabela_4(self):
+        self.assertEqual(classificar_status(64.9, "suinos", "ITU"), "Conforto")
+        self.assertEqual(classificar_status(67.0, "suinos", "ITU"), "Alerta")
+        self.assertEqual(classificar_status(71.0, "suinos", "ITU"), "Perigo")
+        self.assertEqual(classificar_status(74.0, "suinos", "ITU"), "Emergência")
+
     def test_ituv_frangos(self):
         # Tabela 4: Conforto <=24, Alerta <=34, Perigo <=39, Emergencia >39
         self.assertEqual(classificar_status(16.40, "frangos", "ITUV"), "Conforto")
@@ -82,7 +95,7 @@ class TestClassificacao(unittest.TestCase):
         self.assertEqual(classificar_status(79.90, "frangos", "IGNU"), "Emergência")
 
     def test_indice_nao_disponivel_para_especie(self):
-        with self.assertRaises(Exception):
+        with self.assertRaises(EntradaInvalidaError):
             classificar_status(30.0, "bovinos", "ITUV")
 
     def test_status_atinge_minimo_aceita_status_com_ou_sem_acento(self):

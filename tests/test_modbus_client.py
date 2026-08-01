@@ -18,7 +18,7 @@ class _RespostaFalsa:
         self.bits = [] if bits is None else bits
         self._erro = erro
 
-    def isError(self):
+    def isError(self):  # noqa: N802 - contrato da resposta pymodbus.
         return self._erro
 
 

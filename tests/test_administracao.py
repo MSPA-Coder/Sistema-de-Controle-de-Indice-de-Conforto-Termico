@@ -44,19 +44,19 @@ class _ServidorEmThread:
 
 class TestTokenInterno(unittest.TestCase):
     """Não usa `TestCasePostgres`: `obter_ou_criar_token_interno` grava
-    `interno_token.txt` no diretório de `db.DB_PATH` só como local de
+    `interno_token.txt` no diretório de `db.INSTANCE_DIR` só como local de
     instância compartilhado -- nunca abre uma conexão de banco. O tempdir
     aqui isola esse arquivo (evita gravar no `instance/` real do projeto e
     evita que um token de uma execução vaze para a próxima)."""
 
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
-        self.db_path_original = db.DB_PATH
-        db.DB_PATH = os.path.join(self.tempdir.name, "historico.db")
+        self.instance_dir_original = db.INSTANCE_DIR
+        db.INSTANCE_DIR = self.tempdir.name
         self.token_ambiente_original = os.environ.pop("CONFORTO_INTERNO_TOKEN", None)
 
     def tearDown(self):
-        db.DB_PATH = self.db_path_original
+        db.INSTANCE_DIR = self.instance_dir_original
         self.tempdir.cleanup()
         if self.token_ambiente_original is not None:
             os.environ["CONFORTO_INTERNO_TOKEN"] = self.token_ambiente_original

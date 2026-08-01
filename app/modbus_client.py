@@ -35,8 +35,8 @@ try:
 
     PYMODBUS_DISPONIVEL = True
 except ImportError:  # pragma: no cover - exercitado apenas sem a lib instalada
-    ModbusSerialClient = None  # type: ignore[assignment]
-    ModbusTcpClient = None  # type: ignore[assignment]
+    ModbusSerialClient = None  # type: ignore[assignment,misc]
+    ModbusTcpClient = None  # type: ignore[assignment,misc]
     PYMODBUS_DISPONIVEL = False
 
 

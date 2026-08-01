@@ -31,6 +31,7 @@ import os
 import re
 import secrets
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 from flask import (
     Blueprint,
@@ -49,6 +50,9 @@ from flask_limiter.util import get_remote_address
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from . import database as db
+
+if TYPE_CHECKING:
+    from flask.typing import ResponseReturnValue
 
 # ---------------------------------------------------------------------------
 # Perfis, areas e rotulos de exibicao
@@ -140,7 +144,7 @@ def obter_token_csrf() -> str:
     if not token:
         token = secrets.token_urlsafe(32)
         session["_csrf_token"] = token
-    return token
+    return cast("str", token)
 
 
 # ---------------------------------------------------------------------------
@@ -177,15 +181,7 @@ def obter_ou_criar_chave_secreta() -> str:
     if variavel_ambiente:
         return variavel_ambiente
 
-    # Deliberadamente `os.path.dirname(db.DB_PATH)` (avaliado agora, na
-    # CHAMADA) em vez de `db.INSTANCE_DIR` (fixo, resolvido na importacao
-    # do modulo): em producao os dois caminhos coincidem, mas os testes
-    # sobrescrevem `db.DB_PATH` para um diretorio temporario isolado por
-    # teste -- usar o caminho fixo faria toda chave de sessao de teste ser
-    # lida/gravada no `instance/` REAL do projeto (poluindo o repositorio
-    # local a cada execucao da suite) em vez de ficar isolada no tempdir do
-    # proprio teste, junto do `historico.db` que ela protege.
-    caminho = Path(os.path.dirname(db.DB_PATH)) / "secret_key.txt"
+    caminho = Path(db.INSTANCE_DIR) / "secret_key.txt"
     try:
         chave_existente = caminho.read_text(encoding="utf-8").strip()
         if chave_existente:
@@ -217,8 +213,8 @@ def obter_ou_criar_token_interno() -> str:
     e IGUAL nos dois processos -- sem isso, cada lado geraria e
     persistiria um token diferente e a chamada interna sempre falharia
     com 403. Essa limitacao acompanha a mesma premissa ja documentada no
-    README para o proprio banco SQLite (arquitetura pensada para as duas
-    partes no MESMO host)."""
+    README para a implantação em contêineres (as duas partes compartilham
+    a mesma origem de segredo)."""
     variavel_ambiente = os.environ.get("CONFORTO_INTERNO_TOKEN")
     if variavel_ambiente:
         return variavel_ambiente
@@ -232,7 +228,7 @@ def obter_ou_criar_token_interno() -> str:
             raise RuntimeError("CONFORTO_INTERNO_TOKEN_FILE está vazio.")
         return token
 
-    caminho = Path(os.path.dirname(db.DB_PATH)) / "interno_token.txt"
+    caminho = Path(db.INSTANCE_DIR) / "interno_token.txt"
     try:
         token_existente = caminho.read_text(encoding="utf-8").strip()
         if token_existente:
@@ -336,7 +332,7 @@ def usuario_atual() -> dict | None:
     return getattr(g, "usuario", None)
 
 
-def _negar_acesso():
+def _negar_acesso() -> ResponseReturnValue:
     if request.path.startswith("/api/"):
         return jsonify({"erro": "Seu perfil não tem acesso a esta função."}), 403
     return redirect(url_for("comum.index"))
@@ -350,7 +346,7 @@ def registrar_autenticacao(app: Flask) -> None:
     app.jinja_env.globals["csrf_token"] = obter_token_csrf
 
     @app.before_request
-    def _proteger_csrf():
+    def _proteger_csrf() -> ResponseReturnValue | None:
         # A suíte usa clientes Flask isolados e testa autorização
         # separadamente. Um teste dedicado cobre esta proteção com TESTING
         # desabilitado.
@@ -369,7 +365,7 @@ def registrar_autenticacao(app: Flask) -> None:
         return "Token CSRF inválido ou ausente.", 400
 
     @app.before_request
-    def _carregar_usuario_da_sessao():
+    def _carregar_usuario_da_sessao() -> None:
         g.usuario = None
         usuario_id = session.get("usuario_id")
         if usuario_id is None:
@@ -387,7 +383,7 @@ def registrar_autenticacao(app: Flask) -> None:
         return None
 
     @app.before_request
-    def _exigir_login_e_area():
+    def _exigir_login_e_area() -> ResponseReturnValue | None:
         endpoint = request.endpoint or ""
         if (
             endpoint in ENDPOINTS_ISENTOS_DE_LOGIN
@@ -436,7 +432,7 @@ def _destino_pos_login(bruto: str) -> str:
 
 @auth_bp.route("/login", methods=["GET", "POST"])
 @obter_limiter().limit("5 per minute")
-def login():
+def login() -> ResponseReturnValue:
     from .audit_log import log_login_falha, log_login_sucesso
 
     if g.usuario is not None:
@@ -481,7 +477,7 @@ def login():
 
 
 @auth_bp.route("/logout", methods=["POST"])
-def logout():
+def logout() -> ResponseReturnValue:
     session.clear()
     return redirect(url_for("auth.login"))
 
@@ -499,7 +495,7 @@ usuarios_bp = Blueprint("usuarios", __name__, url_prefix="/usuarios")
 
 
 @usuarios_bp.route("/", methods=["GET"])
-def pagina_usuarios():
+def pagina_usuarios() -> ResponseReturnValue:
     return render_template(
         "usuarios.html",
         usuarios=db.listar_usuarios(),
@@ -510,7 +506,7 @@ def pagina_usuarios():
 
 
 @usuarios_bp.route("/novo", methods=["GET", "POST"])
-def criar_usuario_rota():
+def criar_usuario_rota() -> ResponseReturnValue:
     erro = None
     valores = {"nome": "", "login": "", "perfil": "operador", "ativo": True}
 
@@ -543,7 +539,7 @@ def criar_usuario_rota():
 
 
 @usuarios_bp.route("/<int:usuario_id>/editar", methods=["GET", "POST"])
-def editar_usuario_rota(usuario_id: int):
+def editar_usuario_rota(usuario_id: int) -> ResponseReturnValue:
     usuario = db.obter_usuario(usuario_id)
     if usuario is None:
         return redirect(url_for("usuarios.pagina_usuarios"))
@@ -598,7 +594,7 @@ def editar_usuario_rota(usuario_id: int):
 
 
 @usuarios_bp.route("/<int:usuario_id>/excluir", methods=["POST"])
-def excluir_usuario_rota(usuario_id: int):
+def excluir_usuario_rota(usuario_id: int) -> ResponseReturnValue:
     if usuario_id == g.usuario["id"]:
         # Mesma logica do bloqueio em editar_usuario_rota: excluir a
         # propria conta enquanto logado nela e sempre um auto-lockout,

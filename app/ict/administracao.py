@@ -14,6 +14,20 @@ from .coletor_client import chamar_coletor
 
 administracao_bp = Blueprint("administracao", __name__)
 
+CHAVES_CONFIGURACOES_NAO_TECNICAS = frozenset(
+    {
+        "coletarDados",
+        "habilitarSons",
+        "enviarEmails",
+        "emailDestino",
+        "statusMinimoEmail",
+        "modoPontoOrvalho",
+        "modoUmidadeRelativa",
+        "especie",
+        "indice",
+    }
+)
+
 
 def _configuracoes_publicas(config: dict) -> dict:
     """Nunca deixa a senha SMTP sair do servidor -- mesma mascara que
@@ -46,6 +60,14 @@ def obter_configuracoes():
 @administracao_bp.route("/api/configuracoes", methods=["POST"])
 def salvar_configuracoes():
     dados = request.get_json(force=True, silent=True) or {}
+    from .. import auth
+
+    usuario = auth.usuario_atual()
+    perfil = usuario["perfil"] if usuario else ""
+    if not auth.area_permitida(perfil, "sistema"):
+        chaves_tecnicas = set(dados) - CHAVES_CONFIGURACOES_NAO_TECNICAS
+        if chaves_tecnicas:
+            return jsonify({"erro": "Seu perfil não pode alterar configurações técnicas."}), 403
     salvas = db.salvar_configuracoes(dados)
     return jsonify(_configuracoes_publicas(salvas))
 

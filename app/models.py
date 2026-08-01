@@ -225,9 +225,10 @@ class Email:
             # "Bcc:") via quebras de linha ou caracteres de controle.
             self._enviado = False
             return False
+        host = str(host)
         porta = smtp_config.get("porta") or int(os.environ.get("SMTP_PORT", "587"))
-        usuario = smtp_config.get("usuario") or os.environ.get("SMTP_USER")
-        senha = smtp_config.get("senha") or os.environ.get("SMTP_PASS")
+        usuario = str(smtp_config.get("usuario") or os.environ.get("SMTP_USER") or "")
+        senha = str(smtp_config.get("senha") or os.environ.get("SMTP_PASS") or "")
         try:
             msg = MIMEText(self.conteudo, _charset="utf-8")
             msg["Subject"] = "Alerta - Sistema de Controle dos Índices de Conforto Térmico"

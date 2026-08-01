@@ -46,11 +46,17 @@ _migracoes_aplicadas = False
 
 
 def banco_teste_configurado() -> bool:
-    """True quando o ambiente aponta para algum PostgreSQL (nunca decide,
-    sozinho, se é ou não o operacional -- isso é responsabilidade de quem
-    configura o ambiente que executa a suíte)."""
+    """Confirma um alvo de teste explicitamente identificado.
 
-    return bool(os.environ.get("DATABASE_URL") or os.environ.get("DB_HOST"))
+    `limpar_banco_teste` executa TRUNCATE; portanto, presença de uma conexão
+    PostgreSQL não é suficiente para autorizar a suíte a utilizá-la.
+    """
+
+    return (
+        os.environ.get("CONFORTO_TESTING") == "1"
+        and os.environ.get("DB_NAME") == "conforto_termico_teste"
+        and bool(os.environ.get("DATABASE_URL") or os.environ.get("DB_HOST"))
+    )
 
 
 def _aplicar_migracoes_uma_vez() -> None:
@@ -81,7 +87,13 @@ def _tabelas_das_schemas_de_teste(conn) -> list[tuple[str, str]]:
 
 def limpar_banco_teste() -> None:
     """Esvazia todas as tabelas do PostgreSQL de teste configurado no
-    ambiente (nunca o operacional -- ver módulo)."""
+    ambiente de teste explicitamente identificado."""
+
+    if not banco_teste_configurado():
+        raise RuntimeError(
+            "Recusado TRUNCATE fora do PostgreSQL descartável: defina "
+            "CONFORTO_TESTING=1 e DB_NAME=conforto_termico_teste."
+        )
 
     conn = db_backend.abrir_conexao_postgres("historico")
     try:
@@ -110,10 +122,9 @@ class TestCasePostgres(unittest.TestCase):
         super().setUpClass()
         if not banco_teste_configurado():
             raise unittest.SkipTest(
-                "PostgreSQL de teste não configurado (DB_HOST/DB_PASSWORD_FILE "
-                "ou DATABASE_URL ausentes). Suba `compose.test.yaml` e exporte "
-                "as variáveis antes de rodar esta suíte -- ver README.md, "
-                "seção 'Testes'."
+                "PostgreSQL de teste não configurado com segurança. Use o serviço "
+                "`test` de `compose.test.yaml`, que define CONFORTO_TESTING=1 e "
+                "DB_NAME=conforto_termico_teste."
             )
         if not db_backend.postgres_ativo():
             raise unittest.SkipTest(
