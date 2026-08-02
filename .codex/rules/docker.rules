@@ -1,0 +1,26 @@
+# Fluxo Docker documentado para este projeto. Operacoes destrutivas, login e
+# publicacao em registry continuam sujeitos a aprovacao normal.
+
+prefix_rule(
+    pattern = ["docker", ["version", "info"]],
+    decision = "allow",
+    justification = "Diagnostico do Docker Desktop para este projeto confiavel.",
+)
+
+prefix_rule(
+    pattern = ["docker", "compose", ["version", "config", "ps", "logs", "build", "pull", "up", "run", "exec", "start", "stop", "restart"]],
+    decision = "allow",
+    justification = "Fluxo Docker Compose container-first deste projeto confiavel.",
+)
+
+prefix_rule(
+    pattern = ["docker", "compose", "--env-file", ".env.docker", ["config", "ps", "logs", "build", "pull", "up", "run", "exec", "start", "stop", "restart"]],
+    decision = "allow",
+    justification = "Fluxo Docker Compose oficial com .env.docker.",
+)
+
+prefix_rule(
+    pattern = ["docker", "compose", "-f", "compose.test.yaml", ["config", "ps", "logs", "build", "pull", "up", "run", "exec", "start", "stop", "restart"]],
+    decision = "allow",
+    justification = "Pilha PostgreSQL descartavel usada pelos testes.",
+)
