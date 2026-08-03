@@ -4,8 +4,13 @@ O arquivo gerado não inclui metadados locais, caches, bancos SQLite,
 ambientes virtuais, logs ou temporários.
 
 Uso, a partir da raiz do projeto:
-    python scripts/gerar_zip_limpo.py
-    python scripts/gerar_zip_limpo.py --output ../ConfortoTermico_clean.zip
+    docker compose --env-file .env.docker run --rm --no-deps \
+        -v "${PWD}/dist:/output" ict \
+        python scripts/gerar_zip_limpo.py --output /output/ConfortoTermico_clean.zip
+
+O utilitário deve ser executado na imagem Docker do projeto. O destino precisa
+ser um volume gravável porque os contêneres operacionais usam filesystem de
+somente leitura.
 """
 
 from __future__ import annotations

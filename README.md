@@ -119,6 +119,18 @@ A ação de backup da interface usa `pg_dump` em formato custom e inclui o banco
 completo — schemas `historico` e `dados_entrada`, extensões e revisão Alembic —
 no volume de instância da aplicação.
 
+### Consolidação do histórico Alembic
+
+O schema consolidado tem o baseline `20260803_0001_baseline`. Bancos novos são
+criados por `alembic upgrade head`. Um banco existente no histórico anterior só
+deve ser adotado explicitamente, após o backup e a verificação estrutural que o
+comando realiza; `stamp` não executa DDL e não altera dados:
+
+```powershell
+docker compose --env-file .env.docker exec ict python -m scripts.adotar_baseline_alembic
+docker compose --env-file .env.docker exec ict python -m scripts.adotar_baseline_alembic --adotar
+```
+
 O suporte a equipamentos Modbus reais já está incluído na imagem.
 
 ## Primeiro acesso
@@ -280,8 +292,14 @@ Sistema. Não trate o diretório de código como armazenamento persistente.
 Para criar uma distribuição do código sem bancos, ambiente virtual, caches e metadados locais:
 
 ```powershell
-python scripts/gerar_zip_limpo.py
+New-Item -ItemType Directory -Force dist
+docker compose --env-file .env.docker run --rm --no-deps `
+  -v "${PWD}/dist:/output" ict `
+  python scripts/gerar_zip_limpo.py --output /output/ConfortoTermico_clean.zip
 ```
+
+O arquivo gerado fica em `dist/ConfortoTermico_clean.zip`. A geração usa a
+imagem do projeto; não requer Python instalado no host.
 
 ## Dados de demonstração
 
@@ -355,6 +373,7 @@ descartável. Crie uma senha de teste em `.secrets/postgres_password_teste.txt`
 ```powershell
 docker compose -f compose.test.yaml --profile tools build test
 docker compose -f compose.test.yaml up -d --wait postgres_teste
+docker compose -f compose.test.yaml --profile tools run --rm test python -m scripts.run_test_category critical
 docker compose -f compose.test.yaml --profile tools run --rm test ruff check app scripts tests
 docker compose -f compose.test.yaml --profile tools run --rm test ruff format --check app scripts tests
 docker compose -f compose.test.yaml --profile tools run --rm test mypy app scripts

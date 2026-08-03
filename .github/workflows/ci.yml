@@ -31,6 +31,9 @@ jobs:
       - name: Subir PostgreSQL descartavel
         run: docker compose -f compose.test.yaml up -d --wait postgres_teste
 
+      - name: Controles críticos primeiro
+        run: docker compose -f compose.test.yaml --profile tools run --rm test python -m scripts.run_test_category critical
+
       - name: Lint e formato
         run: |
           docker compose -f compose.test.yaml --profile tools run --rm test ruff check app scripts tests

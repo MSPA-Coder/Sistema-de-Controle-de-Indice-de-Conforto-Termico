@@ -219,7 +219,13 @@ def criar_app_ict(config: AppConfig | None = None) -> Flask:
     @app.get("/health")
     @limiter.exempt
     def health_ict():
-        """Health check completo que valida DB e status do coletor."""
+        """Health check do ICT que valida sua dependência de persistência.
+
+        O coletor é supervisionado por seu próprio health check no Compose.
+        Acoplá-lo a esta sonda faria o Docker reiniciar o ICT durante uma
+        indisponibilidade transitória do coletor, inclusive quando o ICT ainda
+        consegue oferecer consultas e autenticação normalmente.
+        """
         import logging
 
         logger = logging.getLogger(__name__)
