@@ -1,0 +1,12 @@
+# Dependencias do estagio `quality` da imagem. Nunca entram no `runtime`.
+#
+# Instaladas sobre as de execucao porque a suite mede o codigo real:
+# cabecalhos, CSRF e autenticacao sao verificados por inspecao das funcoes
+# de `app/auth.py` (via inspect.getsource) e comparacao de constantes, sem
+# instanciar a fabrica nem usar app.test_client() -- ver o risco registrado
+# em AGENTS.md sobre o que essa suite nao cobre.
+
+-r requirements.txt
+
+ruff>=0.12,<1
+pytest>=8.3,<9

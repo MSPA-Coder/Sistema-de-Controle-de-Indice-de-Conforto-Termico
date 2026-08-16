@@ -1,0 +1,172 @@
+name: conforto-termico
+
+x-app-build: &app-build
+  context: .
+  target: runtime
+  secrets:
+    - local_ca
+
+x-database-environment: &database-environment
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  DB_NAME: ${POSTGRES_DB:-conforto_termico}
+  DB_USER: ${POSTGRES_USER:-conforto}
+  DB_PASSWORD_FILE: /run/secrets/postgres_password
+  TZ: America/Sao_Paulo
+
+x-app-security: &app-security
+  read_only: true
+  pids_limit: 256
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  tmpfs:
+    - /tmp:rw,nosuid,nodev,noexec,size=64m
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    mem_limit: 768m
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-conforto_termico}
+      POSTGRES_USER: ${POSTGRES_USER:-conforto}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      TZ: America/Sao_Paulo
+    secrets:
+      - postgres_password
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-conforto} -d ${POSTGRES_DB:-conforto_termico}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+      start_interval: 1s
+    stop_grace_period: 60s
+
+  schema:
+    image: conforto-termico:local
+    build: *app-build
+    <<: *app-security
+    mem_limit: 512m
+    environment:
+      <<: *database-environment
+    secrets:
+      - postgres_password
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    stop_grace_period: 30s
+    logging: *default-logging
+
+  coletor:
+    image: conforto-termico:local
+    restart: unless-stopped
+    init: true
+    <<: *app-security
+    mem_limit: 256m
+    environment:
+      <<: *database-environment
+      CONFORTO_HOST: 0.0.0.0
+      CONFORTO_PORT: "5000"
+      CONFORTO_DEBUG: "0"
+      CONFORTO_INTERNO_TOKEN_FILE: /run/secrets/internal_token
+    secrets:
+      - postgres_password
+      - internal_token
+    expose:
+      - "5000"
+    depends_on:
+      schema:
+        condition: service_completed_successfully
+    command: ["python", "run_coletor.py"]
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=3)"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+      start_interval: 1s
+    stop_grace_period: 30s
+    logging: *default-logging
+
+  ict:
+    image: conforto-termico:local
+    restart: unless-stopped
+    init: true
+    <<: *app-security
+    mem_limit: 256m
+    environment:
+      <<: *database-environment
+      CONFORTO_HOST: 0.0.0.0
+      CONFORTO_PORT: "5000"
+      CONFORTO_DEBUG: ${CONFORTO_DEBUG:-0}
+      CONFORTO_SESSION_COOKIE_NAME: ${CONFORTO_SESSION_COOKIE_NAME:-conforto_session}
+      CONFORTO_INTERNO_TOKEN_FILE: /run/secrets/internal_token
+      COLETOR_URL: http://coletor:5000
+    secrets:
+      - postgres_password
+      - internal_token
+    ports:
+      - "127.0.0.1:${APP_PORT:-5000}:5000"
+    volumes:
+      - app_instance:/workspace/instance
+    depends_on:
+      schema:
+        condition: service_completed_successfully
+      coletor:
+        condition: service_healthy
+    command: ["python", "run_ict.py"]
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=3)"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+      start_interval: 1s
+    stop_grace_period: 30s
+    logging: *default-logging
+
+  # Ruff e a suíte mínima de segurança. Fica atrás de um perfil para não subir
+  # junto com a aplicação: `docker compose --profile quality run --rm quality`.
+  quality:
+    build:
+      context: .
+      target: quality
+      secrets:
+        - local_ca
+    profiles: ["quality"]
+
+volumes:
+  postgres_data:
+  app_instance:
+
+secrets:
+  local_ca:
+    file: .certs/local-root-ca.crt
+  postgres_password:
+    file: .secrets/postgres_password.txt
+  internal_token:
+    file: .secrets/internal_token.txt

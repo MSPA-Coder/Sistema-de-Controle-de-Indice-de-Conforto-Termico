@@ -1,0 +1,15 @@
+{
+  "padrao": {
+    "debug": false,
+    "host": "127.0.0.1",
+    "port": 5000,
+    "threaded": true,
+    "max_content_length": 1000000
+  },
+  "ict": {
+    "port": 5000
+  },
+  "coletor": {
+    "port": 5001
+  }
+}

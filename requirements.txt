@@ -1,0 +1,19 @@
+Flask>=3.0,<4.0
+SQLAlchemy>=2.0,<3.0
+psycopg[binary]>=3.2,<4.0
+alembic>=1.14,<2.0
+# Servidor WSGI de produção usado pelos dois serviços no contêiner.
+waitress>=3.0,<4.0
+# Base IANA de fusos horários usada por ZoneInfo.
+tzdata>=2025.2,<2027
+# Cadeia de autoridades certificadoras usada nas consultas HTTPS do clima.
+certifi>=2025.1,<2027
+# Usa o armazenamento nativo de certificados quando disponível.
+truststore>=0.10,<1
+# A imagem é imutável: o suporte Modbus precisa estar presente no build.
+pymodbus[serial]>=3.8,<4.0
+# Rate limiting para proteção contra brute-force e DoS
+Flask-Limiter>=3.0,<4.0
+# Ferramentas de qualidade de código
+# Testes
+# Documentação de API

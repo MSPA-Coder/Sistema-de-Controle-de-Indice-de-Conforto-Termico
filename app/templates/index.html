@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="csrf-token" content="{{ csrf_token() }}">
+<title>Conforto Térmico</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+<div class="app-shell">
+
+  <!-- Identificacao da sessao e atalhos de administracao. -->
+  <header class="app-topo-sessao">
+    <span class="app-topo-sessao-usuario">
+      Logado como <strong>{{ usuario_atual.nome }}</strong>
+      ({{ perfil_label.get(usuario_atual.perfil, usuario_atual.perfil) }})
+    </span>
+    <span class="app-topo-sessao-acoes">
+      {% if "usuarios" in areas_permitidas %}
+      <a href="{{ url_for('usuarios.pagina_usuarios') }}" class="botao botao--texto">Gerenciar usuários</a>
+      {% endif %}
+      <form method="post" action="{{ url_for('auth.logout') }}" class="app-topo-sessao-logout">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="botao botao--texto">Sair</button>
+      </form>
+    </span>
+  </header>
+
+  <!-- Abas agrupadas por area de uso. -->
+  <!-- Cada `div.abas-grupo` e `role="presentation"`: existe so para agrupar -->
+  <!-- visualmente: o `role="tablist"` continua em `nav.abas-app` e os -->
+  <!-- botoes continuam `role="tab"`, preservando a arvore de acessibilidade. -->
+  <!-- Cada botão exige a área correspondente em `areas_permitidas`. Essa é
+  -- a metade visual; a autorização real também é aplicada pelo servidor. -->
+  <nav class="abas-app" role="tablist" aria-label="Navegação do app">
+    <div class="abas-grupo" role="presentation">
+      <span class="abas-grupo-rotulo">Monitoramento</span>
+      {% if "dashboard" in areas_permitidas %}
+      <button class="aba-botao{{ ' ativo' if aba_inicial == 'principal' else '' }}" type="button" role="tab" data-aba="principal" aria-controls="aba-principal" aria-selected="{{ 'true' if aba_inicial == 'principal' else 'false' }}">Dashboard</button>
+      {% endif %}
+      {% if "analises" in areas_permitidas %}
+      <button class="aba-botao{{ ' ativo' if aba_inicial == 'analises' else '' }}" type="button" role="tab" data-aba="analises" aria-controls="aba-analises" aria-selected="{{ 'true' if aba_inicial == 'analises' else 'false' }}">Análises</button>
+      {% endif %}
+      {% if "historico" in areas_permitidas %}
+      <button class="aba-botao" type="button" role="tab" data-aba="historico" aria-controls="aba-historico" aria-selected="false">Histórico</button>
+      {% endif %}
+    </div>
+    {% if "operacao" in areas_permitidas %}
+    <div class="abas-grupo" role="presentation">
+      <span class="abas-grupo-rotulo">Operação</span>
+      <button class="aba-botao" type="button" role="tab" data-aba="operacao" aria-controls="aba-operacao" aria-selected="false">Operação</button>
+    </div>
+    {% endif %}
+    {% if "cadastro" in areas_permitidas or "configuracoes" in areas_permitidas or "sistema" in areas_permitidas %}
+    <div class="abas-grupo" role="presentation">
+      <span class="abas-grupo-rotulo">Administração</span>
+      {% if "cadastro" in areas_permitidas %}
+      <button class="aba-botao" type="button" role="tab" data-aba="zonas" aria-controls="aba-zonas" aria-selected="false">Cadastro</button>
+      {% endif %}
+      {% if "configuracoes" in areas_permitidas %}
+      <button class="aba-botao" type="button" role="tab" data-aba="configuracoes" aria-controls="aba-configuracoes" aria-selected="false">Configurações</button>
+      {% endif %}
+      {% if "sistema" in areas_permitidas %}
+      <button class="aba-botao" type="button" role="tab" data-aba="sistema" aria-controls="aba-sistema" aria-selected="false">Sistema</button>
+      {% endif %}
+    </div>
+    {% endif %}
+    {% if "dados_entrada" in areas_permitidas %}
+    <div class="abas-grupo" role="presentation">
+      <span class="abas-grupo-rotulo">Dados</span>
+      <button class="aba-botao" type="button" role="tab" data-aba="dados-entrada" aria-controls="aba-dados-entrada" aria-selected="false">Dados de entrada</button>
+    </div>
+    {% endif %}
+  </nav>
+
+  <main id="aba-principal" class="grade aba-conteudo{{ '' if aba_inicial == 'principal' else ' oculto' }}" data-aba-conteudo="principal">
+
+    <!-- Valores de entrada ------------------------------------------------->
+    <section class="painel entradas-grafico-painel">
+      <div class="grafico-bloco grafico-bloco--sem-moldura">
+        <p class="grafico-titulo">Valores de entrada por leitura</p>
+        <div class="grafico-canvas-wrap"><canvas id="grafico-entradas"></canvas></div>
+      </div>
+    </section>
+
+    <!-- Selecao e estado somente-leitura ---------------------------------------------->
+    <section class="painel dashboard-status-painel">
+      <div class="zona-principal-linha">
+        <div class="campo-config">
+          <label for="zona-dashboard">Zona monitorada</label>
+          <select id="zona-dashboard"></select>
+        </div>
+        <div id="dashboard-coletor-status" class="coletor-status">Coletor: aguardando heartbeat</div>
+      </div>
+      <div class="dashboard-entradas-bloco">
+        <p class="grafico-titulo">Dados de entrada da última leitura</p>
+        <div id="campos-entrada-dashboard" class="campos-entrada campos-entrada--somente-leitura"></div>
+      </div>
+    </section>
+
+    <div id="linhas-zonas-principal" class="linhas-zonas-principal"></div>
+
+    <!-- E-mail simulado -------------------------------------------------------------------->
+    <section id="secao-email" class="painel email-painel oculto">
+      <div id="email-status" class="email-status"></div>
+      <pre id="email-conteudo" class="email-recibo"></pre>
+    </section>
+
+    <!-- Historico em tabela ------------------------------------------------------------------>
+    <section class="painel tabela-painel">
+      <div id="historico-acoes" class="tabela-cabecalho">
+        <p class="grafico-titulo">Histórico de leituras</p>
+        <div class="historico-filtros" aria-label="Filtros do historico">
+          <label class="historico-filtro" for="filtro-historico-status">
+            <span>Status</span>
+            <select id="filtro-historico-status">
+              <option value="">Todos</option>
+              <option value="Conforto">Conforto</option>
+              <option value="Alerta">Alerta</option>
+              <option value="Perigo">Perigo</option>
+              <option value="Emergência">Emergência</option>
+            </select>
+          </label>
+        </div>
+        <button id="btn-toggle-historico" class="botao botao--fantasma botao--compacto" type="button" aria-expanded="false">Expandir</button>
+      </div>
+      <div id="historico-corpo" class="historico-corpo oculto">
+      <div class="tabela-scroll">
+        <table id="tabela-historico">
+          <thead>
+            <tr><th>Hora</th><th>Índice</th><th>Entradas</th><th>Valor</th><th>Status</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+        <div id="historico-paginacao" class="historico-paginacao">
+          <button id="btn-historico-anterior" class="botao botao--fantasma botao--compacto" type="button">Anterior</button>
+          <span id="historico-pagina-info" class="historico-pagina-info">Página 1 de 1</span>
+          <button id="btn-historico-proximo" class="botao botao--fantasma botao--compacto" type="button">Próxima</button>
+        </div>
+      </div>
+      <p id="tabela-vazia" class="tabela-vazia">Nenhuma leitura registrada ainda para esta zona.</p>
+    </section>
+
+  </main>
+
+  <section id="aba-operacao" class="grade aba-conteudo oculto" data-aba-conteudo="operacao" role="tabpanel">
+    <section class="painel operacao-painel">
+      <div class="operacao-cabecalho">
+        <div>
+          <h2 class="painel-titulo">Supervisão e operação</h2>
+          <p class="dashboard-somente-leitura">Selecione o modo antes de calcular ou enviar comandos. O ciclo automático roda no backend.</p>
+        </div>
+        <div id="operacao-coletor-status" class="coletor-status">Coletor: aguardando heartbeat</div>
+      </div>
+
+      <div class="operacao-grade">
+        <div class="campo-config">
+          <label for="zona-principal">Zona ativa</label>
+          <select id="zona-principal"></select>
+        </div>
+        <div class="campo-config">
+          <label for="operacao-modo">Modo operacional</label>
+          <select id="operacao-modo">
+            <option value="desligado">Desligado</option>
+            <option value="manual">Manual</option>
+            <option value="automatico">Automático</option>
+            <option value="manutencao">Manutenção</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="config-grade operacao-travas">
+        <label class="check"><input type="checkbox" id="cfg-equipamentos"><span>Permitir acionamento físico global</span></label>
+        <label class="check"><input type="checkbox" id="operacao-acionamento-zona"><span>Permitir acionamento físico desta zona</span></label>
+        <label class="check"><input type="checkbox" id="cfg-coletar"><span>Usar sensores remotos no ciclo manual</span></label>
+        <label class="check oculto"><input type="checkbox" id="cfg-sons"><span>Habilitar sons de alerta</span></label>
+        <label class="check oculto"><input type="checkbox" id="cfg-emails"><span>Enviar e-mails de aviso</span></label>
+      </div>
+
+      <section class="operacao-ciclo-manual" aria-labelledby="operacao-ciclo-manual-titulo">
+        <h3 id="operacao-ciclo-manual-titulo" class="grafico-titulo">Dados processados do ciclo</h3>
+        <p class="operacao-ajuda">No modo manual, estes valores alimentam o cálculo da zona. No automático, mostram os últimos valores processados.</p>
+        <div id="campos-entrada" class="campos-entrada"></div>
+      </section>
+
+      <section class="operacao-equipamentos-secao" aria-labelledby="operacao-equipamentos-titulo">
+        <div class="operacao-secao-cabecalho">
+          <h3 id="operacao-equipamentos-titulo" class="grafico-titulo">Equipamentos da zona</h3>
+          <span class="operacao-ajuda">Identificação e estado de cada equipamento cadastrado</span>
+        </div>
+        <div id="operacao-equipamentos" class="operacao-equipamentos"></div>
+      </section>
+
+      <div class="acao-linha operacao-acoes operacao-acoes--ciclo">
+        <button id="btn-calcular" class="botao botao--primario" type="button">Executar ciclo manual</button>
+      </div>
+      <div class="operacao-comandos-grupo">
+        <p class="grafico-titulo">Comandos coletivos da zona</p>
+        <p class="operacao-ajuda">Cada comando mantém o comportamento atual e atua em todos os equipamentos do tipo selecionado.</p>
+        <div class="acao-linha operacao-acoes">
+        <button class="botao botao--fantasma" type="button" data-comando-tipo="ventilador" data-comando-ligar="true">Ligar ventilador</button>
+        <button class="botao botao--fantasma" type="button" data-comando-tipo="ventilador" data-comando-ligar="false">Desligar ventilador</button>
+        <button class="botao botao--fantasma" type="button" data-comando-tipo="nebulizador" data-comando-ligar="true">Ligar nebulizador</button>
+        <button class="botao botao--fantasma" type="button" data-comando-tipo="nebulizador" data-comando-ligar="false">Desligar nebulizador</button>
+        </div>
+      </div>
+      <div id="operacao-estado-atuadores" class="operacao-estado-atuadores">Sem estado operacional registrado.</div>
+      <p id="mensagem-erro" class="mensagem-erro oculto" role="alert"></p>
+    </section>
+
+    <section class="painel tabela-painel">
+      <div class="tabela-cabecalho"><p class="grafico-titulo">Eventos recentes de operação</p></div>
+      <div id="operacao-eventos" class="operacao-eventos"></div>
+    </section>
+
+    <div id="wrap-email-destino" class="campo-email-destino oculto">
+      <label for="email-destino">Enviar avisos para</label>
+      <input type="email" id="email-destino" placeholder="alertas@example.invalid" value="alertas@example.invalid">
+    </div>
+    <button id="btn-limpar" class="botao botao--perigo botao--compacto oculto" type="button">Limpar histórico</button>
+  </section>
+
+  <section id="aba-analises" class="grade aba-conteudo{{ '' if aba_inicial == 'analises' else ' oculto' }}" data-aba-conteudo="analises" role="tabpanel">
+    <section class="painel tabela-painel executivo-painel">
+      <div class="tabela-cabecalho">
+        <p class="grafico-titulo">Painel executivo por zona</p>
+        <div class="campo-config executivo-zona-filtro">
+          <label for="zona-executivo">Zona monitorada</label>
+          <select id="zona-executivo"></select>
+        </div>
+      </div>
+      <div id="executivo-lista" class="executivo-lista"></div>
+      <p id="executivo-vazio" class="tabela-vazia oculto">Nenhuma zona cadastrada ainda.</p>
+    </section>
+
+    <section class="painel tabela-painel">
+      <div class="tabela-cabecalho">
+        <p class="grafico-titulo">Percentual de tempo em cada condição térmica</p>
+      </div>
+      <div class="tabela-scroll">
+        <table id="tabela-analise-percentuais" class="tabela-clicavel">
+          <thead>
+            <tr><th>Zona</th><th>Conforto</th><th>Alerta</th><th>Perigo</th><th>Emergência</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p id="analise-percentuais-vazio" class="tabela-vazia oculto">Nenhuma zona cadastrada ainda.</p>
+    </section>
+
+    <section class="painel tabela-painel">
+      <div class="tabela-cabecalho">
+        <p class="grafico-titulo">Índice mínimo, médio e máximo por zona</p>
+      </div>
+      <div class="tabela-scroll">
+        <table id="tabela-analise-indices" class="tabela-clicavel">
+          <thead>
+            <tr><th>Zona</th><th>Índice</th><th>Índice mínimo</th><th>Índice médio</th><th>Índice máximo</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p id="analise-indices-vazio" class="tabela-vazia oculto">Nenhuma zona cadastrada ainda.</p>
+    </section>
+  </section>
+
+  <section id="aba-historico" class="grade grade-historico aba-conteudo oculto" data-aba-conteudo="historico" role="tabpanel">
+    <section id="historico-filtros-card" class="painel historico-filtros-painel">
+      <div class="tabela-cabecalho">
+        <p class="grafico-titulo">Filtros do histórico</p>
+        <div id="historico-filtros-slot"></div>
+        <div id="historico-controle-cabecalho" class="historico-controle-cabecalho"></div>
+      </div>
+    </section>
+
+    <section class="painel entradas-grafico-painel historico-grafico-tendencia">
+      <div class="grafico-bloco grafico-bloco--sem-moldura">
+        <div class="tabela-cabecalho">
+          <p class="grafico-titulo">Tendência do índice por resolução</p>
+          <div id="historico-resolucao-slot"></div>
+        </div>
+        <div class="grafico-canvas-wrap"><canvas id="grafico-tendencia-resolucao"></canvas></div>
+        <p id="tendencia-resolucao-legenda" class="grafico-legenda"></p>
+      </div>
+    </section>
+
+    <section class="painel entradas-grafico-painel historico-grafico-entradas">
+      <div class="grafico-bloco grafico-bloco--sem-moldura">
+        <p class="grafico-titulo">Valores de entrada no histórico</p>
+        <div class="grafico-canvas-wrap"><canvas id="grafico-historico-entradas"></canvas></div>
+      </div>
+    </section>
+
+    <section class="graficos-painel historico-graficos-indices">
+      <div id="graficos-historico-indices" class="graficos-indices"></div>
+    </section>
+
+    <div id="historico-tabela-slot" class="historico-tabela-slot"></div>
+  </section>
+
+  <section id="aba-dados-entrada" class="grade grade-dados-entrada aba-conteudo oculto" data-aba-conteudo="dados-entrada" role="tabpanel">
+    <section class="painel dados-entrada-apresentacao">
+      <h2 class="painel-titulo">Gerador de dados de entrada</h2>
+      <p class="dados-entrada-ajuda">
+        Gera uma série somente para as zonas ativas em um banco independente.
+        TBS, umidade, vento e demais variáveis externas vêm da reanálise histórica
+        ERA5 via Open-Meteo. Pontos menores que uma hora são interpolados e marcados
+        como derivados; ponto de orvalho, bulbo úmido e índices são calculados.
+      </p>
+      <p class="dados-entrada-fonte">
+        Banco de destino: PostgreSQL, schema <code>dados_entrada</code> ·
+        <a href="https://open-meteo.com/en/docs/historical-weather-api" target="_blank" rel="noreferrer">documentação da fonte meteorológica</a>
+        · rankings municipais: PPM 2024/IBGE-SIDRA
+      </p>
+    </section>
+
+    <section class="painel dados-entrada-parametros">
+      <h3 class="grafico-titulo">Período e resolução</h3>
+      <form id="form-dados-entrada-gerar">
+        <div class="campos-config dados-entrada-form-grade">
+          <div class="campo-config">
+            <label for="dados-entrada-dias">Número de dias</label>
+            <input type="number" id="dados-entrada-dias" min="1" max="366" step="1" value="30" required>
+          </div>
+          <div class="campo-config">
+            <label for="dados-entrada-intervalo">Intervalo entre dados (minutos)</label>
+            <input type="number" id="dados-entrada-intervalo" min="1" max="1440" step="1" value="5" required>
+          </div>
+          <div class="campo-config">
+            <label for="dados-entrada-data-final">Último dia (opcional)</label>
+            <input type="date" id="dados-entrada-data-final">
+          </div>
+          <div class="campo-config">
+            <label for="dados-entrada-semente">Semente da simulação animal</label>
+            <input type="number" id="dados-entrada-semente" step="1" value="20260718" required>
+          </div>
+        </div>
+        <p class="dados-entrada-ajuda">Sem data final, serão usados os dados consolidados até oito dias atrás. Períodos com horas ausentes no ERA5 são recusados, sem repetir valores. Exemplo: 30 dias a cada 5 minutos geram 8.640 registros por zona.</p>
+        <div class="acao-linha">
+          <button id="btn-gerar-dados-entrada" class="botao botao--primario" type="submit">Gerar dados para as zonas ativas</button>
+        </div>
+      </form>
+      <p id="dados-entrada-status" class="smtp-status oculto" role="status"></p>
+    </section>
+
+    <section class="painel dados-entrada-zonas-painel">
+      <div class="tabela-cabecalho">
+        <div>
+          <h3 class="grafico-titulo">Localização e lote animal por zona</h3>
+          <p class="dados-entrada-ajuda">Somente zonas ativas aparecem aqui. Informe a área útil e escolha o nível de lotação; a densidade e a quantidade de animais serão calculadas pela espécie e pelo peso. Cenários acima da média representam maior pressão de lotação, não recomendação de manejo.</p>
+        </div>
+        <button id="btn-salvar-config-dados-entrada" class="botao botao--fantasma botao--compacto" type="button">Salvar parâmetros das zonas</button>
+      </div>
+      <div id="dados-entrada-zonas" class="dados-entrada-zonas"></div>
+      <p id="dados-entrada-zonas-vazio" class="tabela-vazia oculto">Nenhuma zona ativa cadastrada.</p>
+    </section>
+
+    <section class="painel dados-entrada-arquivo-painel">
+      <h3 class="grafico-titulo">Transferência para o banco histórico</h3>
+      <p class="dados-entrada-ajuda">
+        Use a ação “Copiar para histórico” em uma geração concluída. Os dados
+        saem do schema <code>dados_entrada</code> e são inseridos no schema
+        <code>historico</code>; repetições não duplicam medições.
+      </p>
+      <div class="dados-entrada-arquivo-controles">
+        <div class="campo-config">
+          <label for="dados-entrada-confirmacao-historico">Confirmação para exclusão</label>
+          <input type="text" id="dados-entrada-confirmacao-historico" placeholder="Digite APAGAR">
+        </div>
+      </div>
+      <div class="acao-linha">
+        <button id="btn-apagar-historico-direto" class="botao botao--perigo botao--compacto" type="button">Apagar medições do histórico</button>
+      </div>
+      <p id="dados-entrada-arquivo-status" class="smtp-status oculto" role="status"></p>
+    </section>
+
+    <section class="painel dados-entrada-execucoes-painel">
+      <div class="tabela-cabecalho">
+        <div>
+          <h3 class="grafico-titulo">Gerações realizadas</h3>
+          <p id="dados-entrada-resumo-banco" class="dados-entrada-ajuda"></p>
+        </div>
+        <div class="acao-linha">
+          <a class="botao botao--fantasma botao--compacto" href="/api/dados-entrada/exportar.csv">Exportar todas em CSV</a>
+          <button id="btn-apagar-dados-gerados" class="botao botao--perigo botao--compacto" type="button">Apagar dados gerados</button>
+        </div>
+      </div>
+      <div class="tabela-scroll">
+        <table id="tabela-dados-entrada-execucoes">
+          <thead>
+            <tr><th>ID</th><th>Período</th><th>Intervalo</th><th>Zonas</th><th>Medições</th><th>No histórico</th><th>Status</th><th>Ações</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p id="dados-entrada-execucoes-vazio" class="tabela-vazia oculto">Nenhuma geração realizada.</p>
+    </section>
+  </section>
+
+  <!-- Configuracoes: fica enxuta de proposito. So o que quem decide o -->
+  <!-- limiar de alerta / manejo precisa mexer -- preferencias do app e -->
+  <!-- avisos por e-mail (quando e para quem avisar). Infraestrutura -->
+  <!-- tecnica (sensores, banco, SMTP, parametros de calculo) mudou para a -->
+  <!-- aba Sistema logo abaixo -- ver README.md. -->
+  <section id="aba-configuracoes" class="grade grade-configuracoes-enxuta aba-conteudo oculto" data-aba-conteudo="configuracoes" role="tabpanel">
+    <section class="painel configuracoes-painel configuracoes-painel--app">
+      <h2 class="painel-titulo">Preferências do app</h2>
+      <div id="configuracoes-app" class="configuracoes-bloco"></div>
+    </section>
+
+    <!-- E-mail: liga/desliga, destinatario e a partir de qual status -->
+    <!-- avisar -- decisao de manejo/alerta, nao de infraestrutura. As -->
+    <!-- credenciais do servidor SMTP em si (host/porta/usuario/senha) -->
+    <!-- ficam na aba Sistema, junto do resto da configuracao tecnica. -->
+    <section class="painel configuracoes-painel configuracoes-painel--email">
+      <h2 class="painel-titulo">Alertas por e-mail</h2>
+      <div id="configuracoes-email" class="configuracoes-bloco"></div>
+
+      <div class="campos-config">
+        <div class="campo-config">
+          <label for="cfg-status-minimo-email">Enviar a partir do status</label>
+          <select id="cfg-status-minimo-email">
+            <option value="conforto">Conforto</option>
+            <option value="alerta">Alerta</option>
+            <option value="perigo">Perigo</option>
+            <option value="emergencia">Emergência</option>
+          </select>
+        </div>
+      </div>
+      <p id="smtp-status" class="smtp-status">
+        Sem host SMTP configurado, o envio funciona em modo simulado (o e-mail é montado e mostrado na tela, mas nada é enviado de fato). Configure o servidor SMTP na aba Sistema.
+      </p>
+    </section>
+  </section>
+
+  <!-- Sistema: configuracao tecnica de instalacao -- sensores, banco de -->
+  <!-- dados, credenciais SMTP e parametros de calculo. Mexido raramente, -->
+  <!-- normalmente so na implantacao inicial ou por quem cuida do -->
+  <!-- hardware/infraestrutura (ver README.md). -->
+  <section id="aba-sistema" class="grade grade-configuracoes aba-conteudo oculto" data-aba-conteudo="sistema" role="tabpanel">
+    <div class="configuracoes-coluna">
+      <section class="painel configuracoes-painel configuracoes-painel--sensores">
+        <h2 class="painel-titulo">Sensores</h2>
+        <div id="configuracoes-sensores" class="configuracoes-bloco">
+          <div class="config-grade">
+            <label class="check">
+              <input type="checkbox" id="cfg-zonas-simulado" checked>
+              <span>Modo simulado (sem hardware Modbus real)</span>
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <section class="painel configuracoes-painel configuracoes-painel--banco">
+        <h2 class="painel-titulo">Banco de dados</h2>
+
+        <div class="campos-config">
+          <div class="campo-config">
+            <label for="cfg-intervalo-leitura">Intervalo entre leituras (segundos)</label>
+            <input type="number" id="cfg-intervalo-leitura" min="1" step="1" value="1">
+          </div>
+          <div class="campo-config">
+            <label for="cfg-intervalo-gravacao">Gravar no banco a cada (minutos)</label>
+            <input type="number" id="cfg-intervalo-gravacao" min="0" step="1" value="1">
+          </div>
+          <div class="campo-config">
+            <label for="cfg-ponto-orvalho">Ponto de orvalho</label>
+            <select id="cfg-ponto-orvalho">
+              <option value="medido">Medido</option>
+              <option value="calculado">Calculado por tbs/tbu</option>
+            </select>
+          </div>
+          <div class="campo-config">
+            <label for="cfg-umidade-relativa">Umidade relativa do ar</label>
+            <select id="cfg-umidade-relativa">
+              <option value="calculado">Calculada por tbs/tbu</option>
+              <option value="medido">Medida</option>
+            </select>
+          </div>
+          <div class="campo-config">
+            <label for="cfg-altitude">Altitude local (m)</label>
+            <input type="number" id="cfg-altitude" min="-500" max="9000" step="1" value="0">
+          </div>
+          <div class="campo-config">
+            <label for="cfg-limite-umidade-nebulizador">Limite UR nebulizador (%)</label>
+            <input type="number" id="cfg-limite-umidade-nebulizador" min="0" max="100" step="1" value="70">
+          </div>
+        </div>
+        <div id="configuracoes-historico" class="configuracoes-bloco configuracoes-bloco--acoes">
+          <button id="btn-backup-banco" class="botao botao--fantasma botao--compacto" type="button">Fazer backup do banco</button>
+        </div>
+        <p id="banco-status" class="smtp-status oculto"></p>
+      </section>
+
+    </div>
+
+    <div class="configuracoes-coluna">
+      <!-- Credenciais do servidor SMTP em si (mesmos 4 parametros ja -->
+      <!-- documentados no README como variaveis de ambiente -->
+      <!-- SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS). A decisao de "avisar a -->
+      <!-- partir de qual status" fica na aba Configuracoes, perto de quem -->
+      <!-- decide o limiar de alerta. -->
+      <section class="painel configuracoes-painel configuracoes-painel--smtp">
+        <h2 class="painel-titulo">Servidor SMTP</h2>
+        <div class="campos-config">
+          <div class="campo-config">
+            <label for="cfg-smtp-host">Servidor SMTP (host)</label>
+            <input type="text" id="cfg-smtp-host" placeholder="smtp.seuservidor.com" autocomplete="off">
+          </div>
+          <div class="campo-config">
+            <label for="cfg-smtp-porta">Porta SMTP</label>
+            <input type="number" id="cfg-smtp-porta" min="1" max="65535" step="1" value="587">
+          </div>
+          <div class="campo-config">
+            <label for="cfg-smtp-usuario">Usuário SMTP</label>
+            <input type="text" id="cfg-smtp-usuario" placeholder="usuario@seudominio.com" autocomplete="off">
+          </div>
+          <div class="campo-config">
+            <label for="cfg-smtp-senha">Senha SMTP</label>
+            <input type="password" id="cfg-smtp-senha" placeholder="Deixe em branco para manter a senha atual" autocomplete="new-password">
+          </div>
+        </div>
+      </section>
+
+      <section class="painel configuracoes-painel configuracoes-painel--calculos">
+        <h2 class="painel-titulo">C&aacute;lculos dos par&acirc;metros</h2>
+        <div id="configuracoes-calculos" class="configuracoes-bloco"></div>
+      </section>
+    </div>
+  </section>
+
+  <!-- Zonas: cadastro de zonas Modbus (sensores/ventiladores/nebulizadores) -->
+  <section id="aba-zonas" class="aba-conteudo oculto" data-aba-conteudo="zonas" role="tabpanel">
+    <section class="painel zonas-controles-painel">
+      <div class="zonas-controles">
+        <div class="campo-config">
+          <label for="filtro-zona-cadastro">Filtro de zonas</label>
+          <select id="filtro-zona-cadastro">
+            <option value="todas" selected>Todas as zonas</option>
+            <option value="ativas">Somente ativas</option>
+            <option value="inativas">Somente inativas</option>
+          </select>
+        </div>
+        <div class="campo-config">
+          <label for="zona-cadastro">Zona cadastrada</label>
+          <select id="zona-cadastro"></select>
+        </div>
+        <button id="btn-nova-zona" class="botao botao--primario" type="button">+ Nova zona</button>
+      </div>
+      <p id="zonas-aviso-pymodbus" class="smtp-status oculto"></p>
+    </section>
+
+    <div id="zonas-lista" class="zonas-lista"></div>
+    <p id="zonas-vazio" class="tabela-vazia oculto">Nenhuma zona cadastrada ainda.</p>
+  </section>
+
+</div>
+
+<dialog id="dialog-zona" class="dialog-app">
+  <form id="form-zona" method="dialog" novalidate>
+    <h3 id="dialog-zona-titulo" class="painel-titulo">Nova zona</h3>
+    <div class="campos-config">
+      <div class="campo-config">
+        <label for="zona-nome">Nome da zona</label>
+        <input type="text" id="zona-nome" maxlength="255" placeholder="Ex.: Aviário 1 - Galpão A" required>
+      </div>
+      <div class="campo-config">
+        <label for="zona-especie">Espécie</label>
+        <select id="zona-especie"></select>
+      </div>
+      <div class="campo-config">
+        <label for="zona-indice">Índice</label>
+        <select id="zona-indice"></select>
+      </div>
+    </div>
+    <label class="check"><input type="checkbox" id="zona-ativa" checked><span>Zona ativa</span></label>
+    <p id="zona-form-erro" class="mensagem-erro oculto" role="alert"></p>
+    <div class="acao-linha">
+      <button type="button" class="botao botao--fantasma" id="btn-cancelar-zona">Cancelar</button>
+      <button type="submit" class="botao botao--primario" id="btn-salvar-zona">Salvar zona</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dialog-equipamento" class="dialog-app">
+  <form id="form-equipamento" method="dialog" novalidate>
+    <h3 id="dialog-equipamento-titulo" class="painel-titulo">Novo equipamento</h3>
+    <div class="campos-config">
+      <div class="campo-config">
+        <label for="equip-tipo">Tipo</label>
+        <select id="equip-tipo">
+          <option value="sensor">Sensor</option>
+          <option value="ventilador">Ventilador</option>
+          <option value="nebulizador">Nebulizador</option>
+        </select>
+      </div>
+      <div class="campo-config">
+        <label for="equip-nome">Nome / identificação</label>
+        <input type="text" id="equip-nome" maxlength="255" placeholder="Ex.: Sensor TBS 1" required>
+      </div>
+      <div class="campo-config" id="wrap-equip-campo-medido">
+        <label for="equip-campo-medido">Campo medido</label>
+        <select id="equip-campo-medido"></select>
+      </div>
+      <div class="campo-config">
+        <label for="equip-modo-conexao">Conexão</label>
+        <select id="equip-modo-conexao">
+          <option value="tcp">Modbus TCP</option>
+          <option value="rtu">Modbus RTU (serial / RS-485)</option>
+        </select>
+      </div>
+      <div class="campo-config" id="wrap-equip-host">
+        <label for="equip-host">Host / IP</label>
+        <input type="text" id="equip-host" placeholder="192.168.0.10">
+      </div>
+      <div class="campo-config" id="wrap-equip-porta">
+        <label for="equip-porta">Porta</label>
+        <input type="number" id="equip-porta" min="1" max="65535" value="502">
+      </div>
+      <div class="campo-config oculto" id="wrap-equip-porta-serial">
+        <label for="equip-porta-serial">Porta serial</label>
+        <input type="text" id="equip-porta-serial" placeholder="/dev/ttyUSB0 ou COM3">
+      </div>
+      <div class="campo-config oculto" id="wrap-equip-baud-rate">
+        <label for="equip-baud-rate">Baud rate</label>
+        <input type="number" id="equip-baud-rate" min="300" max="921600" value="9600">
+      </div>
+      <div class="campo-config">
+        <label for="equip-unidade-id">ID do dispositivo (slave/unit)</label>
+        <input type="number" id="equip-unidade-id" min="1" max="247" value="1">
+      </div>
+      <div class="campo-config">
+        <label for="equip-tipo-registrador">Tipo de registrador</label>
+        <select id="equip-tipo-registrador"></select>
+      </div>
+      <div class="campo-config">
+        <label for="equip-endereco-registrador">Endereço do registrador</label>
+        <input type="number" id="equip-endereco-registrador" min="0" max="65535" value="0">
+      </div>
+      <div class="campo-config" id="wrap-equip-tipo-dado">
+        <label for="equip-tipo-dado">Tipo de dado</label>
+        <select id="equip-tipo-dado">
+          <option value="int16">int16 (com sinal)</option>
+          <option value="uint16">uint16 (sem sinal)</option>
+        </select>
+      </div>
+      <div class="campo-config" id="wrap-equip-fator-escala">
+        <label for="equip-fator-escala">Fator de escala</label>
+        <input type="number" id="equip-fator-escala" step="0.001" value="1">
+      </div>
+    </div>
+    <p id="equipamento-teste-resultado" class="smtp-status oculto"></p>
+    <p id="equipamento-form-erro" class="mensagem-erro oculto" role="alert"></p>
+    <div class="acao-linha">
+      <button type="button" class="botao botao--fantasma" id="btn-testar-conexao-equipamento">Testar conexão</button>
+      <button type="button" class="botao botao--fantasma" id="btn-cancelar-equipamento">Cancelar</button>
+      <button type="submit" class="botao botao--primario" id="btn-salvar-equipamento">Salvar equipamento</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="{{ url_for('static', filename='js/vendor/chart.umd.js') }}"></script>
+<script type="module" src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
