@@ -33,7 +33,18 @@ x-logging: &default-logging
 services:
   postgres:
     image: postgres:17-alpine
+    user: postgres
+    cpus: 1.0
     mem_limit: 768m
+    read_only: true
+    pids_limit: 256
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,mode=1777,size=64m
+      - /var/run/postgresql:rw,nosuid,nodev,noexec,mode=1777,size=16m
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-conforto_termico}
@@ -60,6 +71,7 @@ services:
     image: conforto-termico:local
     build: *app-build
     <<: *app-security
+    cpus: 0.5
     mem_limit: 512m
     environment:
       <<: *database-environment
@@ -78,6 +90,7 @@ services:
     restart: unless-stopped
     init: true
     <<: *app-security
+    cpus: 0.5
     mem_limit: 256m
     environment:
       <<: *database-environment
@@ -113,6 +126,7 @@ services:
     restart: unless-stopped
     init: true
     <<: *app-security
+    cpus: 1.0
     mem_limit: 256m
     environment:
       <<: *database-environment

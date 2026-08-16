@@ -29,11 +29,11 @@ RUN groupadd --gid "${APP_GID}" app \
     && mkdir -p /workspace/instance \
     && chown app:app /workspace/instance
 
-COPY --chown=app:app alembic.ini run_ict.py run_coletor.py ./
-COPY --chown=app:app app ./app
-COPY --chown=app:app config ./config
-COPY --chown=app:app migrations ./migrations
-COPY --chown=app:app scripts ./scripts
+COPY alembic.ini run_ict.py run_coletor.py ./
+COPY app ./app
+COPY config ./config
+COPY migrations ./migrations
+COPY scripts ./scripts
 
 EXPOSE 5000
 USER app
