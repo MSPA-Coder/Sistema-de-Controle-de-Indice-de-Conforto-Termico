@@ -95,10 +95,11 @@ docker compose --env-file .env.docker exec ict python -m scripts.verificar_postg
 
 ### Verificação local
 
-Este projeto de uso individual não mantém CI, suíte ampla de regressão,
-cobertura, Mypy ou auditoria de dependências. Mantém Ruff e a suíte mínima de
-segurança e fumaça: o estágio `quality` do Dockerfile instala as dependências
-de desenvolvimento e executa `ruff check . && pytest` juntos.
+Este projeto mantém CI no GitHub para validar a configuração Compose e executar
+o estágio `quality` em imagem limpa. Não mantém suíte ampla de regressão,
+cobertura, Mypy ou `pip-audit` dentro da imagem. O estágio `quality` do Dockerfile
+instala as dependências de desenvolvimento e executa `ruff check . && pytest`
+juntos.
 
 ```powershell
 docker compose --env-file .env.docker --profile quality run --rm quality

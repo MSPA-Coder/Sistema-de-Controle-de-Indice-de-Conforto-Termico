@@ -48,10 +48,13 @@ e só pode ser usado quando essa remoção tiver sido deliberadamente autorizada
 
 ## Verificação estática
 
-O projeto não mantém CI nem suíte ampla de regressão automatizada; a decisão e
-seu histórico estão em `docs/adr/003-ci-cd-pipeline.md` e
-`docs/adr/004-qualidade-codigo-ferramentas.md`. O que permanece é a suíte
-mínima de segurança e fumaça mais o Ruff, ambos no estágio `quality` da imagem:
+A CI mínima no GitHub valida a configuração Compose e executa o estágio
+`quality` em imagem limpa em push e pull request para `main`, além de uma
+execução semanal. Dependabot propõe atualizações agrupadas de dependências
+minor e patch. O projeto ainda não mantém suíte ampla de regressão, cobertura,
+Mypy ou `pip-audit` dentro da imagem; a decisão e seu histórico estão em
+`docs/adr/003-ci-cd-pipeline.md` e `docs/adr/004-qualidade-codigo-ferramentas.md`.
+O estágio `quality` contém a suíte mínima de segurança e fumaça mais o Ruff:
 
 ```powershell
 docker compose --env-file .env.docker --profile quality run --rm quality

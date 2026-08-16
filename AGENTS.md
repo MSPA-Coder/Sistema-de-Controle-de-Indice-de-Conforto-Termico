@@ -64,7 +64,9 @@ docker compose --env-file .env.docker exec ict python -m scripts.verificar_postg
 
 O estágio Docker `quality` instala as dependências de desenvolvimento e executa
 `ruff check . && pytest`; ele contém a suíte mínima de cinco testes de segurança
-e fumaça. Não há suíte ampla, cobertura, Mypy, auditoria de dependências ou CI.
+e fumaça. A CI do GitHub valida a configuração Compose e executa esse mesmo
+estágio em imagem limpa; não há suíte ampla, cobertura, Mypy nem `pip-audit`
+dentro da imagem.
 Execute a qualidade em mudanças de acesso, sessão, CSRF, autorização ou código
 que ela cubra:
 

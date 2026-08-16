@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: "29 4 * * 3"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Qualidade
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Prepare ephemeral Compose inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p .certs .secrets
+          openssl req -x509 -newkey rsa:2048 -sha256 -nodes \
+            -keyout /tmp/conforto-ci-local-ca.key \
+            -out .certs/local-root-ca.crt \
+            -subj "/CN=ConfortoTermico CI ephemeral CA" \
+            -days 1
+          rm -f /tmp/conforto-ci-local-ca.key
+          printf '%s\n' 'ci-placeholder-not-a-real-password' > .secrets/postgres_password.txt
+          printf '%s\n' 'ci-placeholder-not-a-real-token' > .secrets/internal_token.txt
+
+      - name: Validate Compose configuration
+        run: docker compose config --quiet
+
+      - name: Build quality image
+        run: docker compose build --no-cache quality
+
+      - name: Run quality checks
+        run: docker compose --profile quality run --rm quality
