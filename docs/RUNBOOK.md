@@ -27,6 +27,9 @@ Não altere nem imprima segredos em `.secrets/`. Alterações de ambiente exigem
 recriar os serviços afetados. A aplicação só deve operar após o serviço
 `schema` concluir as migrações Alembic. O coletor é privado: use os logs e o
 health check do Compose para diagnosticá-lo, nunca uma porta exposta no host.
+`CONFORTO_DEBUG` permanece em `0` na implantação: o processo recusa debug sem
+`CONFORTO_DEVELOPMENT=1` e host de loopback. Os caminhos `*_FILE` dos segredos
+devem continuar nos mounts exatos de `/run/secrets` definidos pelo Compose.
 
 ## Backup e recuperação
 

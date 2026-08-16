@@ -12,7 +12,7 @@ import inspect
 
 import pytest
 
-from app import auth
+from app import auth, db_backend, secret_files
 
 
 def test_isencao_de_login_e_curta_e_conhecida():
@@ -120,7 +120,57 @@ def test_perda_da_chave_gera_recuperacao_persistida_e_invalida_sessoes(tmp_path,
 def test_token_interno_por_arquivo_falha_fechado_se_arquivo_nao_existe(tmp_path, monkeypatch):
     """Um token Docker secret ausente não pode cair em token persistido local."""
     monkeypatch.delenv("CONFORTO_INTERNO_TOKEN", raising=False)
-    monkeypatch.setenv("CONFORTO_INTERNO_TOKEN_FILE", str(tmp_path / "ausente.txt"))
+    monkeypatch.setattr(secret_files, "DOCKER_SECRETS_DIR", tmp_path)
+    monkeypatch.setenv("CONFORTO_INTERNO_TOKEN_FILE", str(tmp_path / "internal_token"))
 
-    with pytest.raises(RuntimeError, match="Não foi possível ler CONFORTO_INTERNO_TOKEN_FILE"):
+    with pytest.raises(RuntimeError, match="CONFORTO_INTERNO_TOKEN_FILE"):
         auth.obter_ou_criar_token_interno()
+
+
+def test_segredos_compose_recusam_caminho_fora_do_mount(tmp_path, monkeypatch):
+    fora = tmp_path / "fora"
+    fora.write_text("valor-sintetico", encoding="utf-8")
+    monkeypatch.setenv("CONFORTO_INTERNO_TOKEN_FILE", str(fora))
+
+    with pytest.raises(RuntimeError, match="deve apontar"):
+        auth.obter_ou_criar_token_interno()
+
+
+def test_segredos_compose_aceitam_arquivo_montado_esperado(tmp_path, monkeypatch):
+    token = tmp_path / "internal_token"
+    senha = tmp_path / "postgres_password"
+    token.write_text("token-sintetico", encoding="utf-8")
+    senha.write_text("senha-sintetica", encoding="utf-8")
+    monkeypatch.setattr(secret_files, "DOCKER_SECRETS_DIR", tmp_path)
+    monkeypatch.setenv("CONFORTO_INTERNO_TOKEN_FILE", str(token))
+    monkeypatch.setenv("DB_PASSWORD_FILE", str(senha))
+
+    assert auth.obter_ou_criar_token_interno() == "token-sintetico"
+    assert db_backend._ler_segredo("DB_PASSWORD_FILE") == "senha-sintetica"
+
+
+@pytest.mark.parametrize(
+    "destino",
+    [
+        "//externo.test",
+        "/\\externo.test",
+        "/%5cexterno.test",
+        "/%255cexterno.test",
+        "/%2f%2fexterno.test",
+        "/%252f%252fexterno.test",
+        "https://externo.test",
+    ],
+)
+def test_destino_pos_login_recusa_redirecionamento_externo(destino, monkeypatch):
+    monkeypatch.setattr(auth, "url_for", lambda endpoint: "/")
+
+    assert auth._destino_pos_login(destino) == "/"
+
+
+def test_destino_pos_login_recusa_separador_aninhado_alem_de_tres_camadas(monkeypatch):
+    monkeypatch.setattr(auth, "url_for", lambda endpoint: "/")
+    destino = "/%5cexterno.test"
+    for _ in range(6):
+        destino = destino.replace("%", "%25")
+
+    assert auth._destino_pos_login(destino) == "/"

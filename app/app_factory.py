@@ -39,6 +39,7 @@ env_config.carregar()
 
 MENSAGEM_ERRO_INTERNO = "Erro interno inesperado. Consulte o log do servidor para detalhes."
 PROCESSOS_APP = ("ict", "coletor")
+HOSTS_LOOPBACK = frozenset({"127.0.0.1", "::1", "localhost"})
 
 # Conjunto defensivo comum aos quatro projetos do mantenedor. Manter igual em
 # todos e o que permite auditar um e confiar nos demais.
@@ -138,6 +139,7 @@ class AppConfig:
     port: int
     threaded: bool
     max_content_length: int
+    development: bool = False
 
     @classmethod
     def from_env(cls, processo: str = "ict") -> AppConfig:
@@ -145,7 +147,7 @@ class AppConfig:
             raise ValueError(f"processo inválido: {processo!r} (esperado um de {PROCESSOS_APP})")
 
         config_arquivo = _ler_config_servidor(processo)
-        return cls(
+        config = cls(
             debug=_ler_bool_env("CONFORTO_DEBUG", _coagir_bool(config_arquivo.get("debug"), False)),
             host=os.environ.get("CONFORTO_HOST", str(config_arquivo.get("host") or "127.0.0.1")),
             port=_ler_int_env("CONFORTO_PORT", _coagir_int(config_arquivo.get("port"), 5000)),
@@ -157,7 +159,20 @@ class AppConfig:
                 "CONFORTO_MAX_CONTENT_LENGTH",
                 _coagir_int(config_arquivo.get("max_content_length"), 1_000_000),
             ),
+            development=_ler_bool_env("CONFORTO_DEVELOPMENT", False),
         )
+        _validar_debug(config)
+        return config
+
+
+def _validar_debug(config: AppConfig) -> None:
+    """Impede debugger Flask fora de desenvolvimento local explícito."""
+    if not config.debug:
+        return
+    if not config.development:
+        raise RuntimeError("CONFORTO_DEBUG exige CONFORTO_DEVELOPMENT=1.")
+    if config.host not in HOSTS_LOOPBACK:
+        raise RuntimeError("CONFORTO_DEBUG só pode escutar em host de loopback.")
 
 
 class ProvedorJSON(DefaultJSONProvider):
@@ -315,6 +330,7 @@ def criar_app_coletor(config: AppConfig | None = None) -> Flask:
 
 
 def _servir(app: Flask, config: AppConfig) -> None:
+    _validar_debug(config)
     if config.debug:
         app.run(
             debug=True,

@@ -32,6 +32,7 @@ import re
 import secrets
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
+from urllib.parse import unquote, urlsplit
 
 from flask import (
     Blueprint,
@@ -50,6 +51,7 @@ from flask_limiter.util import get_remote_address
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from . import database as db
+from .secret_files import read_compose_secret
 
 if TYPE_CHECKING:
     from flask.typing import ResponseReturnValue
@@ -218,14 +220,8 @@ def obter_ou_criar_token_interno() -> str:
     variavel_ambiente = os.environ.get("CONFORTO_INTERNO_TOKEN")
     if variavel_ambiente:
         return variavel_ambiente
-    arquivo_segredo = os.environ.get("CONFORTO_INTERNO_TOKEN_FILE")
-    if arquivo_segredo:
-        try:
-            token = Path(arquivo_segredo).read_text(encoding="utf-8").strip()
-        except OSError as erro:
-            raise RuntimeError("Não foi possível ler CONFORTO_INTERNO_TOKEN_FILE.") from erro
-        if not token:
-            raise RuntimeError("CONFORTO_INTERNO_TOKEN_FILE está vazio.")
+    token = read_compose_secret("CONFORTO_INTERNO_TOKEN_FILE", "internal_token")
+    if token is not None:
         return token
 
     caminho = Path(db.INSTANCE_DIR) / "interno_token.txt"
@@ -425,7 +421,26 @@ def _destino_pos_login(bruto: str) -> str:
     parametro `proxima` vindo da querystring vira um open redirect: um
     link malicioso apontando para /login?proxima=https://... redirecionaria
     a vitima, ja autenticada, para um site externo logo depois do login."""
-    if bruto and bruto.startswith("/") and not bruto.startswith("//"):
+    decoded = bruto
+    # Cada unquote que altera a string encurta ao menos uma sequência ``%xx``;
+    # o limite pelo tamanho original termina mesmo sob aninhamento adversarial.
+    for _ in range(len(bruto) + 1):
+        if "\\" in decoded or decoded.startswith("//"):
+            return url_for("comum.index")
+        next_decoded = unquote(decoded)
+        if next_decoded == decoded:
+            break
+        decoded = next_decoded
+    else:
+        return url_for("comum.index")
+    parsed = urlsplit(decoded)
+    if (
+        bruto
+        and bruto.startswith("/")
+        and not parsed.scheme
+        and not parsed.netloc
+        and parsed.path.startswith("/")
+    ):
         return bruto
     return url_for("comum.index")
 

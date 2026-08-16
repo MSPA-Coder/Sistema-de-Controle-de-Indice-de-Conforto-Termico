@@ -153,6 +153,7 @@ Os valores padrão ficam em `config/servidor.json`. Variáveis de ambiente, quan
 | Variável | Padrão | Finalidade |
 |---|---:|---|
 | `CONFORTO_DEBUG` | `0` | Ativa o modo de depuração do Flask (servidor de desenvolvimento, com o debugger interativo). Use somente em desenvolvimento local. |
+| `CONFORTO_DEVELOPMENT` | `0` | Deve ser `1` junto de `CONFORTO_DEBUG=1`; o processo também exige host de loopback. |
 | `CONFORTO_HOST` | `127.0.0.1` | Interface de rede usada pelo servidor. |
 | `CONFORTO_PORT` | conforme o processo | Porta TCP. |
 | `CONFORTO_SESSION_COOKIE_NAME` | `conforto_session` | Nome exclusivo do cookie de sessão no navegador. |
@@ -164,14 +165,18 @@ Os valores padrão ficam em `config/servidor.json`. Variáveis de ambiente, quan
 | `COLETOR_URL` | `http://coletor:5000` no Compose | Endereço privado usado pelo ICT. |
 
 Com `CONFORTO_DEBUG=0` (o padrão), o servidor é servido por `waitress`. O
-servidor embutido do Flask/Werkzeug só é usado com `CONFORTO_DEBUG=1`.
+servidor embutido do Flask/Werkzeug só é usado com `CONFORTO_DEBUG=1`,
+`CONFORTO_DEVELOPMENT=1` e `CONFORTO_HOST` de loopback; qualquer outra
+combinação falha antes de abrir a porta.
 
 ### Configuração de implantação e configuração operacional
 
 `.env.docker` é somente leitura para a aplicação. Ele guarda endereços, portas
 e opções não secretas definidos por quem mantém a implantação. Senha do banco e
 token interno ficam em Docker secrets. Alterações exigem recriar os processos
-afetados.
+afetados. Os caminhos `DB_PASSWORD_FILE` e `CONFORTO_INTERNO_TOKEN_FILE` são
+exclusivos dos mounts Docker `/run/secrets/postgres_password` e
+`/run/secrets/internal_token`; não os use para apontar a outros arquivos.
 
 Parâmetros mantidos pelas abas — zonas, equipamentos, endereços Modbus,
 intervalos, limites, simulação e alertas — ficam no PostgreSQL. O coletor

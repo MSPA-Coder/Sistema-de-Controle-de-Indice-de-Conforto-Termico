@@ -12,20 +12,14 @@ import os
 import re
 from collections.abc import Iterator, Mapping
 from functools import lru_cache
-from pathlib import Path
 from typing import Any
+
+from .secret_files import read_compose_secret
 
 
 def _ler_segredo(nome_variavel: str) -> str:
-    caminho = os.environ.get(nome_variavel, "").strip()
-    if not caminho:
-        return ""
-    try:
-        return Path(caminho).read_text(encoding="utf-8").strip()
-    except OSError as erro:
-        raise RuntimeError(
-            f"Não foi possível ler o segredo indicado por {nome_variavel}."
-        ) from erro
+    valor = read_compose_secret(nome_variavel, "postgres_password")
+    return valor or ""
 
 
 def database_url() -> str:
@@ -184,5 +178,3 @@ def abrir_conexao_postgres(schema: str) -> ConexaoPostgresCompat:
     connection = _engine(database_url()).connect()
     connection.exec_driver_sql(f'SET search_path TO "{schema}", public')
     return ConexaoPostgresCompat(connection, schema)
-
-
