@@ -102,6 +102,15 @@ operação no VPS.
 
 ## Evolução de versões e compatibilidade
 
+**Faixas de dependência: alargue o teto, mantenha o piso.** O Dependabot roda
+com `versioning-strategy: widen`. Quando ele propuser elevar o mínimo, aproveite
+apenas a parte que alarga o teto e recuse a que sobe o piso. O piso registra a
+compatibilidade mínima efetivamente verificada, não a versão mais nova
+disponível: elevá-lo declara uma incompatibilidade que ninguém comprovou e não
+muda nada do que é instalado, porque o pip já resolve para a versão mais nova
+permitida pela faixa.
+
+
 Dependências usam faixas limitadas e são atualizadas deliberadamente. Atualização
 patch deve passar pela validação proporcional; atualização menor ou maior exige
 compatibilidade confirmada com Python, PostgreSQL, Flask, Docker e a separação
