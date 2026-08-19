@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime
 import threading
+import time
 from collections import defaultdict
 from typing import TYPE_CHECKING, TypeVar, cast
 
@@ -21,6 +22,17 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 T = TypeVar("T")
+
+
+# Consolidar e' uma tarefa de manutencao do historico, nao parte do controle
+# termico de tempo real. Uma cadencia fixa evita repetir as mesmas consultas a
+# cada leitura (que pode ocorrer em intervalos de poucos segundos).
+INTERVALO_CONSOLIDACAO_AUTOMATICA_SEGUNDOS = 15 * 60
+# Sem uma zona automatica nao ha leitura, calculo ou comando para executar.
+# Ainda acordamos periodicamente para perceber uma edicao administrativa que
+# tenha ocorrido fora deste processo; alteracoes feitas pela tela acordam a
+# malha de imediato (ver `alterar_controle`).
+INTERVALO_REPOUSO_SEM_AUTOMACAO_SEGUNDOS = 60.0
 
 
 class ZonaOcupadaError(RuntimeError):
@@ -37,8 +49,14 @@ class GerenciadorControleZonas:
         self._locks: defaultdict[int, threading.Lock] = defaultdict(threading.Lock)
         self._locks_guard = threading.Lock()
         self._parar = threading.Event()
+        self._acordar = threading.Event()
         self._thread: threading.Thread | None = None
         self._logger = None
+        self._proxima_consolidacao_monotonic = 0.0
+        # Comeca verdadeiro para fazer a primeira descoberta no intervalo
+        # configurado, em vez de atrasar por um minuto uma zona ja automatica
+        # depois de reiniciar o coletor.
+        self._teve_zona_automatica_no_ultimo_ciclo = True
         # IDs de zona vistos no ultimo ciclo automatico -- usado por
         # `_reconciliar_zonas_removidas` para descobrir quais zonas
         # sumiram (excluidas por fora deste processo, ver
@@ -92,18 +110,30 @@ class GerenciadorControleZonas:
 
     def parar(self, timeout: float = 3.0) -> None:
         self._parar.set()
+        self._acordar.set()
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=timeout)
         db.salvar_status_coletor("offline", proximo_ciclo_em=None)
 
     def _loop(self) -> None:
         while not self._parar.is_set():
-            intervalo = self._intervalo_segundos()
+            intervalo = (
+                self._intervalo_segundos()
+                if self._teve_zona_automatica_no_ultimo_ciclo
+                else INTERVALO_REPOUSO_SEM_AUTOMACAO_SEGUNDOS
+            )
             proximo = self._agora() + datetime.timedelta(seconds=intervalo)
             db.salvar_status_coletor(
                 "online", proximo_ciclo_em=proximo.isoformat(timespec="seconds")
             )
-            if self._parar.wait(intervalo):
+            self._acordar.clear()
+            if self._acordar.wait(intervalo):
+                if self._parar.is_set():
+                    break
+                # Uma alteracao pela tela pede apenas uma reavaliacao
+                # imediata; o coletor continua supervisionado.
+                continue
+            if self._parar.is_set():
                 break
             try:
                 self.executar_ciclo_automatico(logger=self._logger)
@@ -140,15 +170,35 @@ class GerenciadorControleZonas:
                 self._locks.pop(zona_id, None)
         self._zonas_conhecidas = ids_atuais
 
+    def _consolidar_automaticamente_se_devido(self, logger=None) -> None:
+        """Consolida o historico no maximo uma vez a cada quinze minutos.
+
+        Este metodo so e chamado depois de ao menos um ciclo automatico
+        concluido. Zonas desligadas, manuais ou em manutencao nao despertam o
+        banco apenas para procurar janelas antigas pendentes; essas ficam para
+        a consulta de Historico ou para a acao administrativa explicita.
+        """
+        agora = time.monotonic()
+        if agora < self._proxima_consolidacao_monotonic:
+            return
+        self._proxima_consolidacao_monotonic = agora + INTERVALO_CONSOLIDACAO_AUTOMATICA_SEGUNDOS
+        try:
+            agregacao.executar(logger=logger)
+        except Exception:
+            if logger:
+                logger.exception("Falha na consolidacao periodica (15min/hora)")
+
     def executar_ciclo_automatico(self, logger=None) -> list[dict]:
         """Executa uma passagem apenas pelas zonas ativas em automatico."""
         self._reconciliar_zonas_removidas()
         config = db.obter_configuracoes()
         resultados: list[dict] = []
+        self._teve_zona_automatica_no_ultimo_ciclo = False
         for zona in db.listar_zonas(apenas_ativas=True):
             controle = zona.get("controle") or db.obter_controle_zona(zona["id"])
             if not controle or controle.get("modo") != "automatico":
                 continue
+            self._teve_zona_automatica_no_ultimo_ciclo = True
             try:
 
                 def _calcular_automatico(zona_id=zona["id"]):
@@ -191,14 +241,8 @@ class GerenciadorControleZonas:
         agora = self._agora().isoformat(timespec="seconds")
         db.salvar_status_coletor("online", ultimo_ciclo_em=agora, erro=None)
 
-        # Consolidacao de 15min/hora: idempotente e barata quando nao ha
-        # janela pendente (ver docstring de agregacao.py), entao roda a
-        # cada ciclo sem exigir um agendador separado.
-        try:
-            agregacao.executar(logger=logger)
-        except Exception:
-            if logger:
-                logger.exception("Falha na consolidacao periodica (15min/hora)")
+        if resultados:
+            self._consolidar_automaticamente_se_devido(logger=logger)
 
         return resultados
 
@@ -257,6 +301,10 @@ class GerenciadorControleZonas:
             resposta = dict(controle)
             if desligamento:
                 resposta["desligamento"] = desligamento
+            # Nao espere o intervalo de repouso quando a tela acabou de
+            # modificar um modo: a proxima passagem reavalia a zona na hora.
+            self._teve_zona_automatica_no_ultimo_ciclo = True
+            self._acordar.set()
             return resposta
 
         return cast("dict", self._executar_exclusivo(zona_id, _alterar))

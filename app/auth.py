@@ -288,6 +288,8 @@ AREA_POR_ENDPOINT: dict[str, str | tuple[str, ...]] = {
     "administracao.obter_configuracoes": ("configuracoes", "sistema"),
     "administracao.salvar_configuracoes": ("configuracoes", "sistema"),
     "administracao.backup_banco": "sistema",
+    "administracao.consolidar_historico": "sistema",
+    "comum.consolidar_historico_zona": "historico",
     # --- administracao_bp: Cadastro (zonas/equipamentos, fiacao Modbus) -
     "administracao.criar_zona": "cadastro",
     "administracao.obter_zona": "cadastro",

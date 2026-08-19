@@ -57,6 +57,11 @@ Os arquivos ficam em `.secrets/`, fora do Git. Não coloque senhas nem tokens em
 `.env.docker`. Em uma instalação já existente, use o procedimento de rotação
 coordenada antes de substituir a senha do PostgreSQL.
 
+No Linux, gere os segredos pelo script da imagem, como mostrado acima: ele
+aplica as permissões compatíveis com os processos `postgres`, `ict` e
+`coletor`. Não crie nem copie manualmente esses arquivos com permissões
+restritivas a apenas um dos serviços.
+
 Se o computador interceptar HTTPS com uma autoridade local, exporte-a antes
 do build. O arquivo gerado fica fora do Git:
 
@@ -72,7 +77,7 @@ docker compose --env-file .env.docker ps
 docker compose --env-file .env.docker logs -f ict coletor
 ```
 
-A aplicação fica em `http://127.0.0.1:5000`. As configurações de extensões e
+A aplicação fica em `http://127.0.0.1:5001`. As configurações de extensões e
 tarefas do VS Code ficam em `.vscode/`.
 
 Para parar sem apagar os dados:
@@ -142,7 +147,7 @@ No Docker, inicie sempre a pilha completa:
 docker compose --env-file .env.docker up --build -d --wait
 ```
 
-Acesse somente o ICT em `http://127.0.0.1:5000`. A porta do coletor não é
+Acesse somente o ICT em `http://127.0.0.1:5001`. A porta do coletor não é
 publicada no host; dentro da rede do Compose, o ICT o alcança em
 `http://coletor:5000`.
 

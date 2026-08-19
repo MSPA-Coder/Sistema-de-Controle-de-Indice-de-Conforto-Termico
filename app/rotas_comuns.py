@@ -7,7 +7,7 @@ import math
 
 from flask import Blueprint, jsonify, render_template, request
 
-from . import auth
+from . import agregacao, auth
 from . import database as db
 from . import thermal_indices as ti
 
@@ -184,6 +184,15 @@ def historico_leituras():
             data_fim=data_fim,
         )
     )
+
+
+@comum_bp.route("/api/zonas/<int:zona_id>/consolidar-historico", methods=["POST"])
+def consolidar_historico_zona(zona_id):
+    """Materializa os resumos pendentes da zona antes de exibir seu historico."""
+    zona = db.obter_zona(zona_id)
+    if zona is None:
+        return jsonify({"erro": f"Zona {zona_id} nao encontrada."}), 404
+    return jsonify({"ok": True, "resultado": agregacao.executar_para_zona(zona)})
 
 
 @comum_bp.route("/api/zonas/<int:zona_id>/agregados-15min", methods=["GET"])

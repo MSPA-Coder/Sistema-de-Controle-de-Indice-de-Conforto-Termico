@@ -466,10 +466,31 @@ export function criarEntradaCalculo({
       if (botao) botao.disabled = false;
     }
   }
+
+  async function consolidarHistorico() {
+    const botao = document.getElementById("btn-consolidar-historico");
+    if (botao) botao.disabled = true;
+    try {
+      const resposta = await fetch("/api/consolidar-historico", { method: "POST" });
+      const corpo = await resposta.json().catch(() => ({}));
+      if (!resposta.ok || !corpo.ok) {
+        atualizarStatusBanco(corpo.erro || "Não foi possível consolidar o histórico.");
+        return;
+      }
+      const total = Array.isArray(corpo.resultados) ? corpo.resultados.length : 0;
+      atualizarStatusBanco(`Consolidação concluída para ${total} zona(s).`);
+    } catch (erro) {
+      console.error("Erro ao consolidar histórico:", erro);
+      atualizarStatusBanco("Falha de comunicação ao consolidar o histórico.");
+    } finally {
+      if (botao) botao.disabled = false;
+    }
+  }
   function inicializar() {
     document.getElementById("btn-calcular").addEventListener("click", calcular);
     document.getElementById("btn-limpar").addEventListener("click", limparHistorico);
     document.getElementById("btn-backup-banco")?.addEventListener("click", fazerBackupBanco);
+    document.getElementById("btn-consolidar-historico")?.addEventListener("click", consolidarHistorico);
     document.getElementById("cfg-coletar").addEventListener("change", () => {
       recarregarSensores();
       agendarSalvarConfiguracoes();

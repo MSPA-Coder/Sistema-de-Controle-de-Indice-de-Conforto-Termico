@@ -11,7 +11,7 @@ docker compose --env-file .env.docker ps
 docker compose --env-file .env.docker exec ict python -m scripts.verificar_postgres
 ```
 
-O ICT é a interface pública em `http://127.0.0.1:5000`. O coletor não expõe
+O ICT é a interface pública em `http://127.0.0.1:5001`. O coletor não expõe
 porta no host; investigue seu estado por `docker compose ... logs coletor`.
 
 ## Diagnóstico
@@ -30,6 +30,11 @@ health check do Compose para diagnosticá-lo, nunca uma porta exposta no host.
 `CONFORTO_DEBUG` permanece em `0` na implantação: o processo recusa debug sem
 `CONFORTO_DEVELOPMENT=1` e host de loopback. Os caminhos `*_FILE` dos segredos
 devem continuar nos mounts exatos de `/run/secrets` definidos pelo Compose.
+
+Em hosts Linux, gere `.secrets/` com `scripts/configurar_segredos.py` pela
+imagem Docker. A senha do PostgreSQL precisa permanecer legível pelos serviços
+que a consomem, inclusive o próprio PostgreSQL; não substitua suas permissões
+por um arquivo privado apenas do usuário da aplicação.
 
 ## Backup e recuperação
 

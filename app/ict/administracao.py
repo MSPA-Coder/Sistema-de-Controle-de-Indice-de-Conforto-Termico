@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from flask import Blueprint, current_app, jsonify, request
 
+from .. import agregacao
 from .. import database as db
 from .coletor_client import chamar_coletor
 
@@ -49,6 +50,18 @@ def backup_banco():
         from ..app_factory import MENSAGEM_ERRO_INTERNO
 
         current_app.logger.exception("Falha ao criar backup do banco")
+        return jsonify({"ok": False, "erro": MENSAGEM_ERRO_INTERNO}), 500
+
+
+@administracao_bp.route("/api/consolidar-historico", methods=["POST"])
+def consolidar_historico():
+    """Consolida todas as zonas por acao explicita de administracao."""
+    try:
+        return jsonify({"ok": True, "resultados": agregacao.executar()})
+    except Exception:
+        from ..app_factory import MENSAGEM_ERRO_INTERNO
+
+        current_app.logger.exception("Falha ao consolidar o historico")
         return jsonify({"ok": False, "erro": MENSAGEM_ERRO_INTERNO}), 500
 
 

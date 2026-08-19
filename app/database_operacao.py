@@ -117,6 +117,18 @@ def obter_status_coletor() -> dict:
     heartbeat = datetime.datetime.fromisoformat(dados["heartbeat_em"])
     intervalo = float(obter_configuracoes().get("intervaloLeituraSegundos") or 1)
     limite = datetime.timedelta(seconds=max(10.0, intervalo * 3))
+    # O coletor pode entrar em repouso quando nao ha zona automatica. Nesse
+    # caso, `proximo_ciclo_em` e a fonte de verdade para o periodo esperado
+    # sem heartbeat; continuar usando somente o intervalo de leitura faria a
+    # interface diagnosticar incorretamente um coletor saudavel como parado.
+    proximo_ciclo = dados.get("proximo_ciclo_em")
+    if proximo_ciclo:
+        try:
+            espera_anunciada = datetime.datetime.fromisoformat(proximo_ciclo) - heartbeat
+            if espera_anunciada > datetime.timedelta(0):
+                limite = max(limite, espera_anunciada + datetime.timedelta(seconds=10))
+        except (TypeError, ValueError):
+            pass
     dados["online"] = dados["status"] == "online" and datetime.datetime.now() - heartbeat <= limite
     if not dados["online"] and dados["status"] == "online":
         dados["status"] = "sem_heartbeat"

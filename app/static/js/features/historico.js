@@ -64,6 +64,7 @@ export function criarHistorico({
   let historicoLeituraSelecionadaId = null;
   let historicoCarregamentoId = 0;
   let historicoScrollTimeoutId = null;
+  const zonasConsolidadasNestaSessao = new Set();
   const RESOLUCOES_TENDENCIA = [
     { valor: "bruto", texto: "Tempo real (leitura bruta)" },
     { valor: "15min", texto: "Agregado de 15 em 15 min" },
@@ -690,6 +691,13 @@ export function criarHistorico({
     }
 
     try {
+      const zonaParaConsolidar = filtroHistoricoZona || obterZonaPrincipal()?.id;
+      if (zonaParaConsolidar && !zonasConsolidadasNestaSessao.has(String(zonaParaConsolidar))) {
+        const consolidacao = await fetch(`/api/zonas/${zonaParaConsolidar}/consolidar-historico`, {
+          method: "POST",
+        });
+        if (consolidacao.ok) zonasConsolidadasNestaSessao.add(String(zonaParaConsolidar));
+      }
       const resposta = await fetch("/api/historico-leituras?" + params.toString());
       if (!resposta.ok) return;
       const dados = await resposta.json();
