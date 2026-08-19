@@ -80,6 +80,26 @@ e `scripts.verificar_postgres`; schema exige bootstrap em PostgreSQL vazio e
 backup validado antes de atuar sobre dados existentes. Documente controles
 omitidos e o motivo.
 
+## Implantação em produção
+
+O sistema roda em um VPS Oracle atrás de Nginx com TLS, em
+`https://conforto-mspa.duckdns.org`, a partir de
+`/home/ubuntu/apps/conforto-termico`.
+
+O código do servidor é espelho do `main`, em sentido único: desenvolvimento na
+máquina local, commit, push ao GitHub, e só então implantação. **Não edite
+código, não commite e não faça merge no VPS** — `~/deploy.sh conforto` aborta ao
+encontrar árvore suja, e a *deploy key* do servidor é somente leitura, então um
+push de lá falharia de qualquer forma. Ver `docs/adr/006-implantacao-vps.md`.
+
+`.secrets/` (`postgres_password.txt`, `internal_token.txt`) e `.certs/` não são
+versionados e vivem apenas no servidor; um reclone precisa restaurá-los, ou o
+build falha e o banco fica inacessível. Os dados ficam nos volumes
+`conforto-termico_postgres_data` e `conforto-termico_app_instance`, fora da
+pasta do código: substituir o diretório do projeto não os afeta. A base do VPS é
+independente da local. Consulte `docs/deployment-vps.md` antes de qualquer
+operação no VPS.
+
 ## Evolução de versões e compatibilidade
 
 Dependências usam faixas limitadas e são atualizadas deliberadamente. Atualização

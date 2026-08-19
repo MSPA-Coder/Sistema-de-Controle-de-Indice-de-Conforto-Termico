@@ -2,6 +2,13 @@
 
 O único ambiente operacional suportado é Docker Compose com PostgreSQL.
 
+Os comandos abaixo valem para os dois ambientes; muda apenas o arquivo de
+ambiente e a porta. No desenvolvimento Windows, `--env-file .env.docker` e ICT
+em `http://127.0.0.1:5001`. No VPS, `--env-file .env.docker` a partir de
+`/home/ubuntu/apps/conforto-termico`, ICT em `127.0.0.1:5401` atrás do Nginx em
+`https://conforto-mspa.duckdns.org`. No VPS, prefira `~/deploy.sh conforto` a
+subir a pilha à mão — ver `deployment-vps.md`.
+
 ## Início e verificação
 
 ```powershell

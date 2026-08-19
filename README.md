@@ -384,6 +384,24 @@ As fórmulas e os limites de classificação ficam centralizados em
 adotadas são documentados pela dissertação de Mariano De Angelo, disponível no
 [repositório institucional da UNIP](https://repositorio.unip.br/wp-content/uploads/tainacan-items/198/12301/eng_marianodeangelo.pdf).
 
+## Produção
+
+O sistema roda em um VPS Oracle (Ubuntu 24.04), publicado pelo Nginx com
+certificado Let's Encrypt em <https://conforto-mspa.duckdns.org>. O ICT escuta
+apenas em `127.0.0.1:5401` e o PostgreSQL em `127.0.0.1:5402`; o coletor não
+expõe porta alguma e só 80 e 443 ficam abertos na internet.
+
+O fluxo de mudança tem sentido único: **máquina de desenvolvimento → GitHub →
+VPS**. O código no servidor é um espelho do `main` e nunca a origem de uma
+alteração; a implantação é feita por `~/deploy.sh conforto`, que recusa rodar se
+encontrar alteração não commitada no servidor. O repositório é privado e o VPS o
+lê por uma *deploy key* somente-leitura.
+
+A base do VPS é independente da instalação local — os dois ambientes não
+sincronizam dados. Detalhes de instalação, atualização e rollback estão em
+[Implantação no VPS](docs/deployment-vps.md); a decisão e seus motivos estão em
+[ADR 006](docs/adr/006-implantacao-vps.md).
+
 ## Manutenção
 
 As diretrizes permanentes para alterações estão em `AGENTS.md`; os
