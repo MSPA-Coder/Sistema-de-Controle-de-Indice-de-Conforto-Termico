@@ -1,60 +1,70 @@
 """Escritas exigem token CSRF.
 
-A verificacao deste projeto e propria (`auth._proteger_csrf`), entao o teste
-mede a decisao dela: metodos seguros passam, mutantes exigem token, e a
-comparacao e feita em tempo constante.
+A proteção veio de `sharedauth.csrf` (Flask-WTF) nesta migração -- antes era
+uma comparação própria em HMAC (`hmac.compare_digest`), escrita à mão neste
+projeto e reimplementada de novo aqui do que os outros dois apps Flask do
+mantenedor já resolviam prontos. Ver PLANO_UNIFICAR_AUTENTICACAO.md no
+repositório `_manutencao`, seção 12 (Fase 4).
+
+O nome do campo continua `_csrf_token` (configurado via
+`WTF_CSRF_FIELD_NAME` em `app_factory.criar_app_ict`) para não precisar
+tocar templates nem `api.js` -- por isso os testes abaixo continuam usando
+esse nome, não o padrão `csrf_token` do Flask-WTF.
 """
 
 from __future__ import annotations
 
-import inspect
-
-from app import auth
+from flask_wtf.csrf import generate_csrf
 
 
-def test_metodos_seguros_nao_exigem_token():
-    assert frozenset({"GET", "HEAD", "OPTIONS"}) == auth.METODOS_HTTP_SEGUROS
+def test_get_nao_exige_token(client):
+    resposta = client.get("/login")
+    assert resposta.status_code == 200
 
 
-def test_metodos_mutantes_nao_estao_isentos():
-    for metodo in ("POST", "PUT", "PATCH", "DELETE"):
-        assert metodo not in auth.METODOS_HTTP_SEGUROS
+def test_post_sem_token_e_recusado(client):
+    resposta = client.post("/login", data={"login": "x", "senha": "y"})
+    assert resposta.status_code == 400
 
 
-def test_comparacao_do_token_e_em_tempo_constante():
-    fonte = inspect.getsource(auth.registrar_autenticacao)
-    # `==` em token vaza o prefixo correto pelo tempo de resposta.
-    assert "hmac.compare_digest" in fonte
+def test_post_com_token_invalido_e_recusado(client):
+    resposta = client.post(
+        "/login",
+        data={"login": "x", "senha": "y", "_csrf_token": "token-inventado"},
+    )
+    assert resposta.status_code == 400
 
 
-def test_token_ausente_ou_invalido_devolve_400():
-    fonte = inspect.getsource(auth.registrar_autenticacao)
-    assert "Token CSRF inválido ou ausente." in fonte
-    assert "400" in fonte
+def test_post_com_header_invalido_e_recusado(client):
+    resposta = client.post(
+        "/login",
+        data={"login": "x", "senha": "y"},
+        headers={"X-CSRF-Token": "token-inventado"},
+    )
+    assert resposta.status_code == 400
 
 
-def test_token_e_exposto_aos_templates():
-    fonte = inspect.getsource(auth.registrar_autenticacao)
-    assert 'jinja_env.globals["csrf_token"]' in fonte
+def test_formulario_de_login_traz_o_campo_do_token(client):
+    corpo = client.get("/login").get_data(as_text=True)
+    assert 'name="_csrf_token"' in corpo
 
 
-def test_referrer_policy_nao_anula_o_origin():
+def test_token_valido_e_aceito(app):
+    # Exercita o validador direto em vez de um POST completo: um POST aceito
+    # entraria na view de login, que consulta o banco -- a suíte não tem
+    # banco por desenho (ver conftest.py).
+    with app.test_request_context():
+        from flask_wtf.csrf import validate_csrf
+
+        validate_csrf(generate_csrf())  # não levantar é o resultado esperado
+
+
+def test_referrer_policy_nao_anula_o_origin(client):
     """A causa raiz de uma falha real no projeto irmao em Django.
 
     `Referrer-Policy: no-referrer` faz o navegador serializar `Origin` como
-    `null` tambem em POST de mesma origem (Fetch spec). Aqui a verificacao de
-    CSRF nao consulta `Origin`, entao o efeito nao apareceria -- mas o
-    cabecalho e compartilhado entre os quatro projetos, e reintroduzi-lo aqui
-    voltaria a propaga-lo.
+    `null` também em POST de mesma origem (Fetch spec). O cabeçalho é
+    compartilhado entre os quatro projetos do mantenedor; reintroduzi-lo
+    aqui voltaria a propagá-lo.
     """
-    from app.app_factory import CABECALHOS_SEGURANCA
-
-    assert CABECALHOS_SEGURANCA["Referrer-Policy"] != "no-referrer"
-
-
-def test_protecao_so_e_dispensada_sob_testing_explicito():
-    fonte = inspect.getsource(auth.registrar_autenticacao)
-    # A dispensa existe para a suite; o que nao pode e ela depender de algo que
-    # tambem seja verdade em execucao real.
-    assert "app.testing" in fonte
-    assert "CSRF_PROTECTION_ENABLED" in fonte
+    assert client.get("/login").headers.get("Referrer-Policy") != "no-referrer"

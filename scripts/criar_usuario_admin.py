@@ -57,7 +57,7 @@ def _ler_senha() -> str:
     while True:
         senha = getpass.getpass(f"Senha (mínimo {auth.SENHA_TAMANHO_MINIMO} caracteres): ")
         if len(senha) < auth.SENHA_TAMANHO_MINIMO:
-            print(f"A senha precisa ter pelo menos {auth.SENHA_TAMANHO_MINIMO} caracteres.")
+            print(f"A senha deve ter pelo menos {auth.SENHA_TAMANHO_MINIMO} caracteres.")
             continue
         confirmacao = getpass.getpass("Confirme a senha: ")
         if senha != confirmacao:
@@ -99,7 +99,7 @@ def main() -> int:
     senha = argumentos.senha or _ler_senha()
     if len(senha) < auth.SENHA_TAMANHO_MINIMO:
         print(
-            f"A senha precisa ter pelo menos {auth.SENHA_TAMANHO_MINIMO} caracteres.",
+            f"A senha deve ter pelo menos {auth.SENHA_TAMANHO_MINIMO} caracteres.",
             file=sys.stderr,
         )
         return 1

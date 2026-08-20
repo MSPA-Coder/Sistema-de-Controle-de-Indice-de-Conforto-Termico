@@ -13,13 +13,21 @@ RUN --mount=type=secret,id=local_ca,required=false \
         cp /run/secrets/local_ca /usr/local/share/ca-certificates/local-root-ca.crt; \
     fi \
     && apt-get update \
-    && apt-get install --no-install-recommends -y postgresql-client \
+    && apt-get install --no-install-recommends -y postgresql-client git \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 FROM base AS runtime-dependencies
 COPY requirements.txt .
-RUN python -m pip install --no-cache-dir -r requirements.txt
+# `requirements.txt` inclui `sharedauth` de um repositório Git privado
+# (github.com/MSPA-Coder/SharedAuth) -- o secret `github_token` (BuildKit,
+# nunca vira camada da imagem) autentica só para este RUN; `git config
+# --unset` no fim da mesma instrução remove o token do `.gitconfig` antes de
+# commitar a camada. Mesmo mecanismo do MegaSena e do ControleRendaVariavel.
+RUN --mount=type=secret,id=github_token \
+    git config --global url."https://x-access-token:$(cat /run/secrets/github_token)@github.com/".insteadOf "https://github.com/" \
+    && python -m pip install --no-cache-dir -r requirements.txt \
+    && git config --global --unset url."https://x-access-token:$(cat /run/secrets/github_token)@github.com/".insteadOf
 
 FROM runtime-dependencies AS runtime
 ARG APP_UID=10001
@@ -46,7 +54,10 @@ CMD ["python", "run_ict.py"]
 FROM runtime AS quality
 USER root
 COPY requirements-dev.txt .
-RUN python -m pip install --no-cache-dir -r requirements-dev.txt
+RUN --mount=type=secret,id=github_token \
+    git config --global url."https://x-access-token:$(cat /run/secrets/github_token)@github.com/".insteadOf "https://github.com/" \
+    && python -m pip install --no-cache-dir -r requirements-dev.txt \
+    && git config --global --unset url."https://x-access-token:$(cat /run/secrets/github_token)@github.com/".insteadOf
 COPY --chown=app:app pyproject.toml ./
 COPY --chown=app:app tests ./tests
 ENV RUFF_CACHE_DIR=/tmp/ruff-cache \

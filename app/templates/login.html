@@ -12,7 +12,7 @@
 
     <form method="post" action="{{ url_for('auth.login') }}" class="auth-form">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-      <input type="hidden" name="proxima" value="{{ proxima }}">
+      <input type="hidden" name="next" value="{{ proxima }}">
       <div class="campo-config">
         <label for="campo-login">Usuário</label>
         <input type="text" id="campo-login" name="login" autocomplete="username" autofocus required>

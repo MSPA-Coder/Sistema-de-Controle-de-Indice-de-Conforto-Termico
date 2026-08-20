@@ -13,7 +13,6 @@ para o hardware ocorre pela API interna do coletor.
 
 from __future__ import annotations
 
-import datetime
 import json
 import os
 from dataclasses import dataclass
@@ -21,10 +20,14 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, cast
 
-from flask import Flask, jsonify, request
+from flask import Flask, g, jsonify, request
 from flask.json.provider import DefaultJSONProvider
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from sharedauth.access import requer_login
+from sharedauth.csrf import iniciar_csrf
+from sharedauth.ratelimit import LIMITE_LOGIN_PADRAO
+from sharedauth.session import configurar_sessao
 from werkzeug.exceptions import HTTPException
 
 from . import auth, env_config
@@ -238,19 +241,22 @@ def criar_app_ict(config: AppConfig | None = None) -> Flask:
     limiter: Limiter = app.extensions["conforto_rate_limiter"]
 
     app.secret_key = auth.obter_ou_criar_chave_secreta()
-    app.config["SESSION_COOKIE_NAME"] = (
-        os.environ.get("CONFORTO_SESSION_COOKIE_NAME", "conforto_session").strip()
-        or "conforto_session"
+    configurar_sessao(
+        app,
+        nome_cookie=os.environ.get("CONFORTO_SESSION_COOKIE_NAME", "conforto_session").strip()
+        or "conforto_session",
+        https_obrigatorio=_ler_bool_env("CONFORTO_COOKIE_SEGURO", False),
+        duracao_horas=12,
     )
-    app.config["SESSION_COOKIE_HTTPONLY"] = True
-    app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-    app.config["SESSION_COOKIE_SECURE"] = _ler_bool_env("CONFORTO_COOKIE_SEGURO", False)
-    # CSRF é sempre protegido por padrão (ver `auth._proteger_csrf`, que
-    # usa `app.config.get("CSRF_PROTECTION_ENABLED", True)`). Não depende
-    # do backend de persistência: testes que precisam dispensar CSRF usam
-    # `app.testing`, e o único teste que exercita a proteção em si
-    # (`TestProtecaoCsrf`) desliga `app.testing` explicitamente.
-    app.permanent_session_lifetime = datetime.timedelta(hours=12)
+
+    # O campo do formulário/header continua `_csrf_token` (não o
+    # `csrf_token` padrão do Flask-WTF) para não precisar tocar templates
+    # nem `api.js` -- e sem prazo próprio: o token vive e morre com a
+    # sessão de 12h, como já era antes desta migração (o padrão do
+    # Flask-WTF é 1h, o que introduziria falha de CSRF sem o login expirar).
+    app.config["WTF_CSRF_FIELD_NAME"] = "_csrf_token"
+    app.config["WTF_CSRF_TIME_LIMIT"] = None
+    iniciar_csrf(app)
 
     @app.get("/health")
     @limiter.exempt
@@ -302,15 +308,50 @@ def criar_app_ict(config: AppConfig | None = None) -> Flask:
     # Dashboard. O limite dedicado preserva a proteção global mais estrita
     # para as demais rotas, sem interromper a atualização legítima a cada
     # três segundos.
+    #
+    # `RouteLimit.__call__` devolve uma função *nova*, embrulhada -- o
+    # enforcement de um limite decorado por rota roda DENTRO desse
+    # embrulho (chama `_check_request_limit` quando a view é de fato
+    # chamada), não no `before_request` genérico. Descartar o retorno em
+    # vez de reatribuir a `view_functions` deixa o limite decorado e nunca
+    # aplicado -- a mesma regressão real já encontrada e corrigida no
+    # MegaSena e no ControleRendaVariavel. Achado aqui de novo: as três
+    # rotas abaixo estavam sujeitas ao default global (20/min) em vez do
+    # limite dedicado (60/min) -- em polling a cada 3s (20 req/min), isso
+    # provavelmente já gerava 429 esporádico em produção.
     for endpoint in (
         "comum.historicos_recentes_zonas",
         "comum.status_operacao",
         "comum.eventos_operacao",
     ):
-        limiter.limit("60 per minute; 5000 per hour", override_defaults=True)(
-            app.view_functions[endpoint]
-        )
-    auth.registrar_autenticacao(app)
+        app.view_functions[endpoint] = limiter.limit(
+            "60 per minute; 5000 per hour", override_defaults=True
+        )(app.view_functions[endpoint])
+
+    auth.registrar_carregamento_usuario(app)
+    requer_login(
+        app,
+        endpoints_publicos=auth.ENDPOINTS_ISENTOS_DE_LOGIN,
+        endpoint_login="auth.login",
+        esta_autenticado=lambda: g.usuario is not None,
+        # Convenção deste app para toda resposta de erro em JSON (ver
+        # `_negar_acesso`/`tratar_erro_inesperado`) -- os outros dois apps
+        # Flask usam "error"/"erro" cada um com sua própria convenção;
+        # `sharedauth.access` aceita as duas por parâmetro.
+        chave_erro_api="erro",
+    )
+    auth.registrar_controle_de_area(app)
+
+    # O rate-limit de 5/min no login nunca chegou a funcionar: usava um
+    # `Limiter` órfão (`auth.obter_limiter()`), criado sem `app=` e sem
+    # `init_app()` -- seu hook de enforcement nunca era registrado neste
+    # app, então na prática só o default global (20/min) protegia o login.
+    # Corrigido reaproveitando o limiter de verdade da aplicação, com o
+    # mesmo limite padronizado nos três apps Flask (10/min).
+    app.view_functions["auth.login"] = limiter.limit(LIMITE_LOGIN_PADRAO)(
+        app.view_functions["auth.login"]
+    )
+
     return app
 
 

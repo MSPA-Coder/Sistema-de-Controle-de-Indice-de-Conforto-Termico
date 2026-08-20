@@ -5,6 +5,7 @@ x-app-build: &app-build
   target: runtime
   secrets:
     - local_ca
+    - github_token
 
 x-database-environment: &database-environment
   DB_HOST: postgres
@@ -172,6 +173,7 @@ services:
       target: quality
       secrets:
         - local_ca
+        - github_token
     profiles: ["quality"]
 
 volumes:
@@ -185,3 +187,10 @@ secrets:
     file: .secrets/postgres_password.txt
   internal_token:
     file: .secrets/internal_token.txt
+  # PAT de acesso restrito (somente-leitura, só no repositório SharedAuth) --
+  # usado apenas durante o build, para o `pip install` do requirements.txt
+  # baixar a dependência Git privada. Nunca vira variável de ambiente do
+  # runtime nem fica na imagem final. Mesmo token já usado no MegaSena e no
+  # ControleRendaVariavel.
+  github_token:
+    file: .secrets/github_token.txt

@@ -4,16 +4,23 @@ auth.py
 Autenticacao e controle de acesso por pessoa nas rotas publicas do ICT.
 Este modulo e o unico lugar do sistema que:
 
-- Sabe como transformar uma senha em texto puro num hash (`werkzeug.security`,
-  scrypt por padrao nesta versao do Werkzeug) e como conferir uma senha
-  digitada contra esse hash. `database.py` guarda `senha_hash` como uma
-  string opaca e nunca ve a senha real.
+- Sabe como transformar uma senha em texto puro num hash (via
+  `sharedauth.passwords`) e como conferir uma senha digitada contra esse
+  hash. `database.py` guarda `senha_hash` como uma string opaca e nunca ve
+  a senha real.
 - Decide, a partir do PERFIL de uma sessao, quais AREAS da interface (que
   mapeiam 1:1 aos grupos de abas em `templates/index.html` -- ver
   README.md, secao "Organizacao das abas por papel de uso") esse perfil
   pode acessar.
-- Registra os dois hooks `before_request` que aplicam essa decisao a TODA
-  rota do app (`registrar_autenticacao`), inclusive a pagina inicial.
+- Registra os hooks `before_request` que carregam `g.usuario` e aplicam a
+  decisao de area a TODA rota do app, inclusive a pagina inicial.
+
+Sessao, CSRF, o gate de "exige login" e o rate-limit do login vêm de
+`sharedauth` (chamados em `app_factory.criar_app_ict`), compartilhados com
+os outros apps Flask do mantenedor -- ver PLANO_UNIFICAR_AUTENTICACAO.md no
+repositório `_manutencao`. Este módulo só decide o que é específico deste
+app: os 6 perfis e o mapeamento perfil→área, que `sharedauth` deliberadamente
+não decide.
 
 A separacao de areas e so a metade "isso e permitido" da decisao. A outra
 metade -- "o template so MOSTRA o botao/aba que a pessoa pode usar" -- fica
@@ -26,12 +33,11 @@ um botao no HTML nunca e controle de acesso de verdade.
 from __future__ import annotations
 
 import contextlib
-import hmac
 import os
 import re
 import secrets
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 from urllib.parse import unquote, urlsplit
 
 from flask import (
@@ -46,9 +52,9 @@ from flask import (
     session,
     url_for,
 )
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
-from werkzeug.security import check_password_hash, generate_password_hash
+from sharedauth.passwords import MIN_PASSWORD_LENGTH, SenhaMuitoCurtaError, validar_tamanho
+from sharedauth.passwords import conferir_hash as _conferir_hash
+from sharedauth.passwords import gerar_hash as _gerar_hash
 
 from . import database as db
 from .secret_files import read_compose_secret
@@ -112,23 +118,9 @@ PERFIL_LABEL: dict[str, str] = {
 # administrador. Ver AREA_POR_ENDPOINT/PERFIS_EXTRA_POR_ENDPOINT abaixo.
 PERFIS_QUE_PODEM_EXCLUIR_DADOS_ENTRADA = frozenset({"tecnico", "administrador"})
 
-SENHA_TAMANHO_MINIMO = 8
-METODOS_HTTP_SEGUROS = frozenset({"GET", "HEAD", "OPTIONS"})
-
-# Limiter para rate limiting - inicializado uma vez e reutilizado
-_limiter: Limiter | None = None
-
-
-def obter_limiter() -> Limiter:
-    """Obtem ou cria o limiter para rate limiting."""
-    global _limiter
-    if _limiter is None:
-        _limiter = Limiter(
-            key_func=get_remote_address,
-            default_limits=["100 per hour", "20 per minute"],
-            storage_uri="memory://",
-        )
-    return _limiter
+# Re-exportado de sharedauth.passwords: piso comum aos apps Flask do
+# mantenedor, não mais uma constante própria deste projeto.
+SENHA_TAMANHO_MINIMO = MIN_PASSWORD_LENGTH
 
 
 def sanitizar_log(mensagem: str) -> str:
@@ -141,28 +133,21 @@ def sanitizar_log(mensagem: str) -> str:
     return mensagem
 
 
-def obter_token_csrf() -> str:
-    token = session.get("_csrf_token")
-    if not token:
-        token = secrets.token_urlsafe(32)
-        session["_csrf_token"] = token
-    return cast("str", token)
-
-
 # ---------------------------------------------------------------------------
-# Hash de senha -- unico lugar do sistema que importa werkzeug.security
+# Hash de senha -- sharedauth.passwords (Werkzeug por baixo, piso comum aos
+# apps Flask do mantenedor).
 # ---------------------------------------------------------------------------
 
 
 def gerar_hash_senha(senha: str) -> str:
-    return generate_password_hash(senha)
+    return _gerar_hash(senha)
 
 
 def conferir_senha(senha: str, hash_: str) -> bool:
     if not senha or not hash_:
         return False
     try:
-        return check_password_hash(hash_, senha)
+        return _conferir_hash(hash_, senha)
     except ValueError:
         # Hash malformado ou de um algoritmo que esta versao do Werkzeug
         # nao reconhece: trata como senha incorreta em vez de propagar a
@@ -256,6 +241,7 @@ ENDPOINTS_ISENTOS_DE_LOGIN = frozenset(
         "auth.login",
         "comum.favicon",
         "health_ict",
+        "static",
     }
 )
 
@@ -336,31 +322,13 @@ def _negar_acesso() -> ResponseReturnValue:
     return redirect(url_for("comum.index"))
 
 
-def registrar_autenticacao(app: Flask) -> None:
-    """Registra os hooks que exigem login em QUALQUER rota (inclusive a
-    pagina inicial) e que conferem a area exigida por endpoint, quando houver
-    uma em AREA_POR_ENDPOINT/PERFIS_EXTRA_POR_ENDPOINT."""
+def registrar_carregamento_usuario(app: Flask) -> None:
+    """Registra o hook que carrega `g.usuario` a partir da sessão.
 
-    app.jinja_env.globals["csrf_token"] = obter_token_csrf
-
-    @app.before_request
-    def _proteger_csrf() -> ResponseReturnValue | None:
-        # A suíte usa clientes Flask isolados e testa autorização
-        # separadamente. Um teste dedicado cobre esta proteção com TESTING
-        # desabilitado.
-        if (
-            not app.config.get("CSRF_PROTECTION_ENABLED", True)
-            or app.testing
-            or request.method in METODOS_HTTP_SEGUROS
-        ):
-            return None
-        esperado = session.get("_csrf_token", "")
-        recebido = request.headers.get("X-CSRF-Token", "") or request.form.get("_csrf_token", "")
-        if esperado and recebido and hmac.compare_digest(esperado, recebido):
-            return None
-        if request.path.startswith("/api/"):
-            return jsonify({"erro": "Token CSRF inválido ou ausente."}), 400
-        return "Token CSRF inválido ou ausente.", 400
+    Precisa rodar ANTES do gate de login do `sharedauth.access` (que só
+    decide "autenticado ou não" a partir de `g.usuario is not None`) e antes
+    de `registrar_controle_de_area` (que consulta `g.usuario["perfil"]`).
+    """
 
     @app.before_request
     def _carregar_usuario_da_sessao() -> None:
@@ -380,20 +348,22 @@ def registrar_autenticacao(app: Flask) -> None:
         g.usuario = usuario
         return None
 
-    @app.before_request
-    def _exigir_login_e_area() -> ResponseReturnValue | None:
-        endpoint = request.endpoint or ""
-        if (
-            endpoint in ENDPOINTS_ISENTOS_DE_LOGIN
-            or endpoint.startswith("static")
-            or endpoint == "static"
-        ):
-            return None
 
-        if g.usuario is None:
-            if request.path.startswith("/api/"):
-                return jsonify({"erro": "Sessão expirada. Faça login novamente."}), 401
-            return redirect(url_for("auth.login", proxima=request.path))
+def registrar_controle_de_area(app: Flask) -> None:
+    """Registra o hook que confere a area exigida por endpoint, quando
+    houver uma em AREA_POR_ENDPOINT/PERFIS_EXTRA_POR_ENDPOINT.
+
+    Precisa rodar DEPOIS do gate de login do `sharedauth.access`: por isso
+    não repete a checagem de `g.usuario is None` -- se a requisição chegou
+    até aqui, já passou pelo gate e `g.usuario` está garantidamente
+    preenchido (exceto nos endpoints isentos de login, que também são
+    isentos de área)."""
+
+    @app.before_request
+    def _exigir_area() -> ResponseReturnValue | None:
+        endpoint = request.endpoint or ""
+        if endpoint in ENDPOINTS_ISENTOS_DE_LOGIN:
+            return None
 
         area_requerida = AREA_POR_ENDPOINT.get(endpoint)
         if area_requerida is not None:
@@ -420,8 +390,8 @@ auth_bp = Blueprint("auth", __name__)
 def _destino_pos_login(bruto: str) -> str:
     """So aceita caminhos relativos internos ('/algo'), nunca uma URL
     absoluta ('//evil.com' ou 'https://evil.com') -- do contrario o
-    parametro `proxima` vindo da querystring vira um open redirect: um
-    link malicioso apontando para /login?proxima=https://... redirecionaria
+    parametro `next` vindo da querystring vira um open redirect: um
+    link malicioso apontando para /login?next=https://... redirecionaria
     a vitima, ja autenticada, para um site externo logo depois do login."""
     decoded = bruto
     # Cada unquote que altera a string encurta ao menos uma sequência ``%xx``;
@@ -448,7 +418,6 @@ def _destino_pos_login(bruto: str) -> str:
 
 
 @auth_bp.route("/login", methods=["GET", "POST"])
-@obter_limiter().limit("5 per minute")
 def login() -> ResponseReturnValue:
     from .audit_log import log_login_falha, log_login_sucesso
 
@@ -456,7 +425,9 @@ def login() -> ResponseReturnValue:
         return redirect(url_for("comum.index"))
 
     erro = None
-    proxima = request.values.get("proxima", "")
+    # Nome do parametro e "next", nao "proxima": sharedauth.access.requer_login
+    # (que gera o redirect para ca quando a sessao expira) sempre usa "next".
+    proximo = request.values.get("next", "")
 
     if request.method == "POST":
         login_digitado = str(request.form.get("login", "")).strip()
@@ -488,9 +459,9 @@ def login() -> ResponseReturnValue:
             session.permanent = True
             db.registrar_login_usuario(usuario["id"])
             log_login_sucesso(usuario["id"], login_digitado)
-            return redirect(_destino_pos_login(proxima))
+            return redirect(_destino_pos_login(proximo))
 
-    return render_template("login.html", erro=erro, proxima=proxima)
+    return render_template("login.html", erro=erro, proxima=proximo)
 
 
 @auth_bp.route("/logout", methods=["POST"])
@@ -535,8 +506,10 @@ def criar_usuario_rota() -> ResponseReturnValue:
             "ativo": bool(request.form.get("ativo")),
         }
         senha = request.form.get("senha", "")
-        if len(senha) < SENHA_TAMANHO_MINIMO:
-            erro = f"A senha precisa ter pelo menos {SENHA_TAMANHO_MINIMO} caracteres."
+        try:
+            validar_tamanho(senha)
+        except SenhaMuitoCurtaError as erro_senha:
+            erro = str(erro_senha)
         else:
             try:
                 db.criar_usuario({**valores, "senha_hash": gerar_hash_senha(senha)})
@@ -587,8 +560,10 @@ def editar_usuario_rota(usuario_id: int) -> ResponseReturnValue:
             }
             senha = request.form.get("senha", "")
             if senha:
-                if len(senha) < SENHA_TAMANHO_MINIMO:
-                    erro = f"A senha precisa ter pelo menos {SENHA_TAMANHO_MINIMO} caracteres."
+                try:
+                    validar_tamanho(senha)
+                except SenhaMuitoCurtaError as erro_senha:
+                    erro = str(erro_senha)
                 else:
                     valores["senha_hash"] = gerar_hash_senha(senha)
             if erro is None:

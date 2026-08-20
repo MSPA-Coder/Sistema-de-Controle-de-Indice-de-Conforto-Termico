@@ -1,14 +1,16 @@
 """A aplicacao nega por padrao, e a isencao e uma lista curta e explicita.
 
-Como o factory deste projeto conecta ao banco, a afirmacao e sobre as
-estruturas que decidem o acesso e sobre a fiacao dos hooks -- nao sobre uma
-resposta HTTP. O que se protege e o mesmo: uma rota que deixa de exigir sessao
-continua respondendo 200 e parecendo correta.
+O gate de login vem de `sharedauth.access.requer_login` desde a Fase 4 da
+migração (ver PLANO_UNIFICAR_AUTENTICACAO.md no repositório `_manutencao`) --
+antes era um `before_request` próprio deste projeto. `criar_app_ict()` não
+conecta ao banco na criação (ver conftest.py), então os testes abaixo usam
+`app.test_client()` de verdade em vez de inspecionar código-fonte: o que se
+protege é a mesma coisa (uma rota que deixa de exigir sessão continua
+respondendo 200 e parecendo correta), mas agora é medido pela resposta HTTP,
+não por `inspect.getsource`.
 """
 
 from __future__ import annotations
-
-import inspect
 
 import pytest
 
@@ -20,37 +22,46 @@ def test_isencao_de_login_e_curta_e_conhecida():
     # nasce exigindo sessao. Acrescentar algo aqui deve ser decisao consciente,
     # e este teste e o que obriga a passar por ela.
     assert frozenset(
-        {"auth.login", "comum.favicon", "health_ict"}
+        {"auth.login", "comum.favicon", "health_ict", "static"}
     ) == auth.ENDPOINTS_ISENTOS_DE_LOGIN, f"isencoes inesperadas: {auth.ENDPOINTS_ISENTOS_DE_LOGIN}"
 
 
-def test_hook_de_login_exige_sessao_em_toda_rota():
-    fonte = inspect.getsource(auth.registrar_autenticacao)
-    # O hook precisa continuar sendo `before_request` global. Trocar por
-    # decorators por rota devolveria o problema de a rota nova nascer aberta.
-    assert "@app.before_request" in fonte
-    assert "ENDPOINTS_ISENTOS_DE_LOGIN" in fonte
-    assert "g.usuario is None" in fonte
+def test_rota_protegida_recusa_acesso_anonimo(client):
+    resposta = client.get("/", follow_redirects=False)
+    assert resposta.status_code == 302
+    assert "/login" in resposta.headers["Location"]
 
 
-def test_criar_app_ict_liga_o_hook_de_autenticacao():
-    # O teste acima garante que o hook em si nega por padrao -- mas nada
-    # garantia que `criar_app_ict()` de fato o registra. Essa suite e
-    # caixa-branca e nao instancia a app (o factory conecta a banco), entao
-    # remover `auth.registrar_autenticacao(app)` do factory deixaria toda
-    # rota efetivamente sem autenticacao, respondendo 200 e parecendo
-    # correta, sem que nenhum teste ate agora pegasse isso.
-    from app import app_factory
-
-    fonte = inspect.getsource(app_factory.criar_app_ict)
-    assert "auth.registrar_autenticacao(app)" in fonte
+def test_rota_protegida_de_api_recusa_acesso_anonimo_com_401(client):
+    # A mensagem exata ("Autenticação necessária.") vem de
+    # `sharedauth.access` -- a chave "erro" (não "error") é a convenção
+    # deste app, configurada em `app_factory.criar_app_ict`.
+    resposta = client.get("/api/zonas")
+    assert resposta.status_code == 401
+    assert resposta.get_json() == {"erro": "Autenticação necessária."}
 
 
-def test_sessao_apontando_para_usuario_removido_e_tratada_como_deslogada():
-    fonte = inspect.getsource(auth.registrar_autenticacao)
-    # Desativar um usuario precisa ter efeito imediato, nao so quando a sessao
-    # dele vencer.
-    assert "session.clear()" in fonte
+def test_next_preserva_o_caminho_original(client):
+    resposta = client.get("/", follow_redirects=False)
+    assert resposta.headers["Location"] == "/login?next=/"
+
+
+def test_login_e_publico(client):
+    assert client.get("/login").status_code == 200
+
+
+def test_sessao_apontando_para_usuario_removido_e_tratada_como_deslogada(client, monkeypatch):
+    # Desativar um usuario precisa ter efeito imediato, nao so quando a
+    # sessao dele vencer -- simula a sessao ja aberta apontando para um id
+    # que nao existe mais (removido, ou desativado nesse meio-tempo).
+    monkeypatch.setattr(auth.db, "obter_usuario", lambda usuario_id: None)
+    with client.session_transaction() as sessao:
+        sessao["usuario_id"] = 999999
+    resposta = client.get("/", follow_redirects=False)
+    assert resposta.status_code == 302
+    assert "/login" in resposta.headers["Location"]
+    with client.session_transaction() as sessao:
+        assert "usuario_id" not in sessao
 
 
 def test_todo_perfil_declara_suas_areas():

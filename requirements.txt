@@ -14,6 +14,14 @@ truststore>=0.10,<1
 pymodbus[serial]>=3.8,<4.0
 # Rate limiting para proteção contra brute-force e DoS
 Flask-Limiter>=3.0,<4.0
+# Sessão, CSRF, rate-limit no login, controle de acesso e hash de senha
+# compartilhados com os outros apps Flask do mantenedor -- ver
+# PLANO_UNIFICAR_AUTENTICACAO.md no repositório _manutencao. Tag fixada
+# manualmente; nunca aponta para branch.
+sharedauth @ git+https://github.com/MSPA-Coder/SharedAuth.git@v0.1.1
+# CSRF do sharedauth usa Flask-WTF -- substitui a proteção própria em HMAC
+# que este projeto escrevia à mão.
+Flask-WTF>=1.2.2,<2
 # Ferramentas de qualidade de código
 # Testes
 # Documentação de API

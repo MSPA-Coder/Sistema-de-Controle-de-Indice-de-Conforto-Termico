@@ -1,7 +1,10 @@
 ﻿"""O perfil decide as areas, e a decisao fica no servidor.
 
 Esconder aba e apresentacao. O que impede um perfil de alcancar uma area e o
-`_exigir_login_e_area`, e e isso que este arquivo mede.
+hook registrado por `registrar_controle_de_area`, e e isso que este arquivo
+mede. (O gate de "esta logado" em si vem de `sharedauth.access.requer_login`
+desde a Fase 4 da migração -- ver PLANO_UNIFICAR_AUTENTICACAO.md no
+repositório `_manutencao` -- e não decide papel/área, só autenticação.)
 """
 
 from __future__ import annotations
@@ -12,7 +15,7 @@ from app import auth
 
 
 def test_perfil_sem_a_area_e_barrado_no_servidor():
-    fonte = inspect.getsource(auth.registrar_autenticacao)
+    fonte = inspect.getsource(auth.registrar_controle_de_area)
     assert "AREA_POR_ENDPOINT" in fonte
     assert "area_permitida(" in fonte
     assert "_negar_acesso()" in fonte
