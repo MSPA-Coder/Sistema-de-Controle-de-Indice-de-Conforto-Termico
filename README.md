@@ -212,11 +212,13 @@ Formulários e chamadas mutáveis da interface exigem token CSRF. Ao publicar po
 HTTPS, habilite `CONFORTO_COOKIE_SEGURO=1`; encerre a sessão em dispositivos
 compartilhados.
 
-Sessão, CSRF, limite de tentativas de login, controle de acesso e hash de
-senha vêm de [SharedAuth](https://github.com/MSPA-Coder/SharedAuth),
-biblioteca compartilhada com os outros dois apps Flask do mantenedor (privada,
-instalada via `requirements.txt` fixada em tag). Perfis, áreas e o modelo de
-usuário continuam próprios deste projeto.
+Sessão, CSRF, limite de tentativas de login, controle de acesso, hash de
+senha, cabeçalhos de segurança e CSP e as duas rotas `/health` (ICT e coletor)
+vêm de [SharedAuth](https://github.com/MSPA-Coder/SharedAuth), biblioteca
+compartilhada com os outros apps do mantenedor (privada, instalada via
+`requirements.txt` fixada em tag, com o extra `[flask]`). Perfis, áreas e o
+modelo de usuário continuam próprios deste projeto. Este projeto não usa a
+formatação da biblioteca: não tem formatação de número de saída.
 
 ## Organização da interface
 

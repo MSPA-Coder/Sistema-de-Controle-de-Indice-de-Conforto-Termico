@@ -20,9 +20,10 @@ operacionais. `coletor` é privado, mantém Modbus e a malha por zona, e expõe
 somente `/health` e `/api/interno/*`. `criar_app_ict()` não importa cliente
 Modbus, `zona_service` nem estado do coletor. O navegador consome a API JSON do
 ICT; a interface preserva CSRF e autorização no servidor. Sessão, CSRF,
-limite de tentativas de login, controle de acesso e hash de senha vêm de
+limite de tentativas de login, controle de acesso, hash de senha, cabeçalhos
+de segurança e CSP e as duas rotas `/health` vêm de
 [SharedAuth](https://github.com/MSPA-Coder/SharedAuth), biblioteca
-compartilhada com os outros dois apps Flask do mantenedor (ver README.md);
+compartilhada com os outros apps do mantenedor (ver README.md);
 não reimplemente esse mecanismo localmente. Perfis e áreas continuam
 próprios deste projeto (`AREAS_POR_PERFIL` em `app/auth.py`).
 
