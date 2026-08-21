@@ -136,6 +136,17 @@ services:
       CONFORTO_DEBUG: ${CONFORTO_DEBUG:-0}
       CONFORTO_SESSION_COOKIE_NAME: ${CONFORTO_SESSION_COOKIE_NAME:-conforto_session}
       CONFORTO_COOKIE_SEGURO: ${CONFORTO_COOKIE_SEGURO:-0}
+      # Sem esta linha o `ProxyFix` fica inerte em produção. O `--env-file` do
+      # Compose serve para INTERPOLAR `${VAR}` neste arquivo; ele não injeta
+      # nada dentro do contêiner. Só chega ao processo o que estiver listado
+      # aqui — e a falha é silenciosa: a variável existe no `.env.docker`, o
+      # deploy passa, a aplicação sobe saudável e a proteção simplesmente não
+      # existe. Descoberto conferindo o IP no `audit_log` depois de implantar,
+      # que ainda mostrava o gateway do Docker.
+      #
+      # Só no `ict`: é o único serviço atrás do nginx. O `coletor` é API
+      # interna e não deve confiar em cabeçalho de proxy nenhum.
+      CONFORTO_TRUST_PROXY_HEADERS: ${CONFORTO_TRUST_PROXY_HEADERS:-0}
       CONFORTO_INTERNO_TOKEN_FILE: /run/secrets/internal_token
       COLETOR_URL: http://coletor:5000
     secrets:
