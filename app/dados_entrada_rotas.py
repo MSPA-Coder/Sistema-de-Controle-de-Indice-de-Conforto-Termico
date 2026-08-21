@@ -9,17 +9,13 @@ from flask import Blueprint, Response, current_app, jsonify, request
 
 from . import dados_entrada_db as dados_db
 from . import database as db
-from .app_factory import MENSAGEM_ERRO_INTERNO
+from .app_factory import MENSAGEM_ERRO_INTERNO, confirmacao_de_exclusao_valida
 from .dados_entrada_cidades import referencias_publicas
 
 # Consultas da aba Dados de entrada.
 dados_entrada_leitura_bp = Blueprint("dados_entrada_leitura", __name__)
 # Mutações pertencem ao ICT; o coletor não gera dados climáticos.
 dados_entrada_bp = Blueprint("dados_entrada", __name__)
-
-
-def _confirmado(dados: dict) -> bool:
-    return str(dados.get("confirmacao", "")).strip().upper() == "APAGAR"
 
 
 @dados_entrada_leitura_bp.route("/api/dados-entrada/configuracoes", methods=["GET"])
@@ -99,7 +95,7 @@ def exportar_csv():
 @dados_entrada_bp.route("/api/dados-entrada/medicoes", methods=["DELETE"])
 def excluir_medicoes():
     dados = request.get_json(force=True, silent=True) or {}
-    if not _confirmado(dados):
+    if not confirmacao_de_exclusao_valida(dados):
         return jsonify({"erro": "Digite APAGAR para confirmar a exclusão."}), 400
     execucao_id = dados.get("execucao_id")
     try:
@@ -132,7 +128,7 @@ def copiar_para_historico():
 @dados_entrada_bp.route("/api/dados-entrada/apagar-historico", methods=["DELETE"])
 def apagar_historico():
     dados = request.get_json(force=True, silent=True) or {}
-    if not _confirmado(dados):
+    if not confirmacao_de_exclusao_valida(dados):
         return jsonify({"erro": "Digite APAGAR para confirmar a exclusão."}), 400
     total = db.contar_leituras()
     db.limpar_historico()

@@ -414,6 +414,7 @@ export function criarEntradaCalculo({
     atualizarResultado(dados);
   }
   async function limparHistorico() {
+    const confirmacao = document.getElementById("confirmacao-limpar-historico").value;
     const confirmado = confirmar(
       "Limpar histórico?\n\n" +
       "Esta ação apaga todas as leituras salvas no banco e limpa os gráficos/tabelas do histórico nesta sessão. " +
@@ -425,7 +426,7 @@ export function criarEntradaCalculo({
       const resposta = await fetch("/api/reset", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ confirmacao }),
       });
       const corpo = await resposta.json().catch(() => ({}));
       if (!resposta.ok || !corpo.ok) {

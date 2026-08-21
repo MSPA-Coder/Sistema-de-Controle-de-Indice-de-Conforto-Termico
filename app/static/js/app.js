@@ -489,6 +489,7 @@ function moverControlesParaConfiguracoes() {
   moverCampo("cfg-altitude", configuracoesCalculos);
   moverCampo("cfg-limite-umidade-nebulizador", configuracoesCalculos);
 
+  moverCampo("confirmacao-limpar-historico", configuracoesHistorico);
   if (configuracoesHistorico && limparHistorico) configuracoesHistorico.appendChild(limparHistorico);
 }
 

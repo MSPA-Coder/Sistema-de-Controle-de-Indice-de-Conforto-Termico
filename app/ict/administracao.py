@@ -11,6 +11,7 @@ from flask import Blueprint, current_app, jsonify, request
 
 from .. import agregacao
 from .. import database as db
+from ..app_factory import confirmacao_de_exclusao_valida
 from .coletor_client import chamar_coletor
 
 administracao_bp = Blueprint("administracao", __name__)
@@ -93,7 +94,14 @@ def reset():
     ciclos automaticos, conforme novos pontos empurram os antigos para
     fora do buffer. Trade-off deliberado: nao vale a pena outra chamada
     de rede/token para um efeito puramente cosmetico e de curtissima
-    duracao numa acao administrativa rara."""
+    duracao numa acao administrativa rara.
+
+    A mesma exclusao que `/api/dados-entrada/apagar-historico` faz -- e a
+    mesma trava: confirmacao validada aqui, nao so no `confirm()` do
+    navegador (ver `app_factory.confirmacao_de_exclusao_valida`)."""
+    dados = request.get_json(force=True, silent=True) or {}
+    if not confirmacao_de_exclusao_valida(dados):
+        return jsonify({"erro": "Digite APAGAR para confirmar a exclusão."}), 400
     db.limpar_historico()
     return jsonify({"ok": True})
 

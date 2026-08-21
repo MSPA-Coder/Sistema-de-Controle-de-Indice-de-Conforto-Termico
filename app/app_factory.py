@@ -46,6 +46,21 @@ env_config.carregar()
 MENSAGEM_ERRO_INTERNO = "Erro interno inesperado. Consulte o log do servidor para detalhes."
 PROCESSOS_APP = ("ict", "coletor")
 HOSTS_LOOPBACK = frozenset({"127.0.0.1", "::1", "localhost"})
+PALAVRA_CONFIRMACAO_EXCLUSAO = "APAGAR"
+
+
+def confirmacao_de_exclusao_valida(dados: dict) -> bool:
+    """Confirmação server-side para apagar toda a série temporal de leituras.
+
+    Mais de uma rota zera `leituras`/`leituras_recentes_zona`/
+    `agregados_15min`/`resumos_horarios` de uma vez (dados de entrada e
+    administração do ICT) -- ambas precisam desta mesma trava, porque um
+    `confirm()` só existe no navegador: uma chamada direta (curl, clique
+    repetido, script) com sessão válida passa reto se o servidor não checar
+    nada. Compartilhada em vez de duplicada para as duas nunca divergirem de
+    novo.
+    """
+    return str(dados.get("confirmacao", "")).strip().upper() == PALAVRA_CONFIRMACAO_EXCLUSAO
 
 # Conjunto defensivo e CSP vem de `sharedauth.security` -- eram um dicionario
 # e uma string mantidos iguais a mao aqui e no MegaSena, com o comentario
