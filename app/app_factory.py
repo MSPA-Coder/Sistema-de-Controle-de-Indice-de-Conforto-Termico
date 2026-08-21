@@ -32,6 +32,7 @@ from sharedauth.security import CONTENT_SECURITY_POLICY as POLITICA_FECHADA
 from sharedauth.security import SECURITY_HEADERS, registrar_cabecalhos
 from sharedauth.session import configurar_sessao
 from werkzeug.exceptions import HTTPException
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from . import auth, env_config
 from . import database as db
@@ -251,6 +252,30 @@ def criar_app_ict(config: AppConfig | None = None) -> Flask:
         https_obrigatorio=_ler_bool_env("CONFORTO_COOKIE_SEGURO", False),
         duracao_horas=12,
     )
+
+    # Este era o único dos quatro projetos sem `ProxyFix`, e roda atrás do
+    # nginx. O efeito não é cosmético:
+    #
+    # 1. O `key_func=get_remote_address` do limitador via o IP do gateway do
+    #    Docker, igual para todo mundo. O `default_limits` de "100 por hora,
+    #    20 por minuto" era, portanto, UM BALDE ÚNICO somando o mundo inteiro
+    #    -- não protegia contra força bruta (o atacante divide o balde com
+    #    todos) e, num aplicativo que faz polling, é auto-bloqueio esperando
+    #    a hora.
+    # 2. O `audit_log` gravava esse mesmo IP de gateway em todo evento de
+    #    autenticação: registro forense formalmente correto e materialmente
+    #    inútil.
+    #
+    # ATRÁS DE VARIÁVEL, NUNCA INCONDICIONAL: confiar em `X-Forwarded-For` sem
+    # um proxy à frente é PIOR que não confiar. Sem proxy, qualquer cliente
+    # forja o cabeçalho, vira um IP novo a cada requisição e escapa do
+    # limitador por completo -- e ainda envenena o log de auditoria com o
+    # endereço que quiser. Mesma convenção do MegaSena
+    # (`MEGA_SENA_TRUST_PROXY_HEADERS`) e do CRV.
+    if _ler_bool_env("CONFORTO_TRUST_PROXY_HEADERS", False):
+        app.wsgi_app = ProxyFix(  # type: ignore[method-assign]
+            app.wsgi_app, x_for=1, x_proto=1, x_host=1
+        )
 
     # O campo do formulário/header continua `_csrf_token` (não o
     # `csrf_token` padrão do Flask-WTF) para não precisar tocar templates
