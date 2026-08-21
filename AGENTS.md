@@ -39,6 +39,24 @@ cria schema em runtime: o job `schema` aplica as migrações controladamente ant
 de `ict` e `coletor`. Dados de configuração e controle ficam no PostgreSQL;
 estado transitório pertence ao coletor, não a globals compartilhados.
 
+`app/db_backend.py` é **dívida datada, não arquitetura**. É um emulador de
+SQLite sobre PostgreSQL — marcadores `?`, `lastrowid`, `LinhaCompat` — sobra de
+uma migração que já terminou. Aposentá-lo depende de existir Postgres de
+verdade no CI; o plano está na seção 7 de
+`_manutencao/PLANO_SINAL_E_DEFEITOS.md`. Não construa coisa nova em cima dele e
+não amplie a superfície dele.
+
+Duas armadilhas de quem escreve SQL neste projeto:
+
+- **`?` de `jsonb`.** `coluna ? 'chave'` é operador válido no PostgreSQL e
+  é indistinguível de um marcador olhando só o texto. A camada recusa a
+  consulta quando a contagem de marcadores não bate com os parâmetros, em vez
+  de mandá-la torta ao banco. Use `jsonb_exists(coluna, ?)` para não cair
+  nisso. `?|` e `?&` são reconhecidos e preservados.
+- **`%` literal.** Ao converter para o estilo `%s` do psycopg, um `LIKE
+  '%termo%'` passa a ser lido como formatação. Não existe nenhum hoje; o
+  primeiro a escrever um vai precisar tratar o caso.
+
 ## Segurança, implantação e riscos destrutivos
 
 Segredos ficam em `.secrets/`, montados apenas nos serviços que precisam deles;

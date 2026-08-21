@@ -2,6 +2,33 @@
 
 Não há fallback de persistência: uma configuração ausente ou de outro dialeto
 falha antes de a aplicação iniciar.
+
+DÍVIDA DATADA. Esta camada é um emulador de SQLite sobre PostgreSQL, sobra de
+uma migração que já terminou: marcadores `?`, `lastrowid`, `LinhaCompat`. A
+aposentadoria dela depende de existir Postgres de verdade no CI, e está
+registrada na seção 7 de `_manutencao/PLANO_SINAL_E_DEFEITOS.md`. Enquanto
+isso, o que foi feito aqui em 2026-08-21 (Fase 4) foi **blindar, não
+refatorar** -- fechar o risco de corromper consulta em silêncio, sem mexer na
+forma.
+
+Duas coisas que ficaram deliberadamente de fora, e o porquê:
+
+1. **`RETURNING id` no lugar do `SELECT currval(...)`.** O plano pedia, e a
+   troca foi recusada depois de conferir o esquema: **8 das 18 tabelas não têm
+   coluna `id`**, e várias são alvo de INSERT (`configuracoes_zona`,
+   `controle_zonas`, `estado_equipamentos`, `agregados_15min`). Acrescentar
+   `RETURNING id` a todo INSERT transformaria upserts que funcionam em erro de
+   SQL. O ganho seria um round trip a menos por inserção, num sistema cujos
+   dumps inteiros têm centenas de quilobytes. Trocar correção por desempenho
+   nessa proporção é mau negócio. O defeito de verdade do `currval` -- devolver
+   id alheio quando nada foi inserido -- foi fechado com uma guarda de
+   `rowcount`, sem tocar no esquema.
+
+2. **Escapar `%` para `%%`.** Ao converter para o estilo `%s` do psycopg, um
+   `%` literal no SQL (um `LIKE '%termo%'`) passa a ser lido como formatação.
+   Não há nenhum hoje -- conferido -- e escapar às cegas quebraria qualquer
+   SQL que já venha com `%s`. Fica anotado como armadilha conhecida para quem
+   escrever o primeiro `LIKE` com curinga.
 """
 
 from __future__ import annotations
@@ -117,6 +144,15 @@ class ResultadoCompat:
     def lastrowid(self) -> int | None:
         if not self._table:
             return None
+        # Nenhuma linha inserida (o caso do `ON CONFLICT ... DO NOTHING` que
+        # bateu no conflito): `currval` devolveria o id da última inserção
+        # ANTERIOR na mesma sessão -- um número plausível, de outra linha, sem
+        # nada indicando o engano. Latente hoje (o único DO NOTHING do projeto
+        # é em `estado_equipamentos`, que não tem coluna `id` e cujo lastrowid
+        # ninguém lê), e é exatamente por ser latente que merece a guarda: o
+        # dia em que alguém ler vai ser um dia normal.
+        if self.rowcount == 0:
+            return None
         sequence = self._connection.exec_driver_sql(
             "SELECT currval(pg_get_serial_sequence(%s, %s))",
             (f"{self._schema}.{self._table}", "id"),
@@ -138,9 +174,130 @@ _INSERT_TABLE_RE = re.compile(
 )
 
 
-def _adaptar_placeholders(sql: str) -> str:
-    # As consultas do projeto não contêm o caractere '?' em literais SQL.
-    return sql.replace("?", "%s")
+# Início de literal com cifrão: `$$` ou `$tag$`.
+_DOLAR_RE = re.compile(r"\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$")
+
+# `?|` e `?&` são operadores de `jsonb` no PostgreSQL, não marcadores.
+_OPERADORES_JSONB = ("?|", "?&")
+
+
+def _adaptar_placeholders(sql: str) -> tuple[str, int]:
+    """Converte `?` (estilo SQLite) em `%s` (estilo psycopg).
+
+    A versão anterior era `sql.replace("?", "%s")`, com o comentário "as
+    consultas do projeto não contêm o caractere '?' em literais SQL". O
+    invariante estava garantido por um comentário, e o comentário não é
+    executável: bastava alguém escrever `WHERE nome = 'e agora?'` ou usar um
+    operador de `jsonb` para a consulta ser corrompida em silêncio.
+
+    E não é hipótese distante — este projeto já consulta `jsonb`
+    (`l.entradas::jsonb`, em `database_leituras.py`). `?`, `?|` e `?&` são
+    operadores legítimos ali: `coluna ? 'chave'` pergunta se a chave existe. No
+    dia em que alguém escrevesse a consulta natural, o `replace` a transformaria
+    em `coluna %s 'chave'` e o erro apareceria longe da causa.
+
+    Percorre o SQL respeitando literais com aspas simples (inclusive `''`),
+    identificadores entre aspas duplas, literais com cifrão (`$$`/`$tag$`),
+    comentários de linha e de bloco (que aninham no PostgreSQL). Devolve o SQL
+    convertido e QUANTOS marcadores foram convertidos -- a contagem é o que
+    permite recusar a consulta ambígua em vez de deixá-la passar torta.
+    """
+    saida: list[str] = []
+    convertidos = 0
+    i = 0
+    n = len(sql)
+
+    while i < n:
+        c = sql[i]
+
+        if c == "'" or c == '"':
+            fechamento = c
+            j = i + 1
+            while j < n:
+                if sql[j] == fechamento:
+                    # Aspa dobrada é escape, não fechamento.
+                    if j + 1 < n and sql[j + 1] == fechamento:
+                        j += 2
+                        continue
+                    j += 1
+                    break
+                j += 1
+            saida.append(sql[i:j])
+            i = j
+            continue
+
+        if c == "$":
+            marca = _DOLAR_RE.match(sql, i)
+            if marca:
+                etiqueta = marca.group(0)
+                fim = sql.find(etiqueta, i + len(etiqueta))
+                j = n if fim == -1 else fim + len(etiqueta)
+                saida.append(sql[i:j])
+                i = j
+                continue
+
+        if sql.startswith("--", i):
+            fim = sql.find("\n", i)
+            j = n if fim == -1 else fim
+            saida.append(sql[i:j])
+            i = j
+            continue
+
+        if sql.startswith("/*", i):
+            profundidade = 0
+            j = i
+            while j < n:
+                if sql.startswith("/*", j):
+                    profundidade += 1
+                    j += 2
+                    continue
+                if sql.startswith("*/", j):
+                    profundidade -= 1
+                    j += 2
+                    if profundidade == 0:
+                        break
+                    continue
+                j += 1
+            saida.append(sql[i:j])
+            i = j
+            continue
+
+        if c == "?":
+            if sql.startswith(_OPERADORES_JSONB, i):
+                saida.append(sql[i : i + 2])
+                i += 2
+                continue
+            saida.append("%s")
+            convertidos += 1
+            i += 1
+            continue
+
+        saida.append(c)
+        i += 1
+
+    return "".join(saida), convertidos
+
+
+def _conferir_aridade(sql: str, convertidos: int, esperados: int) -> None:
+    """Recusa a consulta quando a contagem de marcadores não bate.
+
+    É a rede que pega o caso que o percorredor não tem como decidir sozinho: um
+    `?` solto de `jsonb` (`coluna ? 'chave'`) é indistinguível de um marcador
+    olhando só o texto. Se a contagem divergir dos parâmetros passados, a
+    consulta iria para o banco torta -- melhor falhar aqui, com a causa à mão,
+    do que produzir erro de sintaxe ou, pior, resultado errado.
+    """
+    if convertidos == esperados:
+        return
+    raise ValueError(
+        f"Marcadores '?' convertidos ({convertidos}) não batem com os "
+        f"parâmetros passados ({esperados}).\n"
+        f"Causa provável: um '?' que não é marcador -- operador de jsonb, ou "
+        f"um '?' dentro de literal que o percorredor não reconheceu.\n"
+        f"Para perguntar se uma chave existe em jsonb sem ambiguidade, use "
+        f"jsonb_exists(coluna, ?) no lugar de (coluna ? 'chave').\n"
+        f"SQL: {' '.join(sql.split())[:300]}"
+    )
 
 
 class ConexaoPostgresCompat:
@@ -149,15 +306,21 @@ class ConexaoPostgresCompat:
         self.schema = schema
 
     def execute(self, sql: str, parametros: tuple | list = ()) -> ResultadoCompat:
-        adapted = _adaptar_placeholders(sql)
+        adapted, convertidos = _adaptar_placeholders(sql)
+        _conferir_aridade(sql, convertidos, len(tuple(parametros)))
         result = self._connection.exec_driver_sql(adapted, tuple(parametros))
         match = _INSERT_TABLE_RE.match(sql)
         table = match.group(1) if match else None
         return ResultadoCompat(result, self._connection, self.schema, table)
 
     def executemany(self, sql: str, parametros: list[tuple]) -> ResultadoCompat:
+        adapted, convertidos = _adaptar_placeholders(sql)
+        # A aridade se confere pela primeira linha: as demais têm de ter o
+        # mesmo formato, e o driver reclama se não tiverem.
+        if parametros:
+            _conferir_aridade(sql, convertidos, len(tuple(parametros[0])))
         result = self._connection.exec_driver_sql(
-            _adaptar_placeholders(sql),
+            adapted,
             [tuple(item) for item in parametros],
         )
         match = _INSERT_TABLE_RE.match(sql)
