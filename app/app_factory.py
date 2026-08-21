@@ -272,6 +272,13 @@ def criar_app_ict(config: AppConfig | None = None) -> Flask:
     # limitador por completo -- e ainda envenena o log de auditoria com o
     # endereço que quiser. Mesma convenção do MegaSena
     # (`MEGA_SENA_TRUST_PROXY_HEADERS`) e do CRV.
+    #
+    # SOZINHO ISTO NÃO BASTA EM PRODUÇÃO. O waitress apaga os cabeçalhos
+    # `X-Forwarded-*` antes de montar o environ, e o `ProxyFix` recebe um
+    # environ já limpo -- ver o bloco longo em `_servir`, que configura o
+    # waitress para confiar no nginx. As duas camadas existem porque cobrem
+    # servidores diferentes: esta aqui é a que vale quando `CONFORTO_DEBUG`
+    # liga o `app.run()` do Werkzeug, que não filtra cabeçalho nenhum.
     if _ler_bool_env("CONFORTO_TRUST_PROXY_HEADERS", False):
         app.wsgi_app = ProxyFix(  # type: ignore[method-assign]
             app.wsgi_app, x_for=1, x_proto=1, x_host=1
@@ -419,11 +426,46 @@ def _servir(app: Flask, config: AppConfig) -> None:
 
     from waitress import serve
 
+    # O `ProxyFix` em `criar_app_ict` NÃO basta aqui, e a razão é o servidor.
+    #
+    # O waitress 3.x vem com `clear_untrusted_proxy_headers=True` e
+    # `trusted_proxy=None`: ele APAGA os cabeçalhos `X-Forwarded-*` antes de
+    # montar o environ. O `ProxyFix` então recebe um environ já limpo, não acha
+    # nada para ler e deixa o `REMOTE_ADDR` como está -- o IP do gateway do
+    # Docker. A proteção existia no código e não existia em produção.
+    #
+    # Os outros três projetos usam gunicorn, que não mexe nesses cabeçalhos, e
+    # lá o `ProxyFix` sozinho resolve. Este é o único com waitress. Foi copiar
+    # o padrão do irmão para um servidor diferente que produziu uma correção
+    # que parecia certa e não fazia efeito nenhum.
+    #
+    # `trusted_proxy="*"` é seguro NESTE arranjo e só nele: a porta do
+    # contêiner é publicada em `127.0.0.1` (ver `compose.yaml`), então de fora
+    # do host só se chega por meio do nginx. Não é uma porta exposta à
+    # internet aceitando `X-Forwarded-For` de qualquer um -- o que seria
+    # exatamente o risco que a variável de ambiente existe para evitar.
+    #
+    # `trusted_proxy_count=1` porque há um único proxy na frente. Contar mais
+    # do que existe deixaria o cliente injetar entradas à esquerda e escolher
+    # qual IP é lido.
+    opcoes_proxy: dict[str, object] = {}
+    if _ler_bool_env("CONFORTO_TRUST_PROXY_HEADERS", False):
+        opcoes_proxy = {
+            "trusted_proxy": "*",
+            "trusted_proxy_count": 1,
+            "trusted_proxy_headers": {
+                "x-forwarded-for",
+                "x-forwarded-proto",
+                "x-forwarded-host",
+            },
+        }
+
     serve(
         app,
         host=config.host,
         port=config.port,
         threads=8 if config.threaded else 1,
+        **opcoes_proxy,  # type: ignore[arg-type]
     )
 
 
