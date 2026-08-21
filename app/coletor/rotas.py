@@ -10,6 +10,7 @@ from __future__ import annotations
 import hmac
 
 from flask import Blueprint, current_app, jsonify, request
+from sharedauth.health import registrar_health
 
 from .. import auth, notificacoes
 from .. import database as db
@@ -71,9 +72,11 @@ def _exigir_token_interno():
     return None
 
 
-@coletor_bp.route("/health", methods=["GET"])
-def health():
-    return jsonify({"servico": "coletor", "status": "ok"})
+# Sem sonda de dependência de propósito: o coletor fala com equipamento
+# Modbus, e um equipamento fora do ar é ocorrência normal de operação, não
+# motivo para o Docker reiniciar o processo que registra justamente isso.
+# Aqui a pergunta é mesmo "o processo responde?".
+registrar_health(coletor_bp, servico="coletor")
 
 
 @coletor_bp.route(

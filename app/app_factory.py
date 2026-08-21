@@ -26,7 +26,10 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from sharedauth.access import requer_login
 from sharedauth.csrf import iniciar_csrf
+from sharedauth.health import registrar_health
 from sharedauth.ratelimit import LIMITE_LOGIN_PADRAO
+from sharedauth.security import CONTENT_SECURITY_POLICY as POLITICA_FECHADA
+from sharedauth.security import SECURITY_HEADERS, registrar_cabecalhos
 from sharedauth.session import configurar_sessao
 from werkzeug.exceptions import HTTPException
 
@@ -44,36 +47,20 @@ MENSAGEM_ERRO_INTERNO = "Erro interno inesperado. Consulte o log do servidor par
 PROCESSOS_APP = ("ict", "coletor")
 HOSTS_LOOPBACK = frozenset({"127.0.0.1", "::1", "localhost"})
 
-# Conjunto defensivo comum aos quatro projetos do mantenedor. Manter igual em
-# todos e o que permite auditar um e confiar nos demais.
+# Conjunto defensivo e CSP vem de `sharedauth.security` -- eram um dicionario
+# e uma string mantidos iguais a mao aqui e no MegaSena, com o comentario
+# "manter igual em todos" copiado junto, e mesmo assim as copias divergiram.
 #
-# Constantes de modulo, e nao literais dentro do `after_request`, para que a
-# suite minima consiga afirmar sobre a politica sem construir a aplicacao --
-# que aqui conecta ao banco no factory.
+# Reexportados como nome de modulo, e nao usados so dentro do `after_request`,
+# porque a suite minima afirma sobre a politica sem construir a aplicacao.
 #
-# `Referrer-Policy` e `same-origin`, nao `no-referrer`: sob `no-referrer` o
-# navegador serializa o cabecalho `Origin` como `null` tambem em POST de mesma
-# origem (Fetch spec), e qualquer verificacao de CSRF que consulte `Origin`
-# passa a recusar a requisicao com o token correto. `same-origin` nao vaza
-# referrer para fora da origem, que e o que importa, e preserva o `Origin`.
-CABECALHOS_SEGURANCA = {
-    "X-Content-Type-Options": "nosniff",
-    "X-Frame-Options": "DENY",
-    "Referrer-Policy": "same-origin",
-    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
-    "Cross-Origin-Opener-Policy": "same-origin",
-    "X-Permitted-Cross-Domain-Policies": "none",
-}
-
-# Nenhum template deste projeto usa `style=` nem `<style>`, entao
-# `style-src 'self'` fecha sem excecao: um XSS refletido nao consegue injetar
-# estilo nem script.
-CONTENT_SECURITY_POLICY = (
-    "default-src 'self'; script-src 'self'; style-src 'self'; "
-    "img-src 'self' data:; font-src 'self'; connect-src 'self'; "
-    "base-uri 'self'; form-action 'self'; object-src 'none'; "
-    "frame-ancestors 'none'"
-)
+# A politica aqui e a fechada: `img-src 'self'`, sem `data:`. O `data:` que
+# estava nesta constante era sobra -- nenhum template, CSS ou JS deste projeto
+# usa URI `data:`; o favicon e arquivo servido por rota (`comum.favicon`), nao
+# SVG embutido. Quem precisa da folga e o MegaSena, pelo favicon embutido no
+# `<link rel=icon>`, e la ela e pedida explicitamente.
+CABECALHOS_SEGURANCA = SECURITY_HEADERS
+CONTENT_SECURITY_POLICY = POLITICA_FECHADA
 CONFIG_SERVIDOR_PATH = Path(__file__).resolve().parents[1] / "config" / "servidor.json"
 
 
@@ -209,11 +196,12 @@ def _criar_app_base(processo: str, config: AppConfig) -> Flask:
 
     db.iniciar_banco()
 
+    registrar_cabecalhos(app)
+
     @app.after_request
-    def _aplicar_cabecalhos_seguranca(resposta):
-        for cabecalho, valor in CABECALHOS_SEGURANCA.items():
-            resposta.headers.setdefault(cabecalho, valor)
-        resposta.headers.setdefault("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+    def _nao_guardar_resposta_de_api(resposta):
+        # Especifico deste projeto, nao do conjunto comum: as rotas `/api/`
+        # servem leitura de sensor, que nao pode ser reaproveitada do cache.
         if request.path.startswith("/api/"):
             resposta.headers["Cache-Control"] = "no-store"
         return resposta
@@ -258,35 +246,32 @@ def criar_app_ict(config: AppConfig | None = None) -> Flask:
     app.config["WTF_CSRF_TIME_LIMIT"] = None
     iniciar_csrf(app)
 
-    @app.get("/health")
-    @limiter.exempt
-    def health_ict():
-        """Health check do ICT que valida sua dependência de persistência.
+    def _conferir_banco() -> None:
+        """Sonda de persistência do ICT, com o erro registrado antes de subir.
 
         O coletor é supervisionado por seu próprio health check no Compose.
         Acoplá-lo a esta sonda faria o Docker reiniciar o ICT durante uma
         indisponibilidade transitória do coletor, inclusive quando o ICT ainda
         consegue oferecer consultas e autenticação normalmente.
+
+        O `raise` no fim não é redundante: `registrar_health` é quem traduz a
+        falha em 503, e engolir a exceção aqui faria a sonda responder "ok"
+        com o banco fora.
         """
-        import logging
-
-        logger = logging.getLogger(__name__)
-
-        status = {"servico": "ict", "status": "ok"}
-        status_code = 200
-
-        # Verificar banco de dados
         try:
             with db._conexao(escrita=False) as conn:
                 conn.execute("SELECT 1").fetchone()
-            status["db"] = "up"
-        except Exception as e:
-            status["db"] = "down"
-            status["status"] = "degraded"
-            status_code = 503
-            logger.error("Health check DB falhou: %s", str(e))
+        except Exception as erro:
+            app.logger.error("Health check DB falhou: %s", erro)
+            raise
 
-        return jsonify(status), status_code
+    registrar_health(
+        app,
+        servico="ict",
+        verificar=_conferir_banco,
+        endpoint="health_ict",
+        limiter=limiter,
+    )
 
     from . import dados_entrada_db
     from .dados_entrada_rotas import dados_entrada_bp, dados_entrada_leitura_bp
@@ -363,10 +348,20 @@ def criar_app_coletor(config: AppConfig | None = None) -> Flask:
     limiter: Limiter = app.extensions["conforto_rate_limiter"]
 
     # Importação deliberadamente exclusiva desta fábrica.
-    from .coletor.rotas import coletor_bp, health
+    from .coletor.rotas import coletor_bp
 
-    limiter.exempt(health)
     app.register_blueprint(coletor_bp)
+
+    # `limiter.exempt` devolve uma função *nova*, embrulhada. A chamada
+    # anterior (`limiter.exempt(health)`) descartava o retorno, e o blueprint
+    # seguia registrado com a função original — a isenção estava decorada e
+    # nunca aplicada, com a sonda do Docker (a cada 60s) consumindo o
+    # orçamento do limite global de 20/min. Mesma causa-raiz do limite de
+    # login do MegaSena e das rotas de polling do dashboard deste projeto;
+    # este é o terceiro ponto, achado ao subir o coletor de verdade.
+    app.view_functions["coletor.health"] = limiter.exempt(
+        app.view_functions["coletor.health"]
+    )
     return app
 
 

@@ -4,9 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{% block titulo %}Conforto Térmico{% endblock %}</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+{# As IBM Plex vinham do Google Fonts e nunca chegaram a carregar: a CSP
+   deste projeto e `style-src 'self'` desde sempre, entao o navegador
+   bloqueava a folha e registrava erro no console a cada pagina. O que se ve
+   na tela e o fallback declarado em `style.css` (`system-ui`, `ui-monospace`),
+   e continua exatamente igual sem estes links. Depender de CDN em producao ja
+   contrariava a base de engenharia destes projetos; se as IBM Plex forem
+   mesmo desejadas, o caminho e servi-las localmente, como o
+   ControleRendaVariavel faz em `static/vendor/fonts`. #}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body class="pagina-auth">
