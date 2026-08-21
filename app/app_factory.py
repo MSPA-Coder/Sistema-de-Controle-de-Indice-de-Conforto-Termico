@@ -244,7 +244,7 @@ def criar_app_ict(config: AppConfig | None = None) -> Flask:
     app = _criar_app_base("ict", config)
     limiter: Limiter = app.extensions["conforto_rate_limiter"]
 
-    app.secret_key = auth.obter_ou_criar_chave_secreta()
+    app.secret_key = auth.obter_chave_secreta()
     configurar_sessao(
         app,
         nome_cookie=os.environ.get("CONFORTO_SESSION_COOKIE_NAME", "conforto_session").strip()

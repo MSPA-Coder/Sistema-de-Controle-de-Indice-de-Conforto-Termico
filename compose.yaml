@@ -148,10 +148,12 @@ services:
       # interna e não deve confiar em cabeçalho de proxy nenhum.
       CONFORTO_TRUST_PROXY_HEADERS: ${CONFORTO_TRUST_PROXY_HEADERS:-0}
       CONFORTO_INTERNO_TOKEN_FILE: /run/secrets/internal_token
+      CONFORTO_SECRET_KEY_FILE: /run/secrets/secret_key
       COLETOR_URL: http://coletor:5000
     secrets:
       - postgres_password
       - internal_token
+      - secret_key
     ports:
       - "127.0.0.1:${APP_PORT:-5001}:5000"
     volumes:
@@ -198,6 +200,12 @@ secrets:
     file: .secrets/postgres_password.txt
   internal_token:
     file: .secrets/internal_token.txt
+  # Chave de assinatura de sessão. Só o `ict` monta -- o `coletor` não tem
+  # sessão de usuário. Até 2026-08-21 este segredo não existia e a aplicação
+  # gerava a chave sozinha, persistindo no volume `app_instance` (ADR 005);
+  # a ADR 007 registra a troca e a migração sem deslogar ninguém.
+  secret_key:
+    file: .secrets/secret_key.txt
   # PAT de acesso restrito (somente-leitura, só no repositório SharedAuth) --
   # usado apenas durante o build, para o `pip install` do requirements.txt
   # baixar a dependência Git privada. Nunca vira variável de ambiente do

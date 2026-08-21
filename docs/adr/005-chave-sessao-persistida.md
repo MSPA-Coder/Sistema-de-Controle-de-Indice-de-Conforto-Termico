@@ -2,8 +2,17 @@
 
 ## Status
 
-Aceito como desvio local da política geral de segredo obrigatório em ambiente,
-registrado em 2026-08-15.
+**Substituída pela [ADR 007](007-chave-sessao-como-segredo.md) em 2026-08-21.**
+
+Aceita em 2026-08-15 como desvio local da política geral de segredo obrigatório
+em ambiente. O motivo do desvio — "o Compose não fornece uma chave de sessão
+como Docker secret dedicado" — deixou de valer quando o segredo foi criado. A
+ADR 007 fez a evolução nas condições que a seção Consequências abaixo exigia:
+migração coordenada (a chave existente foi semeada no segredo novo, sem
+invalidar sessão nenhuma), compatibilidade temporária e rollback documentado.
+
+Mantida como registro histórico: explica por que o desvio existiu e por quanto
+tempo.
 
 ## Contexto
 

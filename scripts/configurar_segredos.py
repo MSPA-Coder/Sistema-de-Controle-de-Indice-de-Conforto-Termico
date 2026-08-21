@@ -26,6 +26,11 @@ POSTGRES_GID = 0
 ARQUIVOS = {
     "postgres_password.txt": (36, POSTGRES_UID, POSTGRES_GID, 0o444),
     "internal_token.txt": (48, APP_UID, APP_GID, 0o400),
+    # Chave de assinatura de sessão, montada só no `ict`. CUIDADO ao rodar com
+    # `--force` numa instalação existente: trocar esta chave invalida TODAS as
+    # sessões abertas e desloga todo mundo de uma vez. É por isso que o script
+    # não sobrescreve arquivo existente sem `--force`. Ver ADR 007.
+    "secret_key.txt": (48, APP_UID, APP_GID, 0o400),
 }
 
 

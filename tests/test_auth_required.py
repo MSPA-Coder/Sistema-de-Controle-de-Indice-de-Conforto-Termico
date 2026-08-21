@@ -87,45 +87,89 @@ def test_area_por_endpoint_so_cita_areas_existentes():
             assert area in conhecidas, f"{endpoint} exige a area '{area}', que ninguem tem"
 
 
-def test_chave_de_sessao_gerada_persiste_e_e_reutilizada(tmp_path, monkeypatch):
-    """O reinício normal mantém a chave e, portanto, as sessões válidas."""
+def _sem_chave_configurada(monkeypatch):
+    monkeypatch.delenv("CONFORTO_SECRET_KEY", raising=False)
+    monkeypatch.delenv("CONFORTO_SECRET_KEY_FILE", raising=False)
+
+
+def test_producao_sem_chave_recusa_subir(tmp_path, monkeypatch):
+    """O teste que faltava, e o motivo da ADR 007.
+
+    Até 2026-08-21 faltar a chave em produção não era erro: a aplicação gerava
+    uma e subia parecendo saudável. Um erro de configuração virava um sistema
+    normal, e o estrago só aparecia no dia em que o volume se perdesse --
+    deslogando todo mundo de uma vez, sem nada apontando a causa.
+    """
     from app import database as db
 
-    monkeypatch.delenv("CONFORTO_SECRET_KEY", raising=False)
+    _sem_chave_configurada(monkeypatch)
+    monkeypatch.delenv("CONFORTO_DEVELOPMENT", raising=False)
+    monkeypatch.delenv("CONFORTO_TESTING", raising=False)
     monkeypatch.setattr(db, "INSTANCE_DIR", str(tmp_path))
 
-    criada = auth.obter_ou_criar_chave_secreta()
+    with pytest.raises(RuntimeError) as erro:
+        auth.obter_chave_secreta()
+
+    mensagem = str(erro.value)
+    assert "CONFORTO_SECRET_KEY_FILE" in mensagem, "a mensagem tem de dizer o que definir"
+    assert "configurar_segredos" in mensagem, "e como gerar o arquivo"
+    assert not (tmp_path / "secret_key.txt").exists(), "nao pode gerar nada calado"
+
+
+def test_chave_de_sessao_gerada_persiste_em_desenvolvimento(tmp_path, monkeypatch):
+    """Em desenvolvimento a geração continua, para não atrapalhar quem programa.
+
+    O reinício normal mantém a chave e, portanto, as sessões válidas.
+    """
+    from app import database as db
+
+    _sem_chave_configurada(monkeypatch)
+    monkeypatch.setenv("CONFORTO_DEVELOPMENT", "1")
+    monkeypatch.setattr(db, "INSTANCE_DIR", str(tmp_path))
+
+    criada = auth.obter_chave_secreta()
     caminho = tmp_path / "secret_key.txt"
 
     assert caminho.is_file()
     assert caminho.read_text(encoding="utf-8") == criada
-    assert auth.obter_ou_criar_chave_secreta() == criada
+    assert auth.obter_chave_secreta() == criada
 
 
 def test_chave_de_sessao_prioriza_ambiente_sem_persistir(tmp_path, monkeypatch):
-    """Uma configuração explícita não cria nem substitui o arquivo do volume."""
+    """Uma configuração explícita não cria nem substitui o arquivo do volume.
+
+    Compatibilidade que a ADR 007 mantém de propósito: instalações que já
+    definiam `CONFORTO_SECRET_KEY` continuam funcionando sem mudar nada.
+    """
     from app import database as db
 
+    monkeypatch.delenv("CONFORTO_SECRET_KEY_FILE", raising=False)
+    monkeypatch.setenv("CONFORTO_DEVELOPMENT", "1")
     monkeypatch.setattr(db, "INSTANCE_DIR", str(tmp_path))
     monkeypatch.setenv("CONFORTO_SECRET_KEY", "chave-isolada-de-ambiente")
 
-    assert auth.obter_ou_criar_chave_secreta() == "chave-isolada-de-ambiente"
+    assert auth.obter_chave_secreta() == "chave-isolada-de-ambiente"
     assert not (tmp_path / "secret_key.txt").exists()
 
 
-def test_perda_da_chave_gera_recuperacao_persistida_e_invalida_sessoes(tmp_path, monkeypatch):
-    """Modela o risco declarado na ADR 005 sem usar o volume ou segredo real."""
+def test_perda_da_chave_em_desenvolvimento_invalida_sessoes(tmp_path, monkeypatch):
+    """O risco que a ADR 005 declarava, agora restrito a desenvolvimento.
+
+    Em produção a chave não mora mais no volume, então perdê-lo deixou de
+    invalidar sessão.
+    """
     from app import database as db
 
-    monkeypatch.delenv("CONFORTO_SECRET_KEY", raising=False)
+    _sem_chave_configurada(monkeypatch)
+    monkeypatch.setenv("CONFORTO_DEVELOPMENT", "1")
     monkeypatch.setattr(db, "INSTANCE_DIR", str(tmp_path))
 
-    anterior = auth.obter_ou_criar_chave_secreta()
+    anterior = auth.obter_chave_secreta()
     (tmp_path / "secret_key.txt").unlink()
-    recuperada = auth.obter_ou_criar_chave_secreta()
+    recuperada = auth.obter_chave_secreta()
 
     assert recuperada != anterior
-    assert auth.obter_ou_criar_chave_secreta() == recuperada
+    assert auth.obter_chave_secreta() == recuperada
 
 
 def test_token_interno_por_arquivo_falha_fechado_se_arquivo_nao_existe(tmp_path, monkeypatch):

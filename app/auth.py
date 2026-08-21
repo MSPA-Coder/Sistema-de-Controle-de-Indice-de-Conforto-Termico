@@ -156,17 +156,63 @@ def conferir_senha(senha: str, hash_: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Chave de sessao: variavel de ambiente tem precedencia; sem ela, gera uma
-# vez e persiste em disco (para nao invalidar todas as sessoes a cada
-# reinicio do servidor). Nunca versionada -- `instance/` ja esta no
-# .gitignore do projeto.
+# Chave de sessao
+#
+# Ordem: segredo do Compose, variavel de ambiente, e -- SO em desenvolvimento
+# ou teste -- geracao persistida em `instance/`. Em producao, faltar a chave e
+# erro que impede a aplicacao de subir.
+#
+# ISTO SUBSTITUI A ADR 005 (ver docs/adr/007). Ate 2026-08-21 a geracao
+# silenciosa valia em qualquer ambiente, e a ADR 005 registrava o desvio com um
+# motivo concreto: "o Compose nao fornece uma chave de sessao como Docker
+# secret dedicado". Passou a fornecer. A propria ADR 005 dizia o que essa
+# evolucao exigia -- migracao coordenada, compatibilidade temporaria e rollback
+# documentado -- e e isso que a 007 faz.
+#
+# Por que a geracao silenciosa era ruim mesmo "funcionando": ela transforma um
+# erro de configuracao (ninguem nunca definiu a chave) num sistema que sobe
+# normalmente. O estrago so aparece no dia em que o volume `app_instance` se
+# perde, e a forma que ele toma -- todo mundo deslogado de uma vez, sem
+# explicacao -- nao aponta para a causa.
 # ---------------------------------------------------------------------------
 
 
-def obter_ou_criar_chave_secreta() -> str:
+def _ambiente_permite_gerar_chave() -> bool:
+    """Só desenvolvimento e teste podem gerar chave em vez de exigi-la.
+
+    Usa as MESMAS variaveis que o resto do projeto ja usa para essa distincao
+    (`app_factory` valida `CONFORTO_DEBUG` contra `CONFORTO_DEVELOPMENT`, e o
+    `conftest` liga `CONFORTO_TESTING`), em vez de inventar um terceiro sinal
+    de "isto nao e producao" -- que e como se acaba com tres definicoes
+    discordantes de ambiente.
+    """
+    for nome in ("CONFORTO_DEVELOPMENT", "CONFORTO_TESTING"):
+        valor = os.environ.get(nome, "").strip().lower()
+        if valor in ("1", "true", "sim", "on"):
+            return True
+    return False
+
+
+def obter_chave_secreta() -> str:
+    do_arquivo = read_compose_secret("CONFORTO_SECRET_KEY_FILE", "secret_key")
+    if do_arquivo:
+        return do_arquivo
+
     variavel_ambiente = os.environ.get("CONFORTO_SECRET_KEY")
     if variavel_ambiente:
         return variavel_ambiente
+
+    if not _ambiente_permite_gerar_chave():
+        raise RuntimeError(
+            "Chave de sessão ausente. Em produção ela é obrigatória: defina "
+            "CONFORTO_SECRET_KEY_FILE apontando para /run/secrets/secret_key "
+            "(o Compose já monta esse segredo) ou CONFORTO_SECRET_KEY.\n"
+            "Para gerar o arquivo: python scripts/configurar_segredos.py\n"
+            "Gerar a chave sozinho faria a aplicação subir com uma "
+            "configuração incompleta, e o estrago só apareceria quando o "
+            "volume se perdesse — deslogando todo mundo sem explicação. "
+            "Ver docs/adr/007-chave-sessao-como-segredo.md."
+        )
 
     caminho = Path(db.INSTANCE_DIR) / "secret_key.txt"
     try:
@@ -193,7 +239,7 @@ def obter_ou_criar_token_interno() -> str:
     O navegador nunca ve nem envia este token; ele nao e uma credencial
     de pessoa.
 
-    Mesmo padrao de `obter_ou_criar_chave_secreta` acima, incluindo a
+    Mesmo padrao de `obter_chave_secreta` acima, incluindo a
     precedencia da variavel de ambiente: instalacoes em que coletor e
     "outra parte" rodam em MAQUINAS diferentes (nao compartilham
     `instance/`) precisam definir `CONFORTO_INTERNO_TOKEN` explicitamente
