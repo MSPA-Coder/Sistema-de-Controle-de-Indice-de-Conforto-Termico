@@ -20,10 +20,11 @@ dados_entrada_bp = Blueprint("dados_entrada", __name__)
 
 @dados_entrada_leitura_bp.route("/api/dados-entrada/configuracoes", methods=["GET"])
 def obter_configuracoes():
-    # `sincronizar_zonas` cria a linha de configuração que ainda não existe e
-    # atualiza nome/espécie: ler as configurações é o momento em que a tabela
-    # acompanha as zonas cadastradas.
-    return jsonify(dados_db.sincronizar_zonas(db.listar_zonas(apenas_ativas=True)))
+    # `listar_configuracoes` e leitura pura. Aqui estava `sincronizar_zonas`,
+    # que faz INSERT/UPDATE -- um GET que escreve. Ver a docstring de
+    # `listar_configuracoes` para o porquê da troca e para onde a
+    # materialização foi.
+    return jsonify(dados_db.listar_configuracoes(db.listar_zonas(apenas_ativas=True)))
 
 
 @dados_entrada_leitura_bp.route("/api/dados-entrada/referencias", methods=["GET"])

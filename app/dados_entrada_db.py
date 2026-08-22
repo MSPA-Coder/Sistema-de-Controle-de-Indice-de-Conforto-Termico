@@ -28,10 +28,28 @@ class ConfiguracaoDadosEntradaError(ValueError):
 
 @contextmanager
 def _conexao(*, escrita: bool = True) -> Iterator:
+    """Conexao com commit/rollback automatico.
+
+    `escrita=False` nao fazia NADA ate 2026-08-22: o parametro existia, cinco
+    chamadores o passavam, e o bloco commitava exatamente igual. Era uma
+    promessa de leitura que o codigo nao cumpria -- da familia de defeitos que
+    `_manutencao/PLANO_SINAL_E_DEFEITOS.md` cataloga.
+
+    Agora descarta em vez de gravar. Uma funcao de leitura que ganhe um INSERT
+    por descuido nao sobrevive ao fim do bloco.
+
+    Descartar, e nao `SET TRANSACTION READ ONLY`, de proposito: a conexao vem
+    de um pool do SQLAlchemy, e `SET default_transaction_read_only` ficaria
+    grudado nela para o proximo tomador -- que pode ser um gravador legitimo.
+    Falhar alto seria melhor se as duas coisas nao se contradissessem aqui.
+    """
     conn = db_backend.abrir_conexao_postgres("dados_entrada")
     try:
         yield conn
-        conn.commit()
+        if escrita:
+            conn.commit()
+        else:
+            conn.rollback()
     except Exception:
         conn.rollback()
         raise
@@ -99,6 +117,66 @@ def sincronizar_zonas(zonas: list[dict]) -> list[dict]:
         linhas = conn.execute("SELECT * FROM configuracoes_zona ORDER BY zona_id").fetchall()
     ids_atuais = {zona["id"] for zona in zonas}
     return [_config_publica(dict(linha)) for linha in linhas if linha["zona_id"] in ids_atuais]
+
+
+# Espelha os DEFAULT do DDL de `configuracoes_zona`
+# (`migrations/versions/20260803_0001_baseline.py`). Uma zona sem linha
+# gravada e apresentada exatamente como a linha que o INSERT criaria -- e a
+# unica forma de a leitura nao precisar gravar para responder.
+_CONFIG_PADRAO: dict = {
+    "cidade_codigo_ibge": None,
+    "latitude": None,
+    "longitude": None,
+    "fuso_horario": "America/Sao_Paulo",
+    "altitude_m": None,
+    "area_util_m2": None,
+    "densidade_categoria": "media",
+    "densidade_animais_m2": None,
+    "quantidade_animais": 0,
+    "peso_medio_kg": None,
+    "producao_leite_kg_dia": 0,
+    "ordenhas_dia": 0,
+    "atualizado_em": None,
+}
+
+
+def listar_configuracoes(zonas: list[dict]) -> list[dict]:
+    """Le as configuracoes das zonas SEM gravar nada.
+
+    Existe porque `GET /api/dados-entrada/configuracoes` chamava
+    `sincronizar_zonas`, que faz INSERT/UPDATE. GET deve ser seguro por
+    contrato: qualquer prefetch de navegador, robo ou sonda de monitoracao
+    escrevia no banco so por passar ali. O efeito era idempotente, entao nao
+    havia perda de dado -- era contrato quebrado, e vale arrumar antes que
+    alguem construa em cima.
+
+    A materializacao continua acontecendo, nos dois caminhos que ja gravam:
+    salvar os parametros (`salvar_configuracoes_zonas`) e gerar dados
+    (`gerador_dados`). Zona nunca configurada simplesmente nao tem linha --
+    que e a mesma coisa que a linha em branco dizia.
+
+    O rotulo (`zona_nome`, `especie`) vem sempre da zona VIVA, nao da copia
+    denormalizada da tabela. Antes, renomear uma zona so aparecia aqui porque
+    o proprio GET regravava; agora aparece porque a leitura sobrepoe. O
+    resultado visivel e igual, sem a escrita.
+    """
+    with _conexao(escrita=False) as conn:
+        linhas = conn.execute("SELECT * FROM configuracoes_zona ORDER BY zona_id").fetchall()
+    gravadas = {linha["zona_id"]: dict(linha) for linha in linhas}
+
+    configuracoes = []
+    for zona in zonas:
+        config = gravadas.get(zona["id"])
+        if config is None:
+            config = dict(_CONFIG_PADRAO)
+            config["zona_id"] = zona["id"]
+        config["zona_nome"] = zona["nome"]
+        config["especie"] = zona["especie"]
+        configuracoes.append(_config_publica(config))
+    # Mesma ordem que `sincronizar_zonas` devolvia (a do SELECT), para a tela
+    # nao trocar de ordem por causa desta mudanca.
+    configuracoes.sort(key=lambda config: config["zona_id"])
+    return configuracoes
 
 
 def _config_publica(config: dict) -> dict:
