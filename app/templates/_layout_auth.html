@@ -13,8 +13,22 @@
    mesmo desejadas, o caminho e servi-las localmente, como o
    ControleRendaVariavel faz em `static/vendor/fonts`. #}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+{# Este layout NAO carregava o componente comum, e `usuarios.html` -- que
+   estende daqui -- confia nele para confirmar a exclusao de usuario. O
+   atributo `data-sa-confirmar` estava no botao desde a Fase 9 e nunca fez
+   nada: sem o script na pagina, ninguem le o atributo e o form envia direto.
+
+   E o mesmo botao pela terceira vez. Antes foi `onsubmit="return confirm()"`,
+   bloqueado pela CSP; depois o atributo sem script. A causa comum e este
+   projeto ter DUAS cadeias de layout -- `index.html` monta a propria e carrega
+   o componente na linha ~690 -- enquanto os outros tres apps tem um `base.html`
+   unico, por onde tudo passa obrigatoriamente. Ver
+   `tests/test_componente_ui_carregado.py`, que agora falha se um template com
+   `data-sa-` nao alcancar o script. #}
+<link rel="stylesheet" href="{{ url_for('sharedauth_ui.static', filename='sharedauth-ui.css') }}">
 </head>
 <body class="pagina-auth">
 {% block conteudo %}{% endblock %}
+<script src="{{ url_for('sharedauth_ui.static', filename='sharedauth-ui.js') }}" defer></script>
 </body>
 </html>
