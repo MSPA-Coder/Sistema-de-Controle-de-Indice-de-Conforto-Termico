@@ -24,11 +24,16 @@
    o componente na linha ~690 -- enquanto os outros tres apps tem um `base.html`
    unico, por onde tudo passa obrigatoriamente. Ver
    `tests/test_componente_ui_carregado.py`, que agora falha se um template com
-   `data-sa-` nao alcancar o script. #}
-<link rel="stylesheet" href="{{ url_for('sharedauth_ui.static', filename='sharedauth-ui.css') }}">
+   `data-sa-` nao alcancar o script.
+
+   Vem em blocos, e ligado por padrao: um template administrativo novo nasce
+   com a confirmacao funcionando, e esquecer de agir da o lado seguro. Quem
+   dispensa e que declara o bloco vazio -- hoje so `login.html`, e o porque
+   esta la. #}
+{% block componente_ui_css %}<link rel="stylesheet" href="{{ url_for('sharedauth_ui.static', filename='sharedauth-ui.css') }}">{% endblock %}
 </head>
 <body class="pagina-auth">
 {% block conteudo %}{% endblock %}
-<script src="{{ url_for('sharedauth_ui.static', filename='sharedauth-ui.js') }}" defer></script>
+{% block componente_ui_js %}<script src="{{ url_for('sharedauth_ui.static', filename='sharedauth-ui.js') }}" defer></script>{% endblock %}
 </body>
 </html>

@@ -1,5 +1,21 @@
 {% extends "_layout_auth.html" %}
 {% block titulo %}Entrar · Conforto Térmico{% endblock %}
+{# O componente comum sai daqui de proposito. `sharedauth_ui.static` NAO esta
+   em `ENDPOINTS_ISENTOS_DE_LOGIN`, entao para quem ainda nao entrou os dois
+   arquivos respondem 302 para o proprio login: o navegador recebe `text/html`
+   onde esperava CSS e JS, recusa os dois (o `nosniff` do sharedauth impede
+   adivinhar o tipo) e registra erro no console a cada carga.
+
+   E o mesmo motivo pelo qual as IBM Plex do Google Fonts sairam de
+   `_layout_auth.html` -- ver o comentario la. Pedir arquivo que nunca chega
+   treina a ignorar o console, que e onde o proximo defeito de verdade vai
+   aparecer.
+
+   Nao ha o que perder: esta pagina nao tem `data-sa-` nenhum e nao usa classe
+   `.sa-*`. Se um dia tiver, a alternativa e isentar o endpoint -- e nao voltar
+   com o pedido que redireciona. #}
+{% block componente_ui_css %}{% endblock %}
+{% block componente_ui_js %}{% endblock %}
 {% block conteudo %}
 <div class="auth-pagina">
   <div class="auth-cartao painel">

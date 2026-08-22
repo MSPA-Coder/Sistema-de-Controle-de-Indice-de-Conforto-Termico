@@ -34,6 +34,31 @@ ARQUIVO_CSS = "sharedauth-ui.css"
 
 _EXTENDS = re.compile(r"{%-?\s*extends\s+[\"']([^\"']+)[\"']")
 _INCLUDE = re.compile(r"{%-?\s*include\s+[\"']([^\"']+)[\"']")
+_BLOCO_VAZIO = re.compile(r"{%-?\s*block\s+(\w+)\s*-?%}\s*{%-?\s*endblock")
+
+
+def _blocos_anulados(fonte: str) -> set[str]:
+    """Blocos que este template sobrescreve com conteudo vazio.
+
+    Sem isto o teste teria um ponto cego proprio: `login.html` declara
+    `{% block componente_ui_js %}{% endblock %}` para nao pedir um arquivo que
+    responde 302, e uma busca ingenua pelo texto no layout pai diria que o
+    script chega -- verde para uma pagina que nao carrega nada. Um teste que
+    erra da mesma forma que o defeito que procura nao serve.
+    """
+    return set(_BLOCO_VAZIO.findall(fonte))
+
+
+def _sem_blocos(fonte: str, nomes: set[str]) -> str:
+    """A fonte do layout menos os blocos que o filho anulou."""
+    for nome in nomes:
+        fonte = re.sub(
+            r"{%-?\s*block\s+" + re.escape(nome) + r"\s*-?%}.*?{%-?\s*endblock[^%]*%}",
+            "",
+            fonte,
+            flags=re.DOTALL,
+        )
+    return fonte
 
 
 def _fontes() -> dict[str, str]:
@@ -58,8 +83,12 @@ def _alcanca(nome: str, alvo: str, fontes: dict[str, str], vistos: set[str]) -> 
     if alvo in fonte:
         return True
 
+    anulados = _blocos_anulados(fonte)
     for pai in _EXTENDS.findall(fonte):
-        if _alcanca(pai, alvo, fontes, vistos):
+        herdado = {
+            outro: (_sem_blocos(f, anulados) if outro == pai else f) for outro, f in fontes.items()
+        }
+        if _alcanca(pai, alvo, herdado, vistos):
             return True
 
     for outro, fonte_outro in fontes.items():
@@ -69,8 +98,26 @@ def _alcanca(nome: str, alvo: str, fontes: dict[str, str], vistos: set[str]) -> 
     return False
 
 
+_COMENTARIO = re.compile(r"{#.*?#}", re.DOTALL)
+
+
+def _sem_comentarios(fonte: str) -> str:
+    """Comentario Jinja nao e marcacao.
+
+    Sem isto, um comentario que EXPLICA a ausencia do atributo faz o template
+    entrar na lista dos que o usam -- foi o que aconteceu com `login.html`, que
+    documenta justamente por que nao carrega o componente. E a mesma armadilha
+    de um teste de CSS deste conjunto de projetos que casou com o comentario
+    dizendo nao haver `url()`: procurar texto em fonte, sem descontar o que e
+    prosa, mede a documentacao em vez do codigo.
+    """
+    return _COMENTARIO.sub("", fonte)
+
+
 def _templates_com_atributo() -> list[str]:
-    return sorted(nome for nome, fonte in _fontes().items() if "data-sa-" in fonte)
+    return sorted(
+        nome for nome, fonte in _fontes().items() if "data-sa-" in _sem_comentarios(fonte)
+    )
 
 
 def test_existe_template_com_atributo_para_verificar():
@@ -128,3 +175,26 @@ def test_pagina_de_usuarios_renderiza_com_o_script(app):
     # A ordem importa menos que a presenca (o script e `defer`), mas o botao
     # sem atributo e o atributo sem script sao ambos silenciosos -- conferir os
     # dois juntos e o que distingue "confirma" de "parece que confirma".
+
+
+def test_login_nao_pede_o_componente(app):
+    """A pagina de login dispensa o componente, e isso e deliberado.
+
+    `sharedauth_ui.static` nao e isento de login: para quem ainda nao entrou os
+    dois arquivos respondem 302 para o proprio login, e o navegador recusa
+    `text/html` onde esperava CSS e JS. Pedi-los ali produz dois erros de
+    console a cada carga e nenhum beneficio -- a pagina nao tem `data-sa-`.
+
+    O teste existe para que a remocao continue sendo uma decisao. Se alguem
+    puser confirmacao no login, este teste reprova e obriga a escolha certa:
+    isentar o endpoint, e nao voltar com o pedido que redireciona.
+    """
+    with app.test_request_context("/login"):
+        html = app.jinja_env.get_template("login.html").render(erro=None, proxima="/")
+
+    assert ARQUIVO_JS not in html
+    assert ARQUIVO_CSS not in html
+    assert "data-sa-" not in html, (
+        "o login ganhou confirmacao: isente `sharedauth_ui.static` em "
+        "ENDPOINTS_ISENTOS_DE_LOGIN antes de voltar a carregar o componente"
+    )
