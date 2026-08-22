@@ -81,3 +81,6 @@ Thumbs.db
 
 # Dumps nomeados pelo proprio aplicativo.
 *_backup_*
+
+# Artefato historico local, nao versionado.
+/docs/ANALISE_DE_DADOS.pdf
