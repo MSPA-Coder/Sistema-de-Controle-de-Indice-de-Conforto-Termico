@@ -15,7 +15,11 @@ export function criarEntradaCalculo({
   recarregarSensores,
   documento = document,
   requisitar = fetch,
-  confirmar = window.confirm.bind(window),
+  // `window.sharedauth.confirmar` devolve Promise<boolean> -- ao contrario do
+  // `window.confirm` sincrono que isto substituiu. Ver ATENCAO em
+  // `limparHistorico`, unico chamador: precisa de `await`.
+  confirmar = (opcoes) => window.sharedauth.confirmar(opcoes),
+  avisar = (opcoes) => window.sharedauth.avisar(opcoes),
 }) {
   const CONFIG_APP = obterConfiguracao();
   const estado = obterEstado();
@@ -414,12 +418,18 @@ export function criarEntradaCalculo({
     atualizarResultado(dados);
   }
   async function limparHistorico() {
+    // Modal decide; o campo de texto com "APAGAR" continua existindo e
+    // validado no servidor (`app_factory.confirmacao_de_exclusao_valida`) --
+    // o modal não substitui a digitação, só evita chegar nela sem querer.
     const confirmacao = document.getElementById("confirmacao-limpar-historico").value;
-    const confirmado = confirmar(
-      "Limpar histórico?\n\n" +
-      "Esta ação apaga todas as leituras salvas no banco e limpa os gráficos/tabelas do histórico nesta sessão. " +
-      "Zonas, equipamentos e configurações serão preservados. A ação não pode ser desfeita; faça um backup antes se precisar guardar os dados."
-    );
+    const confirmado = await confirmar({
+      mensagem:
+        "Esta ação apaga todas as leituras salvas no banco e limpa os gráficos/tabelas do histórico " +
+        "nesta sessão.\n\nZonas, equipamentos e configurações serão preservados. A ação não pode ser " +
+        "desfeita; faça um backup antes se precisar guardar os dados.",
+      titulo: "Limpar histórico",
+      severidade: "error",
+    });
     if (!confirmado) return;
 
     try {
@@ -430,23 +440,19 @@ export function criarEntradaCalculo({
       });
       const corpo = await resposta.json().catch(() => ({}));
       if (!resposta.ok || !corpo.ok) {
-        mostrarErro(corpo.erro || "Não foi possível limpar o histórico.");
+        avisar({ mensagem: corpo.erro || "Não foi possível limpar o histórico.", severidade: "error" });
         return;
       }
       resetarPainelResultado();
       await recarregarHistorico();
-      atualizarStatusBanco("Histórico limpo. Zonas, equipamentos e configurações foram preservados.");
+      avisar({
+        mensagem: "Histórico limpo. Zonas, equipamentos e configurações foram preservados.",
+        severidade: "success",
+      });
     } catch (erro) {
       console.error("Erro ao limpar historico:", erro);
-      mostrarErro("Falha de comunicação ao limpar o histórico.");
+      avisar({ mensagem: "Falha de comunicação ao limpar o histórico.", severidade: "error" });
     }
-  }
-
-  function atualizarStatusBanco(mensagem) {
-    const status = document.getElementById("banco-status");
-    if (!status) return;
-    status.textContent = mensagem;
-    status.classList.remove("oculto");
   }
 
   async function fazerBackupBanco() {
@@ -456,13 +462,16 @@ export function criarEntradaCalculo({
       const resposta = await fetch("/api/backup-banco", { method: "POST" });
       const corpo = await resposta.json().catch(() => ({}));
       if (!resposta.ok || !corpo.ok) {
-        atualizarStatusBanco(corpo.erro || "Não foi possível criar o backup do banco.");
+        avisar({ mensagem: corpo.erro || "Não foi possível criar o backup do banco.", severidade: "error" });
         return;
       }
-      atualizarStatusBanco("Backup criado no diretório do banco: " + corpo.backup.arquivo);
+      avisar({
+        mensagem: "Backup criado no diretório do banco: " + corpo.backup.arquivo,
+        severidade: "success",
+      });
     } catch (erro) {
       console.error("Erro ao criar backup do banco:", erro);
-      atualizarStatusBanco("Falha de comunicação ao criar o backup do banco.");
+      avisar({ mensagem: "Falha de comunicação ao criar o backup do banco.", severidade: "error" });
     } finally {
       if (botao) botao.disabled = false;
     }
@@ -475,14 +484,14 @@ export function criarEntradaCalculo({
       const resposta = await fetch("/api/consolidar-historico", { method: "POST" });
       const corpo = await resposta.json().catch(() => ({}));
       if (!resposta.ok || !corpo.ok) {
-        atualizarStatusBanco(corpo.erro || "Não foi possível consolidar o histórico.");
+        avisar({ mensagem: corpo.erro || "Não foi possível consolidar o histórico.", severidade: "error" });
         return;
       }
       const total = Array.isArray(corpo.resultados) ? corpo.resultados.length : 0;
-      atualizarStatusBanco(`Consolidação concluída para ${total} zona(s).`);
+      avisar({ mensagem: `Consolidação concluída para ${total} zona(s).`, severidade: "success" });
     } catch (erro) {
       console.error("Erro ao consolidar histórico:", erro);
-      atualizarStatusBanco("Falha de comunicação ao consolidar o histórico.");
+      avisar({ mensagem: "Falha de comunicação ao consolidar o histórico.", severidade: "error" });
     } finally {
       if (botao) botao.disabled = false;
     }

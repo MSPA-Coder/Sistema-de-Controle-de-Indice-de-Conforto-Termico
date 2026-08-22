@@ -14,7 +14,6 @@ export function criarOperacao({
   salvarConfiguracoes,
   documento = document,
   requisitar = fetch,
-  confirmar = window.confirm.bind(window),
   agendarPolling = window.setInterval.bind(window),
 }) {
   const CONFIG_APP = obterConfiguracao();
@@ -364,13 +363,19 @@ export function criarOperacao({
   }
 
   async function comandarAtuadorOperacao(botao) {
+    // Sem confirmação de proposito, em nenhum dos dois sentidos: ligar um
+    // ventilador/nebulizador fisico e reversivel pela propria interface --
+    // basta o botao "Desligar" ao lado, que e o mesmo comando ao contrario.
+    // A tabela do INVENTARIO_OPERACOES_DESTRUTIVAS (secao 7.3, linha 23)
+    // classifica esta acao como reversivel; a regra do proprio componente
+    // (ver cabecalho de sharedauth-ui.js) e "irreversivel pede, reversivel
+    // nao pede" -- confirmar aqui treinaria a pessoa a clicar "sim" sem ler
+    // nos casos que realmente importam. Havia confirmacao so ao LIGAR antes
+    // desta mudanca; removida.
     const zona = obterZonaPrincipal();
     if (!zona) return;
     const tipo = botao.dataset.comandoTipo;
     const ligar = botao.dataset.comandoLigar === "true";
-    if (ligar && !confirmar("Confirmar acionamento físico de " + tipo + " na zona " + zona.nome + "?")) {
-      return;
-    }
     botao.disabled = true;
     try {
       const resposta = await fetch("/api/zonas/" + zona.id + "/comando", {

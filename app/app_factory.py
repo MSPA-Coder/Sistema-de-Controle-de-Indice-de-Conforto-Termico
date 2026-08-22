@@ -31,6 +31,7 @@ from sharedauth.ratelimit import LIMITE_LOGIN_PADRAO
 from sharedauth.security import CONTENT_SECURITY_POLICY as POLITICA_FECHADA
 from sharedauth.security import SECURITY_HEADERS, registrar_cabecalhos
 from sharedauth.session import configurar_sessao
+from sharedauth.ui import registrar_ui
 from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -292,6 +293,11 @@ def criar_app_ict(config: AppConfig | None = None) -> Flask:
     app.config["WTF_CSRF_FIELD_NAME"] = "_csrf_token"
     app.config["WTF_CSRF_TIME_LIMIT"] = None
     iniciar_csrf(app)
+
+    # Modal de confirmação e toast de aviso, servidos por blueprint próprio
+    # com ETag/304 (ver docstring de `sharedauth.ui`). Só o ICT registra: é a
+    # única interface com navegador -- o coletor não serve HTML nenhum.
+    registrar_ui(app)
 
     def _conferir_banco() -> None:
         """Sonda de persistência do ICT, com o erro registrado antes de subir.

@@ -10,7 +10,12 @@ export function criarCadastroZonas({
   recarregarZonas,
   documento = document,
   requisitar = (...argumentos) => fetch(...argumentos),
-  confirmar = window.confirm.bind(window),
+  // Assinatura de `window.sharedauth.confirmar`: recebe as mesmas opcoes
+  // (mensagem/titulo/severidade) e devolve Promise<boolean> -- diferente do
+  // `window.confirm` que isto substituiu, que era sincrono. Ver ATENCAO em
+  // `excluirZona`/`excluirEquipamento`: todo chamador precisa de `await`.
+  confirmar = (opcoes) => window.sharedauth.confirmar(opcoes),
+  avisar = (opcoes) => window.sharedauth.avisar(opcoes),
 }) {
   const CONFIG_APP = obterConfiguracao();
   const document = documento;
@@ -335,18 +340,34 @@ export function criarCadastroZonas({
   }
 
   async function excluirZona(zona) {
-    const confirmado = confirm(
-      'Excluir a zona "' + zona.nome + '"? Os equipamentos cadastrados nela também ' +
-      "serão removidos. O histórico já gravado é mantido."
-    );
+    // Cascata real (ver migrations/versions/20260803_0001_baseline.py): sai
+    // junto equipamento, controle_zonas e os agregados -- e o texto tem de
+    // dizer isso, nao so "equipamentos". `leituras` usa ON DELETE SET NULL:
+    // a leitura bruta sobrevive, so perde o vinculo com a zona (e fica sem
+    // consulta que a mostre de novo -- ver INVENTARIO_OPERACOES_DESTRUTIVAS,
+    // secao 5).
+    const confirmado = await confirmar({
+      mensagem:
+        'Excluir a zona "' + zona.nome + '"? Saem junto os equipamentos cadastrados, ' +
+        "o modo e as travas de operação, e o histórico consolidado desta zona " +
+        "(tendências de 15 min e por hora). As leituras brutas já gravadas continuam " +
+        "no banco, mas perdem o vínculo com a zona.",
+      titulo: "Excluir zona",
+      severidade: "error",
+    });
     if (!confirmado) return;
     try {
-      await fetch("/api/zonas/" + zona.id, { method: "DELETE" });
+      const resposta = await fetch("/api/zonas/" + zona.id, { method: "DELETE" });
+      if (!resposta.ok) {
+        avisar({ mensagem: "Não foi possível excluir a zona.", severidade: "error" });
+        return;
+      }
       if (zonaCadastroSelecionadaId === zona.id) zonaCadastroSelecionadaId = null;
       if (obterZonaPrincipalId() === zona.id) definirZonaPrincipal(null);
       await recarregarZonas();
     } catch (erro) {
       console.error("Falha ao excluir zona:", erro);
+      avisar({ mensagem: "Falha de comunicação ao excluir a zona.", severidade: "error" });
     }
   }
 
@@ -486,12 +507,25 @@ export function criarCadastroZonas({
   }
 
   async function excluirEquipamento(zonaId, equipamento) {
-    if (!confirm('Excluir o equipamento "' + equipamento.nome + '"?')) return;
+    const confirmado = await confirmar({
+      mensagem: 'Excluir o equipamento "' + equipamento.nome + '"? Esta ação não pode ser desfeita.',
+      titulo: "Excluir equipamento",
+      severidade: "error",
+    });
+    if (!confirmado) return;
     try {
-      await fetch("/api/zonas/" + zonaId + "/equipamentos/" + equipamento.id, { method: "DELETE" });
+      const resposta = await fetch(
+        "/api/zonas/" + zonaId + "/equipamentos/" + equipamento.id,
+        { method: "DELETE" }
+      );
+      if (!resposta.ok) {
+        avisar({ mensagem: "Não foi possível excluir o equipamento.", severidade: "error" });
+        return;
+      }
       await recarregarZonas();
     } catch (erro) {
       console.error("Falha ao excluir equipamento:", erro);
+      avisar({ mensagem: "Falha de comunicação ao excluir o equipamento.", severidade: "error" });
     }
   }
 

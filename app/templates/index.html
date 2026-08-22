@@ -14,6 +14,7 @@
    mesmo desejadas, o caminho e servi-las localmente, como o
    ControleRendaVariavel faz em `static/vendor/fonts`. #}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link rel="stylesheet" href="{{ url_for('sharedauth_ui.static', filename='sharedauth-ui.css') }}">
 </head>
 <body>
 
@@ -386,7 +387,8 @@
       <div class="acao-linha">
         <button id="btn-apagar-historico-direto" class="botao botao--perigo botao--compacto" type="button">Apagar medições do histórico</button>
       </div>
-      <p id="dados-entrada-arquivo-status" class="smtp-status oculto" role="status"></p>
+      {# Resultado da cópia/exclusão agora é toast (window.sharedauth.avisar),
+         não mais este parágrafo -- ver Fase 10 em dados-entrada.js. #}
     </section>
 
     <section class="painel dados-entrada-execucoes-painel">
@@ -505,7 +507,9 @@
           <button id="btn-backup-banco" class="botao botao--fantasma botao--compacto" type="button">Fazer backup do banco</button>
           <button id="btn-consolidar-historico" class="botao botao--fantasma botao--compacto" type="button">Consolidar histórico pendente</button>
         </div>
-        <p id="banco-status" class="smtp-status oculto"></p>
+        {# O resultado de backup/consolidação/limpeza agora é toast
+           (window.sharedauth.avisar), não mais este parágrafo -- ver Fase 10
+           em entrada-calculo.js. #}
       </section>
 
     </div>
@@ -676,6 +680,14 @@
 </dialog>
 
 <script src="{{ url_for('static', filename='js/vendor/chart.umd.js') }}"></script>
+{# `defer` já bastaria sozinho: `app.js` só toca `window.sharedauth` dentro do
+   handler de DOMContentLoaded (nunca no topo do módulo), e todo script com
+   `defer` -- classico ou modulo sem `async`, que e o caso de app.js -- roda
+   antes desse evento. Mesmo assim este script vem ANTES de app.js no
+   documento: a ordem relativa de scripts `defer` e sempre a ordem do
+   documento, entao isto torna a dependencia explicita em vez de depender de
+   "app.js so usa isso dentro de um callback que corre depois". #}
+<script src="{{ url_for('sharedauth_ui.static', filename='sharedauth-ui.js') }}" defer></script>
 <script type="module" src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

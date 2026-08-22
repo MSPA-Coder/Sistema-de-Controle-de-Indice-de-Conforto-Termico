@@ -8,7 +8,15 @@ export function criarDadosEntrada({
   recarregarHistorico,
   documento = document,
   requisitar = (...argumentos) => fetch(...argumentos),
-  confirmar = window.confirm.bind(window),
+  // `window.sharedauth.confirmar` devolve Promise<boolean> -- ao contrario do
+  // `window.confirm` sincrono que isto substituiu. Os tres chamadores
+  // (`copiarExecucaoParaHistorico`, `apagarHistoricoDireto`,
+  // `apagarDadosGerados`) precisam de `await`.
+  confirmar = (opcoes) => window.sharedauth.confirmar(opcoes),
+  avisar = (opcoes) => window.sharedauth.avisar(opcoes),
+  // `solicitar` continua sincrono de proposito: e o campo de "digite APAGAR"
+  // que o modal NAO substitui (ver `apagarDadosGerados`), so a decisao vira
+  // modal.
   solicitar = window.prompt.bind(window),
 }) {
   let referencias = {
@@ -337,7 +345,10 @@ export function criarDadosEntrada({
       body: JSON.stringify({ zonas: coletarConfiguracoes() }),
     });
     renderizarConfiguracoes(configuracoes);
-    if (mostrarStatus) definirStatus("dados-entrada-status", "Parâmetros das zonas salvos.");
+    // `mostrarStatus=false` quando chamado de dentro de `gerar()`: a
+    // geracao ja tem a propria mensagem de resultado, um toast a mais aqui
+    // seria ruido duplicado para a mesma acao do usuario.
+    if (mostrarStatus) avisar({ mensagem: "Parâmetros das zonas salvos.", severidade: "success" });
     return configuracoes;
   }
 
@@ -405,9 +416,16 @@ export function criarDadosEntrada({
   }
 
   async function copiarExecucaoParaHistorico(execucaoId, botao) {
-    if (!confirmar("Copiar as medições da geração " + execucaoId + " para o histórico?")) {
-      return;
-    }
+    // "warning", nao "error": nao apaga nem sobrescreve nada (a leitura
+    // gerada continua existindo), so nao ha como desfazer so a copia -- ela
+    // sai junto se o historico for apagado depois (ver rodape 6 do
+    // INVENTARIO_OPERACOES_DESTRUTIVAS, secao 7.3).
+    const confirmado = await confirmar({
+      mensagem: "Copiar as medições da geração " + execucaoId + " para o histórico?",
+      titulo: "Copiar para o histórico",
+      severidade: "warning",
+    });
+    if (!confirmado) return;
     botao.disabled = true;
     try {
       const resultado = await respostaJson("/api/dados-entrada/copiar-para-historico", {
@@ -415,14 +433,14 @@ export function criarDadosEntrada({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ execucao_id: execucaoId }),
       });
-      definirStatus(
-        "dados-entrada-arquivo-status",
-        resultado.novas_copiadas + " novas medições copiadas para o histórico."
-      );
+      avisar({
+        mensagem: resultado.novas_copiadas + " novas medições copiadas para o histórico.",
+        severidade: "success",
+      });
       await carregarExecucoes();
       await recarregarHistorico({ manterJanelaFinal: false });
     } catch (erro) {
-      definirStatus("dados-entrada-arquivo-status", erro.message, true);
+      avisar({ mensagem: erro.message, severidade: "error" });
       botao.disabled = false;
     }
   }
@@ -474,51 +492,69 @@ export function criarDadosEntrada({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      definirStatus(
-        "dados-entrada-status",
-        "Geração " +
+      // O "Validando... Aguarde" fica no banner enquanto a geração roda --
+      // um toast não serve para progresso, só para o resultado final. Limpa
+      // o banner e mostra o resultado como toast.
+      definirStatus("dados-entrada-status", "");
+      avisar({
+        mensagem:
+          "Geração " +
           resultado.execucao_id +
           " concluída: " +
           resultado.total_medicoes +
           " medições em " +
           resultado.total_zonas +
-          " zonas."
-      );
+          " zonas.",
+        severidade: "success",
+      });
       await carregarExecucoes();
     } catch (erro) {
-      definirStatus("dados-entrada-status", erro.message, true);
+      definirStatus("dados-entrada-status", "");
+      avisar({ mensagem: erro.message, severidade: "error" });
     } finally {
       botao.disabled = false;
     }
   }
 
   async function apagarHistoricoDireto() {
+    // Uma das duas rotas com trava dupla: modal decide, campo "APAGAR"
+    // continua sendo validado no servidor (ver `apagar_historico` em
+    // `dados_entrada_rotas.py`). O modal não substitui a digitação.
     const confirmacao = documento.getElementById("dados-entrada-confirmacao-historico").value;
-    if (!confirmar("Apagar definitivamente todas as medições do histórico?")) return;
+    const confirmado = await confirmar({
+      mensagem: "Apagar definitivamente todas as medições do histórico?",
+      titulo: "Apagar histórico",
+      severidade: "error",
+    });
+    if (!confirmado) return;
     try {
       const resultado = await respostaJson("/api/dados-entrada/apagar-historico", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ confirmacao }),
       });
-      definirStatus(
-        "dados-entrada-arquivo-status",
-        resultado.medicoes_apagadas + " medições apagadas do histórico."
-      );
+      avisar({
+        mensagem: resultado.medicoes_apagadas + " medições apagadas do histórico.",
+        severidade: "success",
+      });
       await recarregarHistorico({ manterJanelaFinal: false });
     } catch (erro) {
-      definirStatus("dados-entrada-arquivo-status", erro.message, true);
+      avisar({ mensagem: erro.message, severidade: "error" });
     }
   }
 
   async function apagarDadosGerados() {
-    if (
-      !confirmar(
-        "Apagar todas as séries geradas? As medições já copiadas para o histórico serão preservadas."
-      )
-    ) {
-      return;
-    }
+    // A terceira rota com "APAGAR" validado no servidor (ver `excluir_medicoes`
+    // em `dados_entrada_rotas.py`) -- aqui o campo de texto forte é um
+    // `prompt()` nativo em vez de um `<input>` na página, mas a regra é a
+    // mesma: o modal decide, o texto digitado continua sendo a confirmação
+    // forte que o servidor valida.
+    const confirmado = await confirmar({
+      mensagem: "Apagar todas as séries geradas? As medições já copiadas para o histórico serão preservadas.",
+      titulo: "Apagar dados gerados",
+      severidade: "error",
+    });
+    if (!confirmado) return;
     const confirmacao = solicitar("Digite APAGAR para confirmar:", "");
     if (confirmacao === null) return;
     try {
@@ -527,13 +563,13 @@ export function criarDadosEntrada({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ confirmacao }),
       });
-      definirStatus(
-        "dados-entrada-status",
-        resultado.medicoes_apagadas + " medições geradas foram apagadas."
-      );
+      avisar({
+        mensagem: resultado.medicoes_apagadas + " medições geradas foram apagadas.",
+        severidade: "success",
+      });
       await carregarExecucoes();
     } catch (erro) {
-      definirStatus("dados-entrada-status", erro.message, true);
+      avisar({ mensagem: erro.message, severidade: "error" });
     }
   }
 
@@ -545,7 +581,7 @@ export function criarDadosEntrada({
         try {
           await salvarConfiguracoes(true);
         } catch (erro) {
-          definirStatus("dados-entrada-status", erro.message, true);
+          avisar({ mensagem: erro.message, severidade: "error" });
         }
       });
     documento

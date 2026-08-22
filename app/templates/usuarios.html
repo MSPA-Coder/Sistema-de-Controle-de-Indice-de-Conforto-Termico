@@ -60,11 +60,25 @@
             <td class="admin-acoes">
               <a class="botao botao--fantasma botao--compacto" href="{{ url_for('usuarios.editar_usuario_rota', usuario_id=usuario.id) }}">Editar</a>
               {% if usuario.id != usuario_atual.id %}
+              {# O `onsubmit="return confirm(...)"` que estava aqui NUNCA
+                 disparava: a CSP do projeto é `script-src 'self'` sem
+                 `unsafe-inline` e sem nonce, e atributo de evento inline cai
+                 nessa diretiva. Excluir usuário vinha sendo enviado sem
+                 confirmação alguma desde que a CSP fechou -- e passou
+                 despercebido porque era o único handler inline do projeto,
+                 então não havia um segundo caso quebrado para chamar atenção.
+
+                 De quebra, o atributo é mais seguro que o inline era: um nome
+                 de usuário com apóstrofo quebrava a string JavaScript daquela
+                 forma; aqui o escape de atributo do Jinja resolve. #}
               <form method="post" action="{{ url_for('usuarios.excluir_usuario_rota', usuario_id=usuario.id) }}"
-                    class="admin-excluir-form"
-                    onsubmit="return confirm('Excluir o usuário {{ usuario.nome }}? Esta ação não pode ser desfeita.');">
+                    class="admin-excluir-form">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                <button type="submit" class="botao botao--perigo botao--compacto">Excluir</button>
+                <button type="submit" class="botao botao--perigo botao--compacto"
+                        data-sa-confirmar="Excluir o usuário {{ usuario.nome }}? Esta ação não pode ser desfeita."
+                        data-sa-titulo="Excluir usuário"
+                        data-sa-severidade="error"
+                        data-sa-ok="Excluir">Excluir</button>
               </form>
               {% endif %}
             </td>
