@@ -2,9 +2,8 @@
 
 Esconder aba e apresentacao. O que impede um perfil de alcancar uma area e o
 hook registrado por `registrar_controle_de_area`, e e isso que este arquivo
-mede. (O gate de "esta logado" em si vem de `sharedauth.access.requer_login`
-desde a Fase 4 da migração -- ver PLANO_UNIFICAR_AUTENTICACAO.md no
-repositório `_manutencao` -- e não decide papel/área, só autenticação.)
+mede. O gate de "esta logado" vem de `sharedauth.access.requer_login` e não
+decide papel/área, só autenticação.
 """
 
 from __future__ import annotations

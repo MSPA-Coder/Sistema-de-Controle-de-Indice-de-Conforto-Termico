@@ -75,9 +75,9 @@ Thumbs.db
 # Especifico do ConfortoTermico
 # ---------------------------------------------------------------------------
 
-# `instance/` ja esta no nucleo, mas aqui ele tambem guarda a chave de sessao e
-# o token interno gerados em runtime (`app/auth.py`), alem dos dumps criados
-# por `app/database_operacao.py`. Nenhum deles pode ser versionado.
+# `instance/` ja esta no nucleo, mas aqui ele tambem guarda chaves de fallback
+# de desenvolvimento/teste (`app/auth.py`) e os dumps criados por
+# `app/database_operacao.py`. Nenhum deles pode ser versionado.
 
 # Dumps nomeados pelo proprio aplicativo.
 *_backup_*

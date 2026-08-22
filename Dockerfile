@@ -8,6 +8,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /workspace
 
+RUN --mount=type=secret,id=local_ca,required=false \
+    if [ -f /run/secrets/local_ca ]; then \
+        cp /run/secrets/local_ca /usr/local/share/ca-certificates/local-root-ca.crt; \
+        update-ca-certificates; \
+    fi
+
 # Correcoes de seguranca da base e das ferramentas de empacotamento.
 #
 # `apt-get upgrade` porque a `python:3.14-slim` publicada carrega pacotes do
@@ -15,20 +21,15 @@ WORKDIR /workspace
 # imagem oficial for republicada. O `setuptools` que vem na base tambem fica
 # para tras -- o 70.3.0 tinha CVE-2025-47273, travessia de caminho.
 #
-# Achado pela varredura Trivy que entrou nesta mesma fase. Antes dela ninguem
-# perguntava se a imagem que esta rodando tem CVE.
+# A varredura Trivy exige que a imagem servida incorpore correcoes de CVE já
+# publicadas para os pacotes do sistema.
 RUN apt-get update \
     && apt-get upgrade -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && python -m pip install --no-cache-dir --upgrade pip setuptools
 
-RUN --mount=type=secret,id=local_ca,required=false \
-    if [ -f /run/secrets/local_ca ]; then \
-        cp /run/secrets/local_ca /usr/local/share/ca-certificates/local-root-ca.crt; \
-    fi \
-    && apt-get update \
+RUN apt-get update \
     && apt-get install --no-install-recommends -y postgresql-client git \
-    && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 FROM base AS runtime-dependencies
@@ -64,8 +65,8 @@ EXPOSE 5000
 # mantem `gcc`, `make` e `wget` fora do runtime, o que os testes de contrato
 # deste projeto verificam.
 #
-# Nao e higiene abstrata: a varredura de vulnerabilidade que entrou nesta fase
-# acusou CVE-2025-47273 no `setuptools` e GHSA-6v7p-g79w-8964 no `msgpack` que
+# Nao e higiene abstrata: a varredura de vulnerabilidade acusa
+# CVE-2025-47273 no `setuptools` e GHSA-6v7p-g79w-8964 no `msgpack` que
 # o `pip` carrega vendorizado em `pip/_vendor/`. Nenhum dos dois chega a ser
 # executado nesta imagem. Remover apaga as duas descobertas E a superficie,
 # em vez de ficar perseguindo versao de pacote que ninguem invoca.

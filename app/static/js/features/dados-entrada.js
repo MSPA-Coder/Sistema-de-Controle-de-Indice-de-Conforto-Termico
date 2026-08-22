@@ -416,10 +416,9 @@ export function criarDadosEntrada({
   }
 
   async function copiarExecucaoParaHistorico(execucaoId, botao) {
-    // "warning", nao "error": nao apaga nem sobrescreve nada (a leitura
-    // gerada continua existindo), so nao ha como desfazer so a copia -- ela
-    // sai junto se o historico for apagado depois (ver rodape 6 do
-    // INVENTARIO_OPERACOES_DESTRUTIVAS, secao 7.3).
+    // A copia e aditiva: nao apaga nem sobrescreve a geracao de origem. O
+    // alerta usa "warning" porque nao existe uma operacao isolada para
+    // desfazer apenas os registros copiados para o historico.
     const confirmado = await confirmar({
       mensagem: "Copiar as medições da geração " + execucaoId + " para o histórico?",
       titulo: "Copiar para o histórico",

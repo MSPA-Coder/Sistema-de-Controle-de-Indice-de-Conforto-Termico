@@ -1,34 +1,18 @@
-"""Conexão PostgreSQL da aplicação.
+"""Conexão PostgreSQL e compatibilidade da API de persistência.
 
-Não há fallback de persistência: uma configuração ausente ou de outro dialeto
-falha antes de a aplicação iniciar.
+Não há fallback: uma configuração ausente ou de outro dialeto falha antes de a
+aplicação iniciar. A camada preserva contratos existentes como marcadores `?`,
+`lastrowid` e `LinhaCompat`; ela não é um backend SQLite alternativo.
 
-DÍVIDA DATADA. Esta camada é um emulador de SQLite sobre PostgreSQL, sobra de
-uma migração que já terminou: marcadores `?`, `lastrowid`, `LinhaCompat`. A
-aposentadoria dela depende de existir Postgres de verdade no CI, e está
-registrada na seção 7 de `_manutencao/PLANO_SINAL_E_DEFEITOS.md`. Enquanto
-isso, o que foi feito aqui em 2026-08-21 (Fase 4) foi **blindar, não
-refatorar** -- fechar o risco de corromper consulta em silêncio, sem mexer na
-forma.
+Duas limitações exigem cuidado:
 
-Duas coisas que ficaram deliberadamente de fora, e o porquê:
-
-1. **`RETURNING id` no lugar do `SELECT currval(...)`.** O plano pedia, e a
-   troca foi recusada depois de conferir o esquema: **8 das 18 tabelas não têm
-   coluna `id`**, e várias são alvo de INSERT (`configuracoes_zona`,
-   `controle_zonas`, `estado_equipamentos`, `agregados_15min`). Acrescentar
-   `RETURNING id` a todo INSERT transformaria upserts que funcionam em erro de
-   SQL. O ganho seria um round trip a menos por inserção, num sistema cujos
-   dumps inteiros têm centenas de quilobytes. Trocar correção por desempenho
-   nessa proporção é mau negócio. O defeito de verdade do `currval` -- devolver
-   id alheio quando nada foi inserido -- foi fechado com uma guarda de
-   `rowcount`, sem tocar no esquema.
-
-2. **Escapar `%` para `%%`.** Ao converter para o estilo `%s` do psycopg, um
-   `%` literal no SQL (um `LIKE '%termo%'`) passa a ser lido como formatação.
-   Não há nenhum hoje -- conferido -- e escapar às cegas quebraria qualquer
-   SQL que já venha com `%s`. Fica anotado como armadilha conhecida para quem
-   escrever o primeiro `LIKE` com curinga.
+1. **`RETURNING id` não é geral.** Várias tabelas gravadas não têm coluna `id`,
+   portanto acrescentar a cláusula a todo INSERT quebraria upserts válidos. A
+   leitura de `currval` é protegida por `rowcount` quando nada foi inserido.
+2. **`%` literal no SQL.** Ao converter para o estilo `%s` do psycopg, um
+   `LIKE '%termo%'` pode ser interpretado como formatação. Escapar às cegas
+   também quebraria SQL que já usa `%s`; o primeiro uso precisa tratar a
+   distinção explicitamente.
 """
 
 from __future__ import annotations

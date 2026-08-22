@@ -340,12 +340,9 @@ export function criarCadastroZonas({
   }
 
   async function excluirZona(zona) {
-    // Cascata real (ver migrations/versions/20260803_0001_baseline.py): sai
-    // junto equipamento, controle_zonas e os agregados -- e o texto tem de
-    // dizer isso, nao so "equipamentos". `leituras` usa ON DELETE SET NULL:
-    // a leitura bruta sobrevive, so perde o vinculo com a zona (e fica sem
-    // consulta que a mostre de novo -- ver INVENTARIO_OPERACOES_DESTRUTIVAS,
-    // secao 5).
+    // A exclusao remove em cascata equipamentos, controle operacional e
+    // agregados da zona. Leituras brutas permanecem no banco com a referencia
+    // da zona anulada; por isso a confirmacao descreve ambos os efeitos.
     const confirmado = await confirmar({
       mensagem:
         'Excluir a zona "' + zona.nome + '"? Saem junto os equipamentos cadastrados, ' +

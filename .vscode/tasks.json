@@ -14,9 +14,9 @@
       "problemMatcher": []
     },
     {
-      "label": "Docker: executar testes",
+      "label": "Docker: executar qualidade",
       "type": "shell",
-      "command": "docker compose --env-file .env.docker run --rm --no-deps -e DATABASE_URL= ict python -m unittest discover -v",
+      "command": "docker compose --env-file .env.docker --profile quality run --rm quality",
       "problemMatcher": []
     },
     {

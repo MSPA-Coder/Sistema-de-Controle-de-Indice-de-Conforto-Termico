@@ -1,15 +1,10 @@
-# Runbook operacional
+# Operação, dados e recuperação
 
-O único ambiente operacional suportado é Docker Compose com PostgreSQL.
+O ambiente suportado é Docker Compose com PostgreSQL. O uso é individual,
+experimental e simulado, tanto localmente quanto na instância de demonstração
+do VPS; não conecte equipamentos físicos.
 
-Os comandos abaixo valem para os dois ambientes; muda apenas o arquivo de
-ambiente e a porta. No desenvolvimento Windows, `--env-file .env.docker` e ICT
-em `http://127.0.0.1:5001`. No VPS, `--env-file .env.docker` a partir de
-`/home/ubuntu/apps/conforto-termico`, ICT em `127.0.0.1:5401` atrás do Nginx em
-`https://conforto-mspa.duckdns.org`. No VPS, prefira `~/deploy.sh conforto` a
-subir a pilha à mão — ver `deployment-vps.md`.
-
-## Início e verificação
+## Iniciar e diagnosticar localmente
 
 ```powershell
 docker compose --env-file .env.docker config --quiet
@@ -18,65 +13,115 @@ docker compose --env-file .env.docker ps
 docker compose --env-file .env.docker exec ict python -m scripts.verificar_postgres
 ```
 
-O ICT é a interface pública em `http://127.0.0.1:5001`. O coletor não expõe
-porta no host; investigue seu estado por `docker compose ... logs coletor`.
-
-## Diagnóstico
+O ICT fica em `http://127.0.0.1:5001`. O coletor é privado e deve ser observado
+pelos health checks e logs:
 
 ```powershell
-docker compose --env-file .env.docker logs --tail=100 ict
-docker compose --env-file .env.docker logs --tail=100 coletor
-docker compose --env-file .env.docker logs --tail=100 postgres
+docker compose --env-file .env.docker logs --tail=100 ict coletor postgres
 docker compose --env-file .env.docker ps
 ```
 
-Não altere nem imprima segredos em `.secrets/`. Alterações de ambiente exigem
-recriar os serviços afetados. A aplicação só deve operar após o serviço
-`schema` concluir as migrações Alembic. O coletor é privado: use os logs e o
-health check do Compose para diagnosticá-lo, nunca uma porta exposta no host.
-`CONFORTO_DEBUG` permanece em `0` na implantação: o processo recusa debug sem
-`CONFORTO_DEVELOPMENT=1` e host de loopback. Os caminhos `*_FILE` dos segredos
-devem continuar nos mounts exatos de `/run/secrets` definidos pelo Compose.
+O serviço `schema` precisa terminar com sucesso antes de `ict` e `coletor`.
+Mantenha `CONFORTO_DEBUG=0` fora de desenvolvimento local. Não imprima nem
+altere segredos durante o diagnóstico.
 
-Em hosts Linux, gere `.secrets/` com `scripts/configurar_segredos.py` pela
-imagem Docker. A senha do PostgreSQL precisa permanecer legível pelos serviços
-que a consomem, inclusive o próprio PostgreSQL; não substitua suas permissões
-por um arquivo privado apenas do usuário da aplicação.
-
-## Backup e recuperação
-
-Use a função autenticada da área Sistema para gerar um dump, ou execute
-`pg_dump` no serviço PostgreSQL com credenciais concedidas por segredo. Antes
-de qualquer restauração ou migração destrutiva, valide um backup e planeje a
-janela de manutenção. A instalação suportada começa em banco novo por
-`alembic upgrade head`; não use `alembic stamp` para declarar compatível um
-banco sem histórico Alembic compatível.
-
-## Parada planejada
+Para parar preservando os volumes:
 
 ```powershell
 docker compose --env-file .env.docker down
 ```
 
-Esse comando preserva o volume PostgreSQL. `down -v` remove dados persistentes
-e só pode ser usado quando essa remoção tiver sido deliberadamente autorizada.
+## Dados persistentes
 
-## Verificação estática
+- `postgres_data`: usuários, zonas, equipamentos, configurações, medições,
+  agregados, eventos e dados de entrada;
+- `app_instance`: snapshots criados pela ação de backup da interface;
+- `.secrets/`: arquivos locais necessários ao Compose, fora dos volumes e do Git.
 
-A CI mínima no GitHub valida a configuração Compose e executa o estágio
-`quality` em imagem limpa em push e pull request para `main`, além de uma
-execução semanal. Dependabot propõe atualizações agrupadas de dependências
-minor e patch. O projeto ainda não mantém suíte ampla de regressão, cobertura,
-Mypy ou `pip-audit` dentro da imagem; a decisão e seu histórico estão em
-`docs/adr/003-ci-cd-pipeline.md` e `docs/adr/004-qualidade-codigo-ferramentas.md`.
-O estágio `quality` contém a suíte mínima de segurança e fumaça mais o Ruff:
+O schema `historico` reúne configuração e dados operacionais. O schema
+`dados_entrada` reúne configurações e séries geradas para pesquisa. Excluir o
+histórico pela interface remove leituras e seus derivados, mas preserva zonas,
+equipamentos, usuários e configurações. Dados gerados podem ser excluídos
+separadamente.
+
+Medições de pesquisa podem ser descartadas. Preserve usuários, zonas,
+equipamentos e configurações sempre que possível. Um dump do banco completo
+preserva tanto essas configurações quanto as medições existentes.
+
+## Proteção central com BackupRestore
+
+O mecanismo preferido é o projeto irmão
+[BackupRestore](https://github.com/MSPA-Coder/BackupRestore). Ele cobre:
+
+- `conforto_termico`: dump completo e ZIP do código da instância local;
+- `conforto_termico_vps`: dump completo produzido no VPS e sincronizado pelo
+  canal restrito.
+
+O BackupRestore verifica os artefatos antes de catalogá-los, registra SHA-256 e
+origem, aplica retenção somente depois de haver substituto válido e oferece
+ensaio de restauração no PostgreSQL descartável `backuprestore-sandbox`. O
+restore do ConfortoTermico já foi ensaiado. Consulte o README e
+`RESTAURAR.md` daquele projeto para operação e recuperação; não reproduza aqui
+comandos que possam divergir da ferramenta central.
+
+## Snapshot interno de conveniência
+
+A ação autenticada **Fazer backup do banco**, na área Sistema, executa
+`pg_dump --format=custom` para o banco inteiro e grava o arquivo `.dump` em
+`/workspace/instance`, persistido por `app_instance`. O dump inclui os dois
+schemas e a revisão Alembic.
+
+Essa ação não baixa o arquivo, não o copia para armazenamento externo, não
+aplica retenção e não testa restauração. Um arquivo mantido somente em
+`app_instance` não protege contra perda desse volume ou do host. Trate-o como
+snapshot local de conveniência, não como substituto do BackupRestore.
+
+Se for necessário retirar esse snapshot do volume:
 
 ```powershell
-docker compose --env-file .env.docker --profile quality run --rm quality
+New-Item -ItemType Directory -Force backups
+docker compose --env-file .env.docker cp `
+  ict:/workspace/instance/<arquivo>.dump backups/<arquivo>.dump
 ```
 
-Mudanças que tocam autenticação, autorização, CSRF ou sessão sempre executam
-esse comando — é ele quem roda os 5 testes de `tests/`, não só o lint.
-Mudanças relevantes são verificadas manualmente no fluxo afetado. Mudanças de
-schema exigem, além disso, bootstrap em PostgreSQL vazio por
-`alembic upgrade head`.
+## Recuperação
+
+Esta aplicação não possui rota, botão ou integração interna de restauração. A
+proteção e os ensaios pertencem ao projeto BackupRestore; a recuperação real
+deve seguir o `RESTAURAR.md` dele. Não a improvise pela interface deste app.
+
+Antes de restaurar:
+
+1. preserve o estado atual;
+2. valide o artefato e o restore no sandbox do BackupRestore;
+3. confirme a compatibilidade entre o código e a revisão Alembic do dump;
+4. planeje a parada de `ict` e `coletor` e o retorno;
+5. confirme a preservação de usuários, zonas, equipamentos e configurações.
+
+Uma restauração sobre o banco corrente pode substituir configurações, usuários
+e medições. Não use `alembic stamp` para mascarar incompatibilidade.
+`down -v` e `down --volumes` removem dados persistentes e exigem autorização
+explícita.
+
+## Instância no VPS
+
+A instância em `https://conforto-mspa.duckdns.org` é pesquisa/demonstração, não
+uso operacional nem homologação física. O Nginx termina TLS e encaminha ao ICT
+em `127.0.0.1:5401`; o PostgreSQL fica em `127.0.0.1:5402`; o coletor não é
+exposto no host. Código e dados são independentes: os volumes Docker persistem
+fora de `/home/ubuntu/apps/conforto-termico`.
+
+O deploy oficial vem de `_manutencao/vps/deploy.sh` e está instalado como
+`~/deploy.sh`:
+
+```bash
+~/deploy.sh conforto --check
+~/deploy.sh conforto
+~/deploy.sh --status
+```
+
+Não edite nem commite no VPS. O script exige checkout limpo, avança a partir do
+`main`, reconstrói a imagem e valida o endereço público. Se a nova versão não
+ficar saudável, ele restaura o commit e a imagem anteriores. Esse rollback
+**não reverte migrações**; mudança de schema exige compatibilidade, backup
+central conferido e procedimento explícito de recuperação de dados.

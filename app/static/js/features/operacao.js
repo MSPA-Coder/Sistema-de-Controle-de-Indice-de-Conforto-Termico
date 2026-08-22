@@ -363,15 +363,9 @@ export function criarOperacao({
   }
 
   async function comandarAtuadorOperacao(botao) {
-    // Sem confirmação de proposito, em nenhum dos dois sentidos: ligar um
-    // ventilador/nebulizador fisico e reversivel pela propria interface --
-    // basta o botao "Desligar" ao lado, que e o mesmo comando ao contrario.
-    // A tabela do INVENTARIO_OPERACOES_DESTRUTIVAS (secao 7.3, linha 23)
-    // classifica esta acao como reversivel; a regra do proprio componente
-    // (ver cabecalho de sharedauth-ui.js) e "irreversivel pede, reversivel
-    // nao pede" -- confirmar aqui treinaria a pessoa a clicar "sim" sem ler
-    // nos casos que realmente importam. Havia confirmacao so ao LIGAR antes
-    // desta mudanca; removida.
+    // O comando e reversivel pelo botao oposto da propria interface. Acoes
+    // reversiveis nao pedem confirmacao, reservando o dialogo para operacoes
+    // destrutivas ou que nao possam ser desfeitas diretamente.
     const zona = obterZonaPrincipal();
     if (!zona) return;
     const tipo = botao.dataset.comandoTipo;

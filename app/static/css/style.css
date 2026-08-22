@@ -164,7 +164,7 @@ button { font-family: inherit; }
   align-items: start;
   gap: 1rem;
 }
-/* Aba Configuracoes (pos Fase 1): so preferencias do app + limiar de */
+/* Aba Configuracoes: so preferencias do app + limiar de */
 /* alerta por e-mail -- conteudo enxuto, uma coluna centralizada em vez */
 /* das duas colunas tecnicas da aba Sistema. */
 .grade-configuracoes-enxuta {
@@ -1372,7 +1372,7 @@ td.status-emergencia { color: var(--status-emergencia); }
 }
 
 /* ---------------------------------------------------------------------------
-   Fase 2 (autenticacao): login e administracao de usuarios. Paginas fora da
+   Login e administracao de usuarios. Paginas fora da
    SPA (server-rendered, sem app.js) -- reaproveitam os mesmos tokens de cor,
    `.painel`, `.botao*`, `.campo-config` e `.check` ja usados no resto da
    interface, para nao parecerem uma tela "colada" de outro sistema.
@@ -1470,7 +1470,7 @@ td.status-emergencia { color: var(--status-emergencia); }
   .admin-sessao { white-space: normal; }
 }
 
-/* Topbar de sessao (Fase 2) no topo da SPA principal -- quem esta logado,
+/* Topbar de sessao no topo da SPA principal -- quem esta logado,
    link de administracao de usuarios (so quando a area "usuarios" esta
    liberada) e o botao de sair. */
 .app-topo-sessao {

@@ -1,13 +1,8 @@
 """A aplicacao nega por padrao, e a isencao e uma lista curta e explicita.
 
-O gate de login vem de `sharedauth.access.requer_login` desde a Fase 4 da
-migração (ver PLANO_UNIFICAR_AUTENTICACAO.md no repositório `_manutencao`) --
-antes era um `before_request` próprio deste projeto. `criar_app_ict()` não
-conecta ao banco na criação (ver conftest.py), então os testes abaixo usam
-`app.test_client()` de verdade em vez de inspecionar código-fonte: o que se
-protege é a mesma coisa (uma rota que deixa de exigir sessão continua
-respondendo 200 e parecendo correta), mas agora é medido pela resposta HTTP,
-não por `inspect.getsource`.
+O gate de login vem de `sharedauth.access.requer_login`. Como
+`criar_app_ict()` não conecta ao banco na criação (ver conftest.py), estes
+testes usam `app.test_client()` e medem o contrato pelas respostas HTTP.
 """
 
 from __future__ import annotations
@@ -93,13 +88,7 @@ def _sem_chave_configurada(monkeypatch):
 
 
 def test_producao_sem_chave_recusa_subir(tmp_path, monkeypatch):
-    """O teste que faltava, e o motivo da ADR 007.
-
-    Até 2026-08-21 faltar a chave em produção não era erro: a aplicação gerava
-    uma e subia parecendo saudável. Um erro de configuração virava um sistema
-    normal, e o estrago só aparecia no dia em que o volume se perdesse --
-    deslogando todo mundo de uma vez, sem nada apontando a causa.
-    """
+    """Fora de desenvolvimento/teste, uma chave ausente falha sem fallback."""
     from app import database as db
 
     _sem_chave_configurada(monkeypatch)
@@ -138,8 +127,7 @@ def test_chave_de_sessao_gerada_persiste_em_desenvolvimento(tmp_path, monkeypatc
 def test_chave_de_sessao_prioriza_ambiente_sem_persistir(tmp_path, monkeypatch):
     """Uma configuração explícita não cria nem substitui o arquivo do volume.
 
-    Compatibilidade que a ADR 007 mantém de propósito: instalações que já
-    definiam `CONFORTO_SECRET_KEY` continuam funcionando sem mudar nada.
+    `CONFORTO_SECRET_KEY` continua sendo uma fonte explícita válida.
     """
     from app import database as db
 
@@ -153,11 +141,7 @@ def test_chave_de_sessao_prioriza_ambiente_sem_persistir(tmp_path, monkeypatch):
 
 
 def test_perda_da_chave_em_desenvolvimento_invalida_sessoes(tmp_path, monkeypatch):
-    """O risco que a ADR 005 declarava, agora restrito a desenvolvimento.
-
-    Em produção a chave não mora mais no volume, então perdê-lo deixou de
-    invalidar sessão.
-    """
+    """O fallback de desenvolvimento troca a chave quando seu arquivo some."""
     from app import database as db
 
     _sem_chave_configurada(monkeypatch)

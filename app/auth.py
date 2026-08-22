@@ -17,10 +17,9 @@ Este modulo e o unico lugar do sistema que:
 
 Sessao, CSRF, o gate de "exige login" e o rate-limit do login vêm de
 `sharedauth` (chamados em `app_factory.criar_app_ict`), compartilhados com
-os outros apps Flask do mantenedor -- ver PLANO_UNIFICAR_AUTENTICACAO.md no
-repositório `_manutencao`. Este módulo só decide o que é específico deste
-app: os 6 perfis e o mapeamento perfil→área, que `sharedauth` deliberadamente
-não decide.
+os outros apps Flask do mantenedor. Este módulo só decide o que é específico
+deste app: os 6 perfis e o mapeamento perfil→área, que `sharedauth`
+deliberadamente não decide.
 
 A separacao de areas e so a metade "isso e permitido" da decisao. A outra
 metade -- "o template so MOSTRA o botao/aba que a pessoa pode usar" -- fica
@@ -162,18 +161,9 @@ def conferir_senha(senha: str, hash_: str) -> bool:
 # ou teste -- geracao persistida em `instance/`. Em producao, faltar a chave e
 # erro que impede a aplicacao de subir.
 #
-# ISTO SUBSTITUI A ADR 005 (ver docs/adr/007). Ate 2026-08-21 a geracao
-# silenciosa valia em qualquer ambiente, e a ADR 005 registrava o desvio com um
-# motivo concreto: "o Compose nao fornece uma chave de sessao como Docker
-# secret dedicado". Passou a fornecer. A propria ADR 005 dizia o que essa
-# evolucao exigia -- migracao coordenada, compatibilidade temporaria e rollback
-# documentado -- e e isso que a 007 faz.
-#
-# Por que a geracao silenciosa era ruim mesmo "funcionando": ela transforma um
-# erro de configuracao (ninguem nunca definiu a chave) num sistema que sobe
-# normalmente. O estrago so aparece no dia em que o volume `app_instance` se
-# perde, e a forma que ele toma -- todo mundo deslogado de uma vez, sem
-# explicacao -- nao aponta para a causa.
+# A geracao silenciosa fica restrita aos ambientes em que perder a chave e
+# invalidar sessoes e aceitavel. Nos demais, uma configuracao incompleta precisa
+# falhar na inicializacao em vez de depender do volume `app_instance`.
 # ---------------------------------------------------------------------------
 
 

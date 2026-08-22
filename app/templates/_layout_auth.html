@@ -13,23 +13,16 @@
    mesmo desejadas, o caminho e servi-las localmente, como o
    ControleRendaVariavel faz em `static/vendor/fonts`. #}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-{# Este layout NAO carregava o componente comum, e `usuarios.html` -- que
-   estende daqui -- confia nele para confirmar a exclusao de usuario. O
-   atributo `data-sa-confirmar` estava no botao desde a Fase 9 e nunca fez
-   nada: sem o script na pagina, ninguem le o atributo e o form envia direto.
-
-   E o mesmo botao pela terceira vez. Antes foi `onsubmit="return confirm()"`,
-   bloqueado pela CSP; depois o atributo sem script. A causa comum e este
-   projeto ter DUAS cadeias de layout -- `index.html` monta a propria e carrega
-   o componente na linha ~690 -- enquanto os outros tres apps tem um `base.html`
-   unico, por onde tudo passa obrigatoriamente. Ver
-   `tests/test_componente_ui_carregado.py`, que agora falha se um template com
-   `data-sa-` nao alcancar o script.
+{# `usuarios.html` estende este layout e usa `data-sa-confirmar` para confirmar
+   exclusao. Sem o componente comum, o atributo fica inerte e o formulario e
+   enviado diretamente. Este projeto tem duas cadeias de layout: `index.html`
+   monta a propria, enquanto as paginas de autenticacao passam por este arquivo.
+   `tests/test_componente_ui_carregado.py` exige que todo template com
+   `data-sa-` alcance o script.
 
    Vem em blocos, e ligado por padrao: um template administrativo novo nasce
-   com a confirmacao funcionando, e esquecer de agir da o lado seguro. Quem
-   dispensa e que declara o bloco vazio -- hoje so `login.html`, e o porque
-   esta la. #}
+   com a confirmacao funcionando. Quem dispensa declara o bloco vazio -- hoje
+   so `login.html`, e o motivo esta la. #}
 {% block componente_ui_css %}<link rel="stylesheet" href="{{ url_for('sharedauth_ui.static', filename='sharedauth-ui.css') }}">{% endblock %}
 </head>
 <body class="pagina-auth">

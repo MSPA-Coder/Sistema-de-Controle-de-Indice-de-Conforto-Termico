@@ -1,10 +1,4 @@
-"""Escritas exigem token CSRF.
-
-A proteção veio de `sharedauth.csrf` (Flask-WTF) nesta migração -- antes era
-uma comparação própria em HMAC (`hmac.compare_digest`), escrita à mão neste
-projeto e reimplementada de novo aqui do que os outros dois apps Flask do
-mantenedor já resolviam prontos. Ver PLANO_UNIFICAR_AUTENTICACAO.md no
-repositório `_manutencao`, seção 12 (Fase 4).
+"""Escritas exigem token CSRF fornecido por `sharedauth.csrf` (Flask-WTF).
 
 O nome do campo continua `_csrf_token` (configurado via
 `WTF_CSRF_FIELD_NAME` em `app_factory.criar_app_ict`) para não precisar

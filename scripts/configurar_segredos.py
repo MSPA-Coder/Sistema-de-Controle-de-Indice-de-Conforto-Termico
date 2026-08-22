@@ -29,7 +29,7 @@ ARQUIVOS = {
     # Chave de assinatura de sessão, montada só no `ict`. CUIDADO ao rodar com
     # `--force` numa instalação existente: trocar esta chave invalida TODAS as
     # sessões abertas e desloga todo mundo de uma vez. É por isso que o script
-    # não sobrescreve arquivo existente sem `--force`. Ver ADR 007.
+    # não sobrescreve arquivo existente sem `--force`.
     "secret_key.txt": (48, APP_UID, APP_GID, 0o400),
 }
 

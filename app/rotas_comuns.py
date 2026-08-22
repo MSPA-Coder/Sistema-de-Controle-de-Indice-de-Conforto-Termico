@@ -212,7 +212,7 @@ def agregados_15min_zona(zona_id):
 def resumo_horario_zona(zona_id):
     """Serie horaria consolidada: media/minimo/maximo do indice, status da
     media e percentual de tempo em cada status na hora. E a granularidade
-    recomendada para relatorios (ver `docs/ANALISE_DE_DADOS.pdf`)."""
+    recomendada para relatorios de tendencia."""
     if db.obter_zona(zona_id) is None:
         return jsonify({"erro": f"Zona {zona_id} nao encontrada."}), 404
     limite, erro = _parametro_inteiro("limite", 168)

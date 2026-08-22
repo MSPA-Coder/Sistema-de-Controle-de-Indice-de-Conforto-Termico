@@ -2,22 +2,12 @@
 
 `data-sa-confirmar` nao e um handler: e um dado que o `sharedauth-ui.js` le
 num listener delegado. Se o script nao chegar ao documento, o atributo fica
-inerte, o formulario envia direto e a exclusao acontece sem perguntar -- sem
-erro no console, sem nada quebrado na tela. Foi o que aconteceu com
-`usuarios.html` entre a Fase 9 e 2026-08-22: o botao tinha os quatro
-atributos e `_layout_auth.html` nao carregava o componente.
-
-E a segunda forma do mesmo defeito no mesmo botao. A primeira foi
-`onsubmit="return confirm(...)"`, que a CSP (`script-src 'self'`, sem
-`unsafe-inline`) bloqueava. Nos dois casos a protecao existia no fonte e nao
-existia no navegador, e nos dois casos um grep pelo atributo dizia que estava
-tudo certo.
+inerte e o formulario envia direto. Por isso todo layout que usa o atributo
+também precisa carregar o componente.
 
 A causa comum e estrutural: este projeto tem DUAS cadeias de layout
-(`index.html`, que monta a propria, e `_layout_auth.html`), enquanto os outros
-tres apps do mantenedor tem um `base.html` unico por onde tudo passa. Uma
-terceira cadeia nasceria com o mesmo buraco, por isso o teste abaixo varre os
-templates em vez de conferir so o par conhecido.
+(`index.html`, que monta a propria, e `_layout_auth.html`). Por isso o teste
+varre os templates em vez de conferir so o par conhecido.
 """
 
 from __future__ import annotations

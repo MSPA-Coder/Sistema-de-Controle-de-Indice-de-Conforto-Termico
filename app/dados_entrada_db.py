@@ -30,13 +30,8 @@ class ConfiguracaoDadosEntradaError(ValueError):
 def _conexao(*, escrita: bool = True) -> Iterator:
     """Conexao com commit/rollback automatico.
 
-    `escrita=False` nao fazia NADA ate 2026-08-22: o parametro existia, cinco
-    chamadores o passavam, e o bloco commitava exatamente igual. Era uma
-    promessa de leitura que o codigo nao cumpria -- da familia de defeitos que
-    `_manutencao/PLANO_SINAL_E_DEFEITOS.md` cataloga.
-
-    Agora descarta em vez de gravar. Uma funcao de leitura que ganhe um INSERT
-    por descuido nao sobrevive ao fim do bloco.
+    Com `escrita=False`, a transacao sempre sofre rollback. Assim, uma funcao
+    declarada como leitura nao persiste um INSERT introduzido por descuido.
 
     Descartar, e nao `SET TRANSACTION READ ONLY`, de proposito: a conexao vem
     de um pool do SQLAlchemy, e `SET default_transaction_read_only` ficaria

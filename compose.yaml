@@ -201,9 +201,8 @@ secrets:
   internal_token:
     file: .secrets/internal_token.txt
   # Chave de assinatura de sessão. Só o `ict` monta -- o `coletor` não tem
-  # sessão de usuário. Até 2026-08-21 este segredo não existia e a aplicação
-  # gerava a chave sozinha, persistindo no volume `app_instance` (ADR 005);
-  # a ADR 007 registra a troca e a migração sem deslogar ninguém.
+  # sessão de usuário. Fora de desenvolvimento/teste, a ausência deste segredo
+  # impede o ICT de iniciar.
   secret_key:
     file: .secrets/secret_key.txt
   # PAT de acesso restrito (somente-leitura, só no repositório SharedAuth) --

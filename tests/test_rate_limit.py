@@ -1,19 +1,7 @@
-"""O login tem limite de tentativas.
+"""O login aplica `LIMITE_LOGIN_PADRAO` pelo limiter registrado na app.
 
-O rate-limit de "5 per minute" documentado no login nunca chegou a
-funcionar: usava um `Limiter` órfão (`auth.obter_limiter()`), criado sem
-`app=` e sem `init_app()` -- seu hook de enforcement nunca era registrado
-neste app, e na prática só o default global (20/min) protegia a rota.
-Reproduzido de fato antes desta correção: 11 requisições seguidas
-devolviam 200 (ver `tests/conftest.py` para a fixture geral, que desliga o
-rate-limiter via `CONFORTO_TESTING=1` -- este arquivo cria a própria app
-SEM essa variável, de propósito, para poder medir o limite de verdade).
-
-A correção reaproveita o limiter de verdade da aplicação
-(`app.extensions["conforto_rate_limiter"]`) e usa o mesmo limite
-padronizado nos três apps Flask do mantenedor (`LIMITE_LOGIN_PADRAO`,
-10/min) em vez do 5/min original -- ver PLANO_UNIFICAR_AUTENTICACAO.md no
-repositório `_manutencao`, seção 11 (Fase 4).
+A fixture deste arquivo cria a aplicação sem `CONFORTO_TESTING=1`, pois a
+fixture geral desliga o rate limiter e não permite medir o enforcement real.
 """
 
 from __future__ import annotations
