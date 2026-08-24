@@ -35,7 +35,7 @@ docker compose --env-file .env.docker down
 
 - `postgres_data`: usuários, zonas, equipamentos, configurações, medições,
   agregados, eventos e dados de entrada;
-- `app_instance`: snapshots criados pela ação de backup da interface;
+- `app_instance`: arquivos locais de suporte ao runtime, quando habilitados;
 - `.secrets/`: arquivos locais necessários ao Compose, fora dos volumes e do Git.
 
 O schema `historico` reúne configuração e dados operacionais. O schema
@@ -63,26 +63,6 @@ ensaio de restauração no PostgreSQL descartável `backuprestore-sandbox`. O
 restore do ConfortoTermico já foi ensaiado. Consulte o README e
 `RESTAURAR.md` daquele projeto para operação e recuperação; não reproduza aqui
 comandos que possam divergir da ferramenta central.
-
-## Snapshot interno de conveniência
-
-A ação autenticada **Fazer backup do banco**, na área Sistema, executa
-`pg_dump --format=custom` para o banco inteiro e grava o arquivo `.dump` em
-`/workspace/instance`, persistido por `app_instance`. O dump inclui os dois
-schemas e a revisão Alembic.
-
-Essa ação não baixa o arquivo, não o copia para armazenamento externo, não
-aplica retenção e não testa restauração. Um arquivo mantido somente em
-`app_instance` não protege contra perda desse volume ou do host. Trate-o como
-snapshot local de conveniência, não como substituto do BackupRestore.
-
-Se for necessário retirar esse snapshot do volume:
-
-```powershell
-New-Item -ItemType Directory -Force backups
-docker compose --env-file .env.docker cp `
-  ict:/workspace/instance/<arquivo>.dump backups/<arquivo>.dump
-```
 
 ## Recuperação
 
@@ -124,4 +104,4 @@ Não edite nem commite no VPS. O script exige checkout limpo, avança a partir d
 `main`, reconstrói a imagem e valida o endereço público. Se a nova versão não
 ficar saudável, ele restaura o commit e a imagem anteriores. Esse rollback
 **não reverte migrações**; mudança de schema exige compatibilidade, backup
-central conferido e procedimento explícito de recuperação de dados.
+central conferido pelo BackupRestore e procedimento explícito de recuperação de dados.

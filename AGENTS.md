@@ -60,8 +60,8 @@ Medições de pesquisa podem ser descartadas quando a tarefa autorizar isso;
 zonas, equipamentos, usuários e configurações devem ser preservados quando
 possível. `docker compose down` preserva volumes. `down -v`, restauração e
 migração destrutiva exigem autorização explícita, backup conferido e plano de
-retorno. O procedimento e as limitações do backup interno estão em
-`docs/RUNBOOK.md`.
+retorno. A proteção e o restore pertencem ao aplicativo BackupRestore, e o
+procedimento operacional está em `docs/RUNBOOK.md`.
 
 ## Desenvolvimento e validação
 

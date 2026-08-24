@@ -1,64 +1,12 @@
-"""Persistência de manutenção e observabilidade operacional.
-
-As funções são usadas pela fachada :mod:`app.database`, que preserva o
-contrato público. O diretório de instância é recebido explicitamente pelo
-backup porque os testes podem substituí-lo temporariamente na fachada.
-"""
+"""Persistência de manutenção e observabilidade operacional."""
 
 from __future__ import annotations
 
 import datetime
 import json
-import os
-import subprocess
-from typing import TYPE_CHECKING
 
-from . import db_backend
 from .database_comum import conexao
 from .database_configuracoes import obter_configuracoes
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
-    from typing import Any
-
-
-def criar_backup_banco(
-    instance_dir: str,
-    *,
-    obter_url: Callable[[], str] = db_backend.database_url,
-    executar: Callable[..., Any] = subprocess.run,
-    obter_tamanho: Callable[[str], int] = os.path.getsize,
-) -> dict:
-    """Cria um dump PostgreSQL consistente no diretório de instância."""
-    from sqlalchemy.engine import make_url
-
-    os.makedirs(instance_dir, exist_ok=True)
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    caminho_backup = os.path.join(instance_dir, f"conforto_termico_backup_{timestamp}.dump")
-    url = make_url(obter_url())
-    ambiente_pg_dump = dict(os.environ)
-    if url.password:
-        ambiente_pg_dump["PGPASSWORD"] = url.password
-    executar(
-        [
-            "pg_dump",
-            "--format=custom",
-            "--no-owner",
-            "--no-privileges",
-            f"--file={caminho_backup}",
-            f"--host={url.host or 'postgres'}",
-            f"--port={url.port or 5432}",
-            f"--username={url.username or 'conforto'}",
-            f"--dbname={url.database or 'conforto_termico'}",
-        ],
-        check=True,
-        env=ambiente_pg_dump,
-    )
-    return {
-        "arquivo": os.path.basename(caminho_backup),
-        "caminho": caminho_backup,
-        "tamanho_bytes": obter_tamanho(caminho_backup),
-    }
 
 
 def salvar_status_coletor(

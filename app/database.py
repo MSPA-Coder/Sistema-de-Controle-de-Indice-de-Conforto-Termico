@@ -7,9 +7,7 @@ Os consumidores continuam usando :mod:`app.database`; os módulos
 from __future__ import annotations
 
 import os
-import subprocess
 
-from . import db_backend
 from .database_comum import PERFIS_VALIDOS as PERFIS_VALIDOS
 from .database_comum import coagir_booleano as coagir_booleano
 from .database_comum import conexao
@@ -47,7 +45,6 @@ from .database_leituras import obter_leituras_recentes_zona as obter_leituras_re
 from .database_leituras import obter_resumos_horarios as obter_resumos_horarios
 from .database_leituras import salvar_leitura as salvar_leitura
 from .database_leituras import salvar_leitura_recente_zona as salvar_leitura_recente_zona
-from .database_operacao import criar_backup_banco as _criar_backup_banco
 from .database_operacao import listar_eventos_operacao as listar_eventos_operacao
 from .database_operacao import obter_status_coletor as obter_status_coletor
 from .database_operacao import registrar_evento_operacao as registrar_evento_operacao
@@ -94,13 +91,3 @@ _conexao = conexao
 
 def iniciar_banco() -> None:
     """A inicialização de schema é exclusiva das revisões Alembic."""
-
-
-def criar_backup_banco() -> dict:
-    """Cria backup mantendo ``INSTANCE_DIR`` configurável na fachada."""
-    return _criar_backup_banco(
-        INSTANCE_DIR,
-        obter_url=db_backend.database_url,
-        executar=subprocess.run,
-        obter_tamanho=os.path.getsize,
-    )

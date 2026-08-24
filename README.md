@@ -81,9 +81,8 @@ migrações, dependências ou contêineres também exigem a pilha completa e
 O projeto irmão [BackupRestore](https://github.com/MSPA-Coder/BackupRestore)
 é o mecanismo preferido de proteção, catálogo, retenção e ensaio de restauração
 para as bases local (`conforto_termico`) e do VPS
-(`conforto_termico_vps`). O botão de backup desta aplicação cria apenas um
-snapshot local de conveniência no volume `app_instance`; ele não substitui o
-fluxo central. Veja [Operação, dados e recuperação](docs/RUNBOOK.md).
+(`conforto_termico_vps`). Esta aplicação não oferece backup ou restore; use o
+fluxo central do BackupRestore. Veja [Operação, dados e recuperação](docs/RUNBOOK.md).
 
 ## Documentação viva
 
