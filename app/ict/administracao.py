@@ -41,19 +41,8 @@ def _configuracoes_publicas(config: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Configuracoes, backup e reset
+# Configuracoes e reset
 # ---------------------------------------------------------------------------
-@administracao_bp.route("/api/backup-banco", methods=["POST"])
-def backup_banco():
-    try:
-        return jsonify({"ok": True, "backup": db.criar_backup_banco()})
-    except Exception:
-        from ..app_factory import MENSAGEM_ERRO_INTERNO
-
-        current_app.logger.exception("Falha ao criar backup do banco")
-        return jsonify({"ok": False, "erro": MENSAGEM_ERRO_INTERNO}), 500
-
-
 @administracao_bp.route("/api/consolidar-historico", methods=["POST"])
 def consolidar_historico():
     """Consolida todas as zonas por acao explicita de administracao."""

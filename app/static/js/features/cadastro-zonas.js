@@ -310,6 +310,12 @@ export function criarCadastroZonas({
 
   async function salvarZona(evento) {
     evento.preventDefault();
+    const confirmado = await confirm({
+      mensagem: zonaEmEdicaoId ? "Salvar as alterações desta zona?" : "Criar esta zona?",
+      titulo: zonaEmEdicaoId ? "Salvar zona" : "Criar zona",
+      severidade: "warning",
+    });
+    if (!confirmado) return;
     const payload = {
       nome: document.getElementById("zona-nome").value.trim(),
       especie: document.getElementById("zona-especie").value,
@@ -479,6 +485,12 @@ export function criarCadastroZonas({
   async function salvarEquipamento(evento) {
     evento.preventDefault();
     const { zonaId, equipamentoId } = equipamentoEmEdicao;
+    const confirmado = await confirm({
+      mensagem: equipamentoId ? "Salvar as alterações deste equipamento?" : "Criar este equipamento?",
+      titulo: equipamentoId ? "Salvar equipamento" : "Criar equipamento",
+      severidade: "warning",
+    });
+    if (!confirmado) return;
     const payload = coletarPayloadEquipamento();
     const url = equipamentoId
       ? "/api/zonas/" + zonaId + "/equipamentos/" + equipamentoId

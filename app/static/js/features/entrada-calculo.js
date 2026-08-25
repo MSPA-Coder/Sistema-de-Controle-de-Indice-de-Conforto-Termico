@@ -369,6 +369,12 @@ export function criarEntradaCalculo({
       mostrarErro("Selecione uma zona ativa antes de calcular.");
       return;
     }
+    const confirmado = await confirmar({
+      mensagem: "Salvar as configurações atuais e executar o cálculo desta zona?",
+      titulo: "Executar cálculo",
+      severidade: "warning",
+    });
+    if (!confirmado) return;
     await salvarConfiguracoesPersistidas();
     const usarSensores = document.getElementById("cfg-coletar").checked;
 
@@ -426,7 +432,7 @@ export function criarEntradaCalculo({
       mensagem:
         "Esta ação apaga todas as leituras salvas no banco e limpa os gráficos/tabelas do histórico " +
         "nesta sessão.\n\nZonas, equipamentos e configurações serão preservados. A ação não pode ser " +
-        "desfeita; faça um backup antes se precisar guardar os dados.",
+        "desfeita; use o aplicativo BackupRestore antes se precisar guardar os dados.",
       titulo: "Limpar histórico",
       severidade: "error",
     });
@@ -455,30 +461,14 @@ export function criarEntradaCalculo({
     }
   }
 
-  async function fazerBackupBanco() {
-    const botao = document.getElementById("btn-backup-banco");
-    if (botao) botao.disabled = true;
-    try {
-      const resposta = await fetch("/api/backup-banco", { method: "POST" });
-      const corpo = await resposta.json().catch(() => ({}));
-      if (!resposta.ok || !corpo.ok) {
-        avisar({ mensagem: corpo.erro || "Não foi possível criar o backup do banco.", severidade: "error" });
-        return;
-      }
-      avisar({
-        mensagem: "Backup criado no diretório do banco: " + corpo.backup.arquivo,
-        severidade: "success",
-      });
-    } catch (erro) {
-      console.error("Erro ao criar backup do banco:", erro);
-      avisar({ mensagem: "Falha de comunicação ao criar o backup do banco.", severidade: "error" });
-    } finally {
-      if (botao) botao.disabled = false;
-    }
-  }
-
   async function consolidarHistorico() {
     const botao = document.getElementById("btn-consolidar-historico");
+    const confirmado = await confirmar({
+      mensagem: "Consolidar agora o histórico pendente no banco?",
+      titulo: "Consolidar histórico",
+      severidade: "warning",
+    });
+    if (!confirmado) return;
     if (botao) botao.disabled = true;
     try {
       const resposta = await fetch("/api/consolidar-historico", { method: "POST" });
@@ -499,7 +489,6 @@ export function criarEntradaCalculo({
   function inicializar() {
     document.getElementById("btn-calcular").addEventListener("click", calcular);
     document.getElementById("btn-limpar").addEventListener("click", limparHistorico);
-    document.getElementById("btn-backup-banco")?.addEventListener("click", fazerBackupBanco);
     document.getElementById("btn-consolidar-historico")?.addEventListener("click", consolidarHistorico);
     document.getElementById("cfg-coletar").addEventListener("change", () => {
       recarregarSensores();
@@ -539,7 +528,6 @@ export function criarEntradaCalculo({
   return {
     calcular,
     carregarConfiguracoes: carregarConfiguracoesPersistidas,
-    fazerBackupBanco,
     inicializar,
     inicializarPersistencia,
     limparHistorico,
