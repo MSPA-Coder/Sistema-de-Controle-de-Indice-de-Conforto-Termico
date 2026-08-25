@@ -472,6 +472,12 @@ export function criarDadosEntrada({
 
   async function gerar(evento) {
     evento.preventDefault();
+    const confirmado = await confirmar({
+      mensagem: "Salvar os parâmetros e gerar dados históricos para as zonas ativas?",
+      titulo: "Gerar dados de entrada",
+      severidade: "warning",
+    });
+    if (!confirmado) return;
     const botao = documento.getElementById("btn-gerar-dados-entrada");
     botao.disabled = true;
     definirStatus(
@@ -577,6 +583,12 @@ export function criarDadosEntrada({
     documento
       .getElementById("btn-salvar-config-dados-entrada")
       ?.addEventListener("click", async () => {
+        const confirmado = await confirmar({
+          mensagem: "Salvar os parâmetros das zonas?",
+          titulo: "Salvar parâmetros",
+          severidade: "warning",
+        });
+        if (!confirmado) return;
         try {
           await salvarConfiguracoes(true);
         } catch (erro) {

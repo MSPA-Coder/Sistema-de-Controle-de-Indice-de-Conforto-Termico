@@ -363,13 +363,16 @@ export function criarOperacao({
   }
 
   async function comandarAtuadorOperacao(botao) {
-    // O comando e reversivel pelo botao oposto da propria interface. Acoes
-    // reversiveis nao pedem confirmacao, reservando o dialogo para operacoes
-    // destrutivas ou que nao possam ser desfeitas diretamente.
     const zona = obterZonaPrincipal();
     if (!zona) return;
     const tipo = botao.dataset.comandoTipo;
     const ligar = botao.dataset.comandoLigar === "true";
+    const confirmado = await window.sharedauth.confirmar({
+      mensagem: (ligar ? "Ligar " : "Desligar ") + tipo + " nesta zona?",
+      titulo: "Confirmar comando operacional",
+      severidade: "warning",
+    });
+    if (!confirmado) return;
     botao.disabled = true;
     try {
       const resposta = await fetch("/api/zonas/" + zona.id + "/comando", {

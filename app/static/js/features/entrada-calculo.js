@@ -369,6 +369,12 @@ export function criarEntradaCalculo({
       mostrarErro("Selecione uma zona ativa antes de calcular.");
       return;
     }
+    const confirmado = await confirmar({
+      mensagem: "Salvar as configurações atuais e executar o cálculo desta zona?",
+      titulo: "Executar cálculo",
+      severidade: "warning",
+    });
+    if (!confirmado) return;
     await salvarConfiguracoesPersistidas();
     const usarSensores = document.getElementById("cfg-coletar").checked;
 
@@ -457,6 +463,12 @@ export function criarEntradaCalculo({
 
   async function consolidarHistorico() {
     const botao = document.getElementById("btn-consolidar-historico");
+    const confirmado = await confirmar({
+      mensagem: "Consolidar agora o histórico pendente no banco?",
+      titulo: "Consolidar histórico",
+      severidade: "warning",
+    });
+    if (!confirmado) return;
     if (botao) botao.disabled = true;
     try {
       const resposta = await fetch("/api/consolidar-historico", { method: "POST" });

@@ -47,7 +47,10 @@
       </label>
 
       <div class="admin-form-acoes">
-        <button type="submit" class="botao botao--primario">
+        <button type="submit" class="botao botao--primario"
+                data-sa-confirmar="{{ 'Criar este usuário?' if modo == 'criar' else 'Salvar as alterações deste usuário?' }}"
+                data-sa-titulo="{{ 'Criar usuário' if modo == 'criar' else 'Salvar usuário' }}"
+                data-sa-severidade="warning">
           {{ "Criar usuário" if modo == "criar" else "Salvar alterações" }}
         </button>
         <a class="botao botao--fantasma" href="{{ url_for('usuarios.pagina_usuarios') }}">Cancelar</a>
