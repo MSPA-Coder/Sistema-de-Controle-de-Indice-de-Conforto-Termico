@@ -64,6 +64,20 @@ A CI também valida a configuração Compose, executa `pip-audit`, varre a image
 servida com Trivy e confere contratos de segurança do runtime. Esses controles
 não substituem o exercício do fluxo alterado nem a verificação da pilha.
 
+## Triagem de alertas externos
+
+O repositório não possui workflow nem configuração local de CodeQL. A CI cobre
+Ruff, pytest, `pip-audit`, Trivy e contratos de runtime; portanto, qualquer
+alerta CodeQL citado por uma ferramenta externa deve ser associado a um arquivo
+e revisão concretos antes de virar mudança ou supressão. Sem essa evidência, o
+item permanece documentado para triagem, sem alterar dependências ou adicionar
+exceções.
+
+Também não há `rpcbind`, `portmap`, NFS ou serviço equivalente no `compose.yaml`.
+Ruído desse tipo pertence ao host/VPS, não a esta composição. Não adicionar,
+remover ou desabilitar pacotes/serviços sem inventário do ambiente e checagem de
+dependências; a decisão atual é não modificar a aplicação.
+
 ## Validação proporcional
 
 - documentação: `git diff --check`, links locais e busca por afirmações
