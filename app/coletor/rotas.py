@@ -107,8 +107,8 @@ def calcular_zona(zona_id):
         ti.EntradaInvalidaError,
         ModoOperacaoError,
         ZonaOcupadaError,
-    ) as erro:
-        return jsonify({"erro": str(erro)}), 400
+    ):
+        return jsonify({"erro": "Não foi possível calcular a zona com os dados informados."}), 400
 
 
 @coletor_bp.route("/api/interno/zonas/<int:zona_id>/controle", methods=["PUT"])
@@ -118,10 +118,10 @@ def alterar_controle_zona(zona_id):
         return jsonify(
             gerenciador_controle.alterar_controle(zona_id, dados, logger=current_app.logger)
         )
-    except db.ZonaNaoEncontradaError as erro:
-        return jsonify({"erro": str(erro)}), 404
-    except (db.ZonaInvalidaError, ZonaCalculoError, ZonaOcupadaError) as erro:
-        return jsonify({"erro": str(erro)}), 400
+    except db.ZonaNaoEncontradaError:
+        return jsonify({"erro": f"Zona {zona_id} não encontrada."}), 404
+    except (db.ZonaInvalidaError, ZonaCalculoError, ZonaOcupadaError):
+        return jsonify({"erro": "Não foi possível alterar o controle da zona."}), 400
 
 
 @coletor_bp.route("/api/interno/zonas/<int:zona_id>/comando", methods=["POST"])
@@ -140,5 +140,5 @@ def comandar_atuador_zona(zona_id):
                 logger=current_app.logger,
             )
         )
-    except (ZonaCalculoError, ZonaOcupadaError) as erro:
-        return jsonify({"erro": str(erro)}), 400
+    except (ZonaCalculoError, ZonaOcupadaError):
+        return jsonify({"erro": "Não foi possível executar o comando na zona."}), 400

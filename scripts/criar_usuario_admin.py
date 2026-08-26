@@ -57,7 +57,7 @@ def _ler_senha() -> str:
     while True:
         senha = getpass.getpass(f"Senha (mínimo {auth.SENHA_TAMANHO_MINIMO} caracteres): ")
         if len(senha) < auth.SENHA_TAMANHO_MINIMO:
-            print(f"A senha deve ter pelo menos {auth.SENHA_TAMANHO_MINIMO} caracteres.")
+            print("A senha não atende ao tamanho mínimo exigido.")
             continue
         confirmacao = getpass.getpass("Confirme a senha: ")
         if senha != confirmacao:
@@ -70,13 +70,6 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--nome", help="Nome completo (pede interativamente se omitido)")
     parser.add_argument("--login", help="Login (pede interativamente se omitido)")
-    parser.add_argument(
-        "--senha",
-        help=(
-            "Senha em texto puro (NAO recomendado -- fica no histórico do "
-            "shell; prefira deixar de fora e digitar quando pedido)."
-        ),
-    )
     parser.add_argument(
         "--sim",
         action="store_true",
@@ -96,12 +89,9 @@ def main() -> int:
 
     nome = _ler_nome(argumentos.nome)
     login = _ler_login(argumentos.login)
-    senha = argumentos.senha or _ler_senha()
+    senha = _ler_senha()
     if len(senha) < auth.SENHA_TAMANHO_MINIMO:
-        print(
-            f"A senha deve ter pelo menos {auth.SENHA_TAMANHO_MINIMO} caracteres.",
-            file=sys.stderr,
-        )
+        print("A senha não atende ao tamanho mínimo exigido.", file=sys.stderr)
         return 1
 
     try:

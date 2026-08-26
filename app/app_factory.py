@@ -226,8 +226,14 @@ def _criar_app_base(processo: str, config: AppConfig) -> Flask:
     @app.errorhandler(Exception)
     def tratar_erro_inesperado(erro):
         if isinstance(erro, HTTPException):
+            codigo = erro.code or 500
+            if codigo >= 500:
+                app.logger.exception("Erro HTTP interno em %s", request.path)
+                if request.path.startswith("/api/"):
+                    return jsonify({"erro": MENSAGEM_ERRO_INTERNO}), codigo
+                return MENSAGEM_ERRO_INTERNO, codigo
             if request.path.startswith("/api/"):
-                return jsonify({"erro": erro.description}), erro.code or 500
+                return jsonify({"erro": erro.description}), codigo
             return erro
 
         app.logger.exception("Erro não tratado em %s", request.path)
@@ -277,9 +283,7 @@ def criar_app_ict(config: AppConfig | None = None) -> Flask:
     # SOZINHO ISTO NÃO BASTA EM PRODUÇÃO. O waitress apaga os cabeçalhos
     # `X-Forwarded-*` antes de montar o environ, e o `ProxyFix` recebe um
     # environ já limpo -- ver o bloco longo em `_servir`, que configura o
-    # waitress para confiar no nginx. As duas camadas existem porque cobrem
-    # servidores diferentes: esta aqui é a que vale quando `CONFORTO_DEBUG`
-    # liga o `app.run()` do Werkzeug, que não filtra cabeçalho nenhum.
+    # waitress para confiar no nginx.
     if _ler_bool_env("CONFORTO_TRUST_PROXY_HEADERS", False):
         app.wsgi_app = ProxyFix(  # type: ignore[method-assign]
             app.wsgi_app, x_for=1, x_proto=1, x_host=1
@@ -420,16 +424,6 @@ def criar_app_coletor(config: AppConfig | None = None) -> Flask:
 
 def _servir(app: Flask, config: AppConfig) -> None:
     _validar_debug(config)
-    if config.debug:
-        app.run(
-            debug=True,
-            host=config.host,
-            port=config.port,
-            threaded=config.threaded,
-            use_reloader=False,
-        )
-        return
-
     from waitress import serve
 
     # O `ProxyFix` em `criar_app_ict` NÃO basta aqui, e a razão é o servidor.

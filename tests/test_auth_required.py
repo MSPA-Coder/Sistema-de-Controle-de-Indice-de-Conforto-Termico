@@ -45,6 +45,26 @@ def test_login_e_publico(client):
     assert client.get("/login").status_code == 200
 
 
+def test_login_ignora_next_e_redireciona_para_inicio(app, client, monkeypatch):
+    app.config["WTF_CSRF_ENABLED"] = False
+    monkeypatch.setattr(
+        auth.db,
+        "obter_usuario_por_login",
+        lambda login: {"id": 7, "ativo": True, "senha_hash": "hash"},
+    )
+    monkeypatch.setattr(auth, "conferir_senha", lambda senha, hash_: True)
+    monkeypatch.setattr(auth.db, "registrar_login_usuario", lambda usuario_id: None)
+
+    resposta = client.post(
+        "/login?next=https://externo.test",
+        data={"login": "admin", "senha": "senha-valida"},
+        follow_redirects=False,
+    )
+
+    assert resposta.status_code == 302
+    assert resposta.headers["Location"] == "/"
+
+
 def test_sessao_apontando_para_usuario_removido_e_tratada_como_deslogada(client, monkeypatch):
     # Desativar um usuario precisa ter efeito imediato, nao so quando a
     # sessao dele vencer -- simula a sessao ja aberta apontando para um id
@@ -186,30 +206,3 @@ def test_segredos_compose_aceitam_arquivo_montado_esperado(tmp_path, monkeypatch
 
     assert auth.obter_ou_criar_token_interno() == "token-sintetico"
     assert db_backend._ler_segredo("DB_PASSWORD_FILE") == "senha-sintetica"
-
-
-@pytest.mark.parametrize(
-    "destino",
-    [
-        "//externo.test",
-        "/\\externo.test",
-        "/%5cexterno.test",
-        "/%255cexterno.test",
-        "/%2f%2fexterno.test",
-        "/%252f%252fexterno.test",
-        "https://externo.test",
-    ],
-)
-def test_destino_pos_login_recusa_redirecionamento_externo(destino, monkeypatch):
-    monkeypatch.setattr(auth, "url_for", lambda endpoint: "/")
-
-    assert auth._destino_pos_login(destino) == "/"
-
-
-def test_destino_pos_login_recusa_separador_aninhado_alem_de_tres_camadas(monkeypatch):
-    monkeypatch.setattr(auth, "url_for", lambda endpoint: "/")
-    destino = "/%5cexterno.test"
-    for _ in range(6):
-        destino = destino.replace("%", "%25")
-
-    assert auth._destino_pos_login(destino) == "/"

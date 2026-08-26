@@ -42,8 +42,8 @@ def salvar_configuracoes():
         configuracoes = dados_db.salvar_configuracoes_zonas(
             zonas, db.listar_zonas(apenas_ativas=True)
         )
-    except dados_db.ConfiguracaoDadosEntradaError as erro:
-        return jsonify({"erro": str(erro)}), 400
+    except dados_db.ConfiguracaoDadosEntradaError:
+        return jsonify({"erro": "As configurações de dados de entrada são inválidas."}), 400
     return jsonify(configuracoes)
 
 
@@ -54,8 +54,8 @@ def gerar_dados():
     dados = request.get_json(force=True, silent=True) or {}
     try:
         return jsonify(gerar(dados, db.listar_zonas(apenas_ativas=True))), 201
-    except (GeracaoDadosError, dados_db.ConfiguracaoDadosEntradaError) as erro:
-        return jsonify({"erro": str(erro)}), 400
+    except (GeracaoDadosError, dados_db.ConfiguracaoDadosEntradaError):
+        return jsonify({"erro": "Não foi possível gerar os dados de entrada informados."}), 400
     except Exception:
         current_app.logger.exception("Falha inesperada ao gerar dados de entrada")
         return jsonify({"erro": MENSAGEM_ERRO_INTERNO}), 500
@@ -119,8 +119,8 @@ def copiar_para_historico():
         return jsonify({"ok": True, **resultado})
     except (TypeError, ValueError):
         return jsonify({"erro": "Informe uma execução válida."}), 400
-    except dados_db.ConfiguracaoDadosEntradaError as erro:
-        return jsonify({"erro": str(erro)}), 400
+    except dados_db.ConfiguracaoDadosEntradaError:
+        return jsonify({"erro": "Os dados de entrada não podem ser copiados com esses parâmetros."}), 400
     except Exception:
         current_app.logger.exception("Falha ao copiar dados de entrada para o histórico")
         return jsonify({"erro": MENSAGEM_ERRO_INTERNO}), 500

@@ -103,8 +103,8 @@ def criar_zona():
     dados = request.get_json(force=True, silent=True) or {}
     try:
         return jsonify(db.criar_zona(dados)), 201
-    except db.ZonaInvalidaError as erro:
-        return jsonify({"erro": str(erro)}), 400
+    except db.ZonaInvalidaError:
+        return jsonify({"erro": "Os dados da zona são inválidos."}), 400
 
 
 @administracao_bp.route("/api/zonas/<int:zona_id>", methods=["GET"])
@@ -120,8 +120,8 @@ def atualizar_zona(zona_id):
     dados = request.get_json(force=True, silent=True) or {}
     try:
         zona = db.atualizar_zona(zona_id, dados)
-    except db.ZonaInvalidaError as erro:
-        return jsonify({"erro": str(erro)}), 400
+    except db.ZonaInvalidaError:
+        return jsonify({"erro": "Os dados da zona são inválidos."}), 400
     if zona is None:
         return jsonify({"erro": f"Zona {zona_id} não encontrada."}), 404
     return jsonify(zona)
@@ -141,10 +141,10 @@ def criar_equipamento(zona_id):
     dados = request.get_json(force=True, silent=True) or {}
     try:
         return jsonify(db.criar_equipamento(zona_id, dados)), 201
-    except db.ZonaNaoEncontradaError as erro:
-        return jsonify({"erro": str(erro)}), 404
-    except db.ZonaInvalidaError as erro:
-        return jsonify({"erro": str(erro)}), 400
+    except db.ZonaNaoEncontradaError:
+        return jsonify({"erro": f"Zona {zona_id} não encontrada."}), 404
+    except db.ZonaInvalidaError:
+        return jsonify({"erro": "Os dados do equipamento são inválidos."}), 400
 
 
 @administracao_bp.route(
@@ -154,8 +154,8 @@ def atualizar_equipamento(zona_id, equipamento_id):
     dados = request.get_json(force=True, silent=True) or {}
     try:
         equipamento = db.atualizar_equipamento(equipamento_id, dados)
-    except db.ZonaInvalidaError as erro:
-        return jsonify({"erro": str(erro)}), 400
+    except db.ZonaInvalidaError:
+        return jsonify({"erro": "Os dados do equipamento são inválidos."}), 400
     if equipamento is None or equipamento["zona_id"] != zona_id:
         return jsonify(
             {"erro": f"Equipamento {equipamento_id} não encontrado na zona {zona_id}."}

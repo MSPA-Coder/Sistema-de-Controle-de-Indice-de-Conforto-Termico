@@ -37,7 +37,6 @@ import re
 import secrets
 from pathlib import Path
 from typing import TYPE_CHECKING
-from urllib.parse import unquote, urlsplit
 
 from flask import (
     Blueprint,
@@ -422,36 +421,6 @@ def registrar_controle_de_area(app: Flask) -> None:
 auth_bp = Blueprint("auth", __name__)
 
 
-def _destino_pos_login(bruto: str) -> str:
-    """So aceita caminhos relativos internos ('/algo'), nunca uma URL
-    absoluta ('//evil.com' ou 'https://evil.com') -- do contrario o
-    parametro `next` vindo da querystring vira um open redirect: um
-    link malicioso apontando para /login?next=https://... redirecionaria
-    a vitima, ja autenticada, para um site externo logo depois do login."""
-    decoded = bruto
-    # Cada unquote que altera a string encurta ao menos uma sequência ``%xx``;
-    # o limite pelo tamanho original termina mesmo sob aninhamento adversarial.
-    for _ in range(len(bruto) + 1):
-        if "\\" in decoded or decoded.startswith("//"):
-            return url_for("comum.index")
-        next_decoded = unquote(decoded)
-        if next_decoded == decoded:
-            break
-        decoded = next_decoded
-    else:
-        return url_for("comum.index")
-    parsed = urlsplit(decoded)
-    if (
-        bruto
-        and bruto.startswith("/")
-        and not parsed.scheme
-        and not parsed.netloc
-        and parsed.path.startswith("/")
-    ):
-        return bruto
-    return url_for("comum.index")
-
-
 @auth_bp.route("/login", methods=["GET", "POST"])
 def login() -> ResponseReturnValue:
     from .audit_log import log_login_falha, log_login_sucesso
@@ -494,7 +463,7 @@ def login() -> ResponseReturnValue:
             session.permanent = True
             db.registrar_login_usuario(usuario["id"])
             log_login_sucesso(usuario["id"], login_digitado)
-            return redirect(_destino_pos_login(proximo))
+            return redirect(url_for("comum.index"))
 
     return render_template("login.html", erro=erro, proxima=proximo)
 
