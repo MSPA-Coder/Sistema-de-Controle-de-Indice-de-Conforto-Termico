@@ -26,12 +26,16 @@ from functools import lru_cache
 from typing import Any
 
 from sharedauth.config import montar_url_postgres
+from sharedauth.secrets import DIRETORIO_SECRETS_COMPOSE, resolver_segredo
 
-from .secret_files import read_compose_secret
 
-
-def _ler_segredo(nome_variavel: str) -> str:
-    valor = read_compose_secret(nome_variavel, "postgres_password")
+def _ler_segredo(nome: str) -> str:
+    """Senha do Postgres, exclusivamente pelo Docker secret esperado."""
+    valor = resolver_segredo(
+        nome,
+        aceitar_variavel=False,
+        caminho_esperado=DIRETORIO_SECRETS_COMPOSE / "postgres_password",
+    )
     return valor or ""
 
 
@@ -40,7 +44,7 @@ def database_url() -> str:
     if url_direta:
         return url_direta
 
-    senha = _ler_segredo("DB_PASSWORD_FILE")
+    senha = _ler_segredo("DB_PASSWORD")
     host = os.environ.get("DB_HOST", "").strip()
     if not host:
         raise RuntimeError("DB_HOST é obrigatório no ambiente PostgreSQL.")
