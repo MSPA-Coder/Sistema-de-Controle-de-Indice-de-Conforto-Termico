@@ -25,6 +25,8 @@ from collections.abc import Iterator, Mapping
 from functools import lru_cache
 from typing import Any
 
+from sharedauth.config import montar_url_postgres
+
 from .secret_files import read_compose_secret
 
 
@@ -45,17 +47,20 @@ def database_url() -> str:
     if not senha:
         raise RuntimeError("DB_PASSWORD_FILE é obrigatório no ambiente PostgreSQL.")
 
-    from sqlalchemy.engine import URL
-
-    url = URL.create(
-        "postgresql+psycopg",
-        username=os.environ.get("DB_USER", "conforto"),
-        password=senha,
-        host=host or "postgres",
-        port=int(os.environ.get("DB_PORT", "5432")),
-        database=os.environ.get("DB_NAME", "conforto_termico"),
-    )
-    return url.render_as_string(hide_password=False)
+    # `montar_url_postgres` (sharedauth.config) escapa usuário, senha e banco
+    # com `quote(..., safe="")` e valida a porta. Uma senha com `@`, `/` ou `:`
+    # apontaria a conexão para outro host sem que nada acusasse erro de escape.
+    # Python puro -- não traz SQLAlchemy para este caminho de configuração.
+    try:
+        return montar_url_postgres(
+            usuario=os.environ.get("DB_USER", "conforto"),
+            senha=senha,
+            host=host or "postgres",
+            banco=os.environ.get("DB_NAME", "conforto_termico"),
+            porta=os.environ.get("DB_PORT", "5432"),
+        )
+    except ValueError as erro:
+        raise RuntimeError(f"Configuração PostgreSQL inválida: {erro}") from erro
 
 
 def postgres_ativo() -> bool:

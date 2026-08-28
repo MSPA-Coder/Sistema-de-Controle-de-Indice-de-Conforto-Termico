@@ -5,7 +5,12 @@ from __future__ import annotations
 import pytest
 from werkzeug.exceptions import BadRequest, InternalServerError
 
-from app.app_factory import MENSAGEM_ERRO_INTERNO, AppConfig, _validar_debug
+from app.app_factory import (
+    MENSAGEM_ERRO_INTERNO,
+    AppConfig,
+    _validar_debug,
+    _validar_testing,
+)
 
 
 def _config(*, debug: bool, host: str, development: bool) -> AppConfig:
@@ -31,6 +36,32 @@ def test_debug_exige_loopback_mesmo_em_desenvolvimento():
 
 def test_debug_local_explicito_e_aceito():
     _validar_debug(_config(debug=True, host="127.0.0.1", development=True))
+
+
+def test_testing_exige_desenvolvimento_explicito():
+    """`CONFORTO_TESTING` não é um rótulo: ela remove duas proteções.
+
+    Ligada sozinha, desliga o rate limiter inteiro (`_criar_limiter` usa
+    `habilitado=not app.testing`) e permite subir com chave de sessão gerada
+    em vez de exigida. Antes, o que impedia isso em produção era apenas a
+    variável não estar em nenhum Compose.
+    """
+    with pytest.raises(RuntimeError, match="CONFORTO_DEVELOPMENT"):
+        _validar_testing(True, _config(debug=False, host="127.0.0.1", development=False))
+
+
+def test_testing_exige_loopback_mesmo_em_desenvolvimento():
+    with pytest.raises(RuntimeError, match="loopback"):
+        _validar_testing(True, _config(debug=False, host="0.0.0.0", development=True))
+
+
+def test_testing_local_explicito_e_aceito():
+    _validar_testing(True, _config(debug=False, host="127.0.0.1", development=True))
+
+
+def test_sem_testing_nao_ha_exigencia_nenhuma():
+    # O caminho de produção normal: a variável desligada não exige nada.
+    _validar_testing(False, _config(debug=False, host="0.0.0.0", development=False))
 
 
 def test_api_nao_expoe_descricao_de_http_500(app, client, caplog, monkeypatch):
