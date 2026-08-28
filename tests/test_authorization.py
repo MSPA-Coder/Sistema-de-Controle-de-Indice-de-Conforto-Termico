@@ -1,4 +1,4 @@
-﻿"""O perfil decide as areas, e a decisao fica no servidor.
+"""O perfil decide as areas, e a decisao fica no servidor.
 
 Esconder aba e apresentacao. O que impede um perfil de alcancar uma area e o
 hook registrado por `registrar_controle_de_area`, e e isso que este arquivo
