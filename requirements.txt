@@ -13,7 +13,7 @@ truststore>=0.10,<1
 # A imagem é imutável: o suporte Modbus precisa estar presente no build.
 pymodbus[serial]>=3.8,<4.0
 # Rate limiting para proteção contra brute-force e DoS
-Flask-Limiter>=3.0,<4.0
+Flask-Limiter>=3.0,<5
 # Sessão, CSRF, rate-limit no login, controle de acesso e hash de senha
 # compartilhados com os outros apps Flask do mantenedor. A tag é fixada
 # manualmente e nunca aponta para branch.
