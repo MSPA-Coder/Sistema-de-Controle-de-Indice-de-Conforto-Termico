@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import contextlib
 import os
-import re
 import secrets
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -122,16 +121,6 @@ PERFIS_QUE_PODEM_EXCLUIR_DADOS_ENTRADA = frozenset({"tecnico", "administrador"})
 # Re-exportado de sharedauth.passwords: piso comum aos apps Flask do
 # mantenedor, não mais uma constante própria deste projeto.
 SENHA_TAMANHO_MINIMO = MIN_PASSWORD_LENGTH
-
-
-def sanitizar_log(mensagem: str) -> str:
-    """Sanitiza credenciais e dados sensíveis de logs."""
-    # Remove senhas de strings de log
-    mensagem = re.sub(r"senha[=:]\s*\S+", "senha=***", mensagem, flags=re.IGNORECASE)
-    mensagem = re.sub(r"password[=:]\s*\S+", "password=***", mensagem, flags=re.IGNORECASE)
-    mensagem = re.sub(r"secret[=:]\s*\S+", "secret=***", mensagem, flags=re.IGNORECASE)
-    mensagem = re.sub(r"token[=:]\s*\S+", "token=***", mensagem, flags=re.IGNORECASE)
-    return mensagem
 
 
 # ---------------------------------------------------------------------------
@@ -451,9 +440,6 @@ def login() -> ResponseReturnValue:
     if request.method == "POST":
         login_digitado = str(request.form.get("login", "")).strip()
         senha_digitada = request.form.get("senha", "")
-
-        # Sanitizar dados sensíveis antes de qualquer log potencial
-        sanitizar_log(login_digitado)
 
         usuario = db.obter_usuario_por_login(login_digitado)
 
