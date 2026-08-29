@@ -14,6 +14,8 @@ import threading
 from datetime import UTC, datetime
 from typing import Any
 
+from sharedauth.logs import sanitizar_log
+
 # Logger dedicado para auditoria
 audit_logger = logging.getLogger("conforto_termico.audit")
 audit_logger.setLevel(logging.INFO)
@@ -156,11 +158,18 @@ def log_login_sucesso(usuario_id: int, login: str) -> None:
 
 
 def log_login_falha(login: str, motivo: str) -> None:
-    """Registra falha de login."""
+    """Registra falha de login.
+
+    O login vem do formulário, então é texto de terceiro: sem `sanitizar_log`,
+    quem digitasse uma quebra de linha no campo escreveria uma linha inteira
+    de log por conta própria -- e este registro em particular é o que alguém
+    vai ler depois de uma tentativa de invasão.
+    """
+    login_seguro = sanitizar_log(login)
     log_evento(
         evento=EventosAuditoria.LOGIN_FALHA,
         categoria="autenticacao",
-        acao=f"Tentativa de login falhou para {login}",
+        acao=f"Tentativa de login falhou para {login_seguro}",
         sucesso=False,
-        detalhes={"login": login, "motivo": motivo},
+        detalhes={"login": login_seguro, "motivo": motivo},
     )
