@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from app import auth, db_backend, secret_files
+from app import auth, db_backend
 
 
 def test_isencao_de_login_e_curta_e_conhecida():
@@ -179,7 +179,10 @@ def test_perda_da_chave_em_desenvolvimento_invalida_sessoes(tmp_path, monkeypatc
 def test_token_interno_por_arquivo_falha_fechado_se_arquivo_nao_existe(tmp_path, monkeypatch):
     """Um token Docker secret ausente não pode cair em token persistido local."""
     monkeypatch.delenv("CONFORTO_INTERNO_TOKEN", raising=False)
-    monkeypatch.setattr(secret_files, "DOCKER_SECRETS_DIR", tmp_path)
+    # O diretório esperado é lido do módulo consumidor a cada chamada, então
+    # é ali que o teste o redireciona -- `from ... import` liga o nome no
+    # espaço de `app.auth`, não no de `sharedauth.secrets`.
+    monkeypatch.setattr(auth, "DIRETORIO_SECRETS_COMPOSE", tmp_path)
     monkeypatch.setenv("CONFORTO_INTERNO_TOKEN_FILE", str(tmp_path / "internal_token"))
 
     with pytest.raises(RuntimeError, match="CONFORTO_INTERNO_TOKEN_FILE"):
@@ -200,9 +203,10 @@ def test_segredos_compose_aceitam_arquivo_montado_esperado(tmp_path, monkeypatch
     senha = tmp_path / "postgres_password"
     token.write_text("token-sintetico", encoding="utf-8")
     senha.write_text("senha-sintetica", encoding="utf-8")
-    monkeypatch.setattr(secret_files, "DOCKER_SECRETS_DIR", tmp_path)
+    monkeypatch.setattr(auth, "DIRETORIO_SECRETS_COMPOSE", tmp_path)
+    monkeypatch.setattr(db_backend, "DIRETORIO_SECRETS_COMPOSE", tmp_path)
     monkeypatch.setenv("CONFORTO_INTERNO_TOKEN_FILE", str(token))
     monkeypatch.setenv("DB_PASSWORD_FILE", str(senha))
 
     assert auth.obter_ou_criar_token_interno() == "token-sintetico"
-    assert db_backend._ler_segredo("DB_PASSWORD_FILE") == "senha-sintetica"
+    assert db_backend._ler_segredo("DB_PASSWORD") == "senha-sintetica"

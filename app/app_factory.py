@@ -23,11 +23,16 @@ from typing import TYPE_CHECKING, cast
 from flask import Flask, g, jsonify, request
 from flask.json.provider import DefaultJSONProvider
 from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
 from sharedauth.access import requer_login
+from sharedauth.config import ler_flag
 from sharedauth.csrf import iniciar_csrf
 from sharedauth.health import registrar_health
-from sharedauth.ratelimit import LIMITE_LOGIN_PADRAO
+from sharedauth.ratelimit import (
+    LIMITE_LOGIN_PADRAO,
+    aplicar_limite,
+    iniciar_limiter,
+    isentar_limite,
+)
 from sharedauth.security import CONTENT_SECURITY_POLICY as POLITICA_FECHADA
 from sharedauth.security import SECURITY_HEADERS, registrar_cabecalhos
 from sharedauth.session import configurar_sessao
@@ -82,16 +87,21 @@ CONFIG_SERVIDOR_PATH = Path(__file__).resolve().parents[1] / "config" / "servido
 
 
 def _criar_limiter(app: Flask) -> Limiter:
-    """Configura rate limiting para proteção contra brute-force e DoS."""
-    limiter = Limiter(
-        app=app,
-        key_func=get_remote_address,
-        default_limits=["100 per hour", "20 per minute"],
+    """Configura rate limiting para proteção contra brute-force e DoS.
+
+    Passa pelo `sharedauth.ratelimit.iniciar_limiter` em vez de montar um
+    `Limiter` por fora. A política continua sendo deste projeto -- a
+    biblioteca só recebe os valores. O que muda é que este app volta a estar
+    dentro do contrato comum: uma correção feita lá passa a chegar aqui, que
+    era exatamente o que não acontecia enquanto a instância era montada à mão.
+    """
+    return iniciar_limiter(
+        app,
+        limites_padrao=["100 per hour", "20 per minute"],
         storage_uri="memory://",
-        strategy="fixed-window",
-        enabled=not app.testing,
+        estrategia="fixed-window",
+        habilitado=not app.testing,
     )
-    return limiter
 
 
 def _ler_config_servidor(processo: str) -> dict:
@@ -130,7 +140,13 @@ def _coagir_int(valor, padrao: int) -> int:
 
 
 def _ler_bool_env(nome: str, padrao: bool) -> bool:
-    return _coagir_bool(os.environ.get(nome), padrao)
+    """Flag de ambiente, tolerante a valor irreconhecível.
+
+    `estrito=False` preserva o comportamento deste projeto: um valor estranho
+    cai no padrão em vez de impedir a subida. `_coagir_bool` continua existindo
+    para os valores que vêm do `config/servidor.json`, que não são ambiente.
+    """
+    return ler_flag(nome, padrao=padrao, estrito=False)
 
 
 def _ler_int_env(nome: str, padrao: int) -> int:
@@ -182,6 +198,24 @@ def _validar_debug(config: AppConfig) -> None:
         raise RuntimeError("CONFORTO_DEBUG só pode escutar em host de loopback.")
 
 
+def _validar_testing(testing: bool, config: AppConfig) -> None:
+    """Impede o modo de teste fora de desenvolvimento local explícito.
+
+    Mesma trava de :func:`_validar_debug`, aplicada ao interruptor que desliga
+    o rate limiter e libera a chave de sessão gerada.
+    """
+    if not testing:
+        return
+    if not config.development:
+        raise RuntimeError(
+            "CONFORTO_TESTING exige CONFORTO_DEVELOPMENT=1. Ligada sozinha, "
+            "ela desliga o rate limiter e permite subir com chave de sessão "
+            "gerada -- em produção isso é silencioso."
+        )
+    if config.host not in HOSTS_LOOPBACK:
+        raise RuntimeError("CONFORTO_TESTING só pode escutar em host de loopback.")
+
+
 class ProvedorJSON(DefaultJSONProvider):
     """Serializador JSON com suporte às tabelas imutáveis do domínio."""
 
@@ -200,12 +234,24 @@ def _criar_app_base(processo: str, config: AppConfig) -> Flask:
     app.config["CONFORTO_DEBUG"] = config.debug
     # `app.testing` (padrão Flask) é o único sinal de "isto é uma app de
     # teste" -- deliberadamente independente do backend de persistência
-    # (PostgreSQL). `CONFORTO_TESTING` não é definida em produção/Docker;
-    # fica disponível para quem precisar instanciar a fábrica fora da suíte
-    # atual (que é caixa-branca e não instancia a app). Ver
-    # `auth._proteger_csrf`, que usa `app.testing` para dispensar CSRF nos
-    # testes que não são o teste dedicado dessa proteção.
+    # (PostgreSQL).
+    #
+    # LIGAR `CONFORTO_TESTING` TEM DOIS EFEITOS DE SEGURANÇA, não é só um
+    # rótulo:
+    #
+    # 1. desliga o rate limiter inteiro (`_criar_limiter` usa
+    #    `habilitado=not app.testing`) -- some a proteção de força bruta do
+    #    login e todos os limites por rota;
+    # 2. permite subir sem `CONFORTO_SECRET_KEY`, gerando uma chave efêmera
+    #    (ver `auth._ambiente_permite_gerar_chave`).
+    #
+    # Antes, a única garantia de que isso não aconteceria em produção era o
+    # fato de a variável não estar em nenhum Compose -- uma garantia por
+    # documentação, silenciosa se alguém a definisse por engano. `_validar_debug`
+    # já exigia `CONFORTO_DEVELOPMENT` e loopback para o `CONFORTO_DEBUG`; o
+    # mesmo cuidado agora vale para este segundo interruptor.
     app.testing = _ler_bool_env("CONFORTO_TESTING", False)
+    _validar_testing(app.testing, config)
 
     # Inicializar rate limiting. A referência também permite isentar os
     # health checks, que são verificações internas recorrentes do Docker.
@@ -361,14 +407,17 @@ def criar_app_ict(config: AppConfig | None = None) -> Flask:
     # rotas abaixo estavam sujeitas ao default global (20/min) em vez do
     # limite dedicado (60/min) -- em polling a cada 3s (20 req/min), isso
     # provavelmente já gerava 429 esporádico em produção.
-    for endpoint in (
-        "comum.historicos_recentes_zonas",
-        "comum.status_operacao",
-        "comum.eventos_operacao",
-    ):
-        app.view_functions[endpoint] = limiter.limit(
-            "60 per minute; 5000 per hour", override_defaults=True
-        )(app.view_functions[endpoint])
+    aplicar_limite(
+        app,
+        limiter,
+        (
+            "comum.historicos_recentes_zonas",
+            "comum.status_operacao",
+            "comum.eventos_operacao",
+        ),
+        "60 per minute; 5000 per hour",
+        override_defaults=True,
+    )
 
     auth.registrar_carregamento_usuario(app)
     requer_login(
@@ -390,9 +439,7 @@ def criar_app_ict(config: AppConfig | None = None) -> Flask:
     # app, então na prática só o default global (20/min) protegia o login.
     # Corrigido reaproveitando o limiter de verdade da aplicação, com o
     # mesmo limite padronizado nos três apps Flask (10/min).
-    app.view_functions["auth.login"] = limiter.limit(LIMITE_LOGIN_PADRAO)(
-        app.view_functions["auth.login"]
-    )
+    aplicar_limite(app, limiter, "auth.login", LIMITE_LOGIN_PADRAO)
 
     return app
 
@@ -416,9 +463,7 @@ def criar_app_coletor(config: AppConfig | None = None) -> Flask:
     # orçamento do limite global de 20/min. Mesma causa-raiz do limite de
     # login do MegaSena e das rotas de polling do dashboard deste projeto;
     # este é o terceiro ponto, achado ao subir o coletor de verdade.
-    app.view_functions["coletor.health"] = limiter.exempt(
-        app.view_functions["coletor.health"]
-    )
+    isentar_limite(app, limiter, "coletor.health")
     return app
 
 

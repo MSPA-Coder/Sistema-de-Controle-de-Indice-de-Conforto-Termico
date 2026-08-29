@@ -27,6 +27,13 @@ def _config() -> AppConfig:
         port=5000,
         threaded=False,
         max_content_length=1_000_000,
+        # `CONFORTO_TESTING` desliga o rate limiter e libera a chave de sessão
+        # gerada; por isso `_validar_testing` passou a exigir que ela venha
+        # acompanhada de desenvolvimento explícito e host de loopback --
+        # ligada sozinha, em produção, removeria as duas proteções em
+        # silêncio. A suíte é um contexto de desenvolvimento e declara isso
+        # aqui, no mesmo objeto que a fábrica lê.
+        development=True,
     )
 
 

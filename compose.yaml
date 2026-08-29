@@ -179,7 +179,10 @@ services:
     logging: *default-logging
 
   # Ruff e a suíte mínima de segurança. Fica atrás de um perfil para não subir
-  # junto com a aplicação: `docker compose --profile quality run --rm quality`.
+  # junto com a aplicação:
+  # `docker compose --profile quality run --build --rm quality`.
+  # O `--build` é necessário: este serviço não monta o código do host, e
+  # `docker compose run` reutiliza a imagem existente sem reconstruí-la.
   quality:
     build:
       context: .

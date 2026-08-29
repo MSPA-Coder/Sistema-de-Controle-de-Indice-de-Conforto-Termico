@@ -54,8 +54,11 @@ from sharedauth.passwords import MIN_PASSWORD_LENGTH, SenhaMuitoCurtaError, vali
 from sharedauth.passwords import conferir_hash as _conferir_hash
 from sharedauth.passwords import gerar_hash as _gerar_hash
 
+# `sharedauth.secrets` (biblioteca), nao o `secrets` da stdlib importado acima
+# -- este arquivo usa os dois, e sao coisas diferentes.
+from sharedauth.secrets import DIRETORIO_SECRETS_COMPOSE, resolver_segredo
+
 from . import database as db
-from .secret_files import read_compose_secret
 
 if TYPE_CHECKING:
     from flask.typing import ResponseReturnValue
@@ -183,7 +186,15 @@ def _ambiente_permite_gerar_chave() -> bool:
 
 
 def obter_chave_secreta() -> str:
-    do_arquivo = read_compose_secret("CONFORTO_SECRET_KEY_FILE", "secret_key")
+    # `aceitar_variavel=False`: a variável direta é tratada logo abaixo, com
+    # semântica própria deste app. `caminho_esperado` mantém a checagem estrita
+    # que já existia aqui -- sem ela, `*_FILE` deixaria de ser configuração de
+    # implantação e viraria seletor arbitrário de arquivo.
+    do_arquivo = resolver_segredo(
+        "CONFORTO_SECRET_KEY",
+        aceitar_variavel=False,
+        caminho_esperado=DIRETORIO_SECRETS_COMPOSE / "secret_key",
+    )
     if do_arquivo:
         return do_arquivo
 
@@ -240,7 +251,11 @@ def obter_ou_criar_token_interno() -> str:
     variavel_ambiente = os.environ.get("CONFORTO_INTERNO_TOKEN")
     if variavel_ambiente:
         return variavel_ambiente
-    token = read_compose_secret("CONFORTO_INTERNO_TOKEN_FILE", "internal_token")
+    token = resolver_segredo(
+        "CONFORTO_INTERNO_TOKEN",
+        aceitar_variavel=False,
+        caminho_esperado=DIRETORIO_SECRETS_COMPOSE / "internal_token",
+    )
     if token is not None:
         return token
 
