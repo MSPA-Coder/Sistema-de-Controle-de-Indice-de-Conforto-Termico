@@ -69,8 +69,12 @@ Não use `down -v` sem decidir descartar os dados persistidos.
 ## Validar mudanças
 
 ```powershell
-docker compose --env-file .env.docker --profile quality run --rm quality
+docker compose --env-file .env.docker --profile quality run --build --rm quality
 ```
+
+`--build` faz parte do comando: o serviço `quality` não monta o código do
+host e `docker compose run` só reconstrói quando a imagem não existe. Sem
+ele, a validação roda a versão anterior do código e passa em verde.
 
 O estágio executa `ruff check . && pytest`. Mudanças de persistência,
 migrações, dependências ou contêineres também exigem a pilha completa e

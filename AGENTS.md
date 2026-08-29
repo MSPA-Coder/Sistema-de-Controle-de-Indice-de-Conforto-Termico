@@ -71,8 +71,12 @@ Use somente as interfaces Docker documentadas pelo projeto:
 docker compose --env-file .env.docker config --quiet
 docker compose --env-file .env.docker up -d --build --wait
 docker compose --env-file .env.docker exec ict python -m scripts.verificar_postgres
-docker compose --env-file .env.docker --profile quality run --rm quality
+docker compose --env-file .env.docker --profile quality run --build --rm quality
 ```
+
+`--build` faz parte do comando: o serviço `quality` não monta o código do
+host e `docker compose run` só reconstrói quando a imagem não existe. Sem
+ele, a validação roda a versão anterior do código e passa em verde.
 
 Valide proporcionalmente ao risco e percorra manualmente o fluxo alterado.
 Mudanças de persistência, migrações, dependências ou contêineres exigem a pilha
