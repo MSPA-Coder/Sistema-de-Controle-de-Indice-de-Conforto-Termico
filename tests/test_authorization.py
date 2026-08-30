@@ -12,12 +12,12 @@ import inspect
 
 from app import auth
 
-
-def test_perfil_sem_a_area_e_barrado_no_servidor():
-    fonte = inspect.getsource(auth.registrar_controle_de_area)
-    assert "AREA_POR_ENDPOINT" in fonte
-    assert "area_permitida(" in fonte
-    assert "_negar_acesso()" in fonte
+# A recusa em si -- com sessao, perfil e rota de verdade -- e medida em
+# `test_autorizacao_por_area.py`. O teste que ficava aqui lia o codigo-fonte do
+# hook e conferia se as palavras "AREA_POR_ENDPOINT", "area_permitida(" e
+# "_negar_acesso()" apareciam nele. Apareciam, e ele passou verde durante todo
+# o tempo em que seis leituras respondiam a qualquer perfil: conferir que a
+# verificacao esta ESCRITA nao responde se ela ALCANCA as rotas.
 
 
 def test_area_permitida_decide_pelo_mapa_do_perfil():

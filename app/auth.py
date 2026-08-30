@@ -15,6 +15,14 @@ Este modulo e o unico lugar do sistema que:
 - Registra os hooks `before_request` que carregam `g.usuario` e aplicam a
   decisao de area a TODA rota do app, inclusive a pagina inicial.
 
+  "TODA rota" passou a ser verdade em 29/08/2026, e ate ali nao era: o hook
+  so conferia endpoint presente em `AREA_POR_ENDPOINT` e liberava o resto,
+  entao seis leituras respondiam a qualquer perfil autenticado. Hoje o que
+  nao esta mapeado e negado, e o que pode ficar aberto esta escrito em
+  `ENDPOINTS_ABERTOS_A_QUALQUER_PERFIL` com o motivo. Uma afirmacao dessas
+  no docstring so vale acompanhada do teste que a mede -- ver
+  `tests/test_autorizacao_por_area.py`.
+
 Sessao, CSRF, o gate de "exige login" e o rate-limit do login vêm de
 `sharedauth` (chamados em `app_factory.criar_app_ict`), compartilhados com
 os outros apps Flask do mantenedor. Este módulo só decide o que é específico
@@ -314,6 +322,27 @@ AREA_POR_ENDPOINT: dict[str, str | tuple[str, ...]] = {
     "administracao.salvar_configuracoes": ("configuracoes", "sistema"),
     "administracao.consolidar_historico": "sistema",
     "comum.consolidar_historico_zona": "historico",
+    # --- comum_bp: as LEITURAS das abas Historico e Operacao ------------
+    # Estas seis ficaram fora do mapa ate 29/08/2026, e enquanto isso
+    # respondiam a qualquer perfil autenticado. O template escondia a aba
+    # Historico de quem nao tem a area, e as quatro leituras dela
+    # continuavam entregando as medicoes; a ESCRITA da mesma aba
+    # (`consolidar_historico_zona`, logo acima) sempre exigiu area. Ou seja:
+    # dentro do mesmo arquivo, o botao estava fechado e a porta ao lado,
+    # aberta.
+    "comum.historico_zona": "historico",
+    "comum.historico_leituras": "historico",
+    "comum.agregados_15min_zona": "historico",
+    "comum.resumo_horario_zona": "historico",
+    "comum.status_operacao": "operacao",
+    "comum.eventos_operacao": "operacao",
+    # A aba Dashboard nao tem escrita, e "dashboard" pertence a todos os
+    # perfis -- exigi-la nao restringe ninguem hoje. Vale declarar mesmo
+    # assim: e o que faz a area existir no mapa em vez de so na tabela de
+    # perfis, e o que faz um perfil futuro sem "dashboard" ser obedecido
+    # aqui em vez de silenciosamente ignorado.
+    "comum.listar_zonas": "dashboard",
+    "comum.historicos_recentes_zonas": "dashboard",
     # --- administracao_bp: Cadastro (zonas/equipamentos, fiacao Modbus) -
     "administracao.criar_zona": "cadastro",
     "administracao.obter_zona": "cadastro",
@@ -334,6 +363,28 @@ AREA_POR_ENDPOINT: dict[str, str | tuple[str, ...]] = {
     "usuarios.excluir_usuario_rota": "usuarios",
 }
 
+# Endpoints que respondem a QUALQUER perfil autenticado. Estar aqui e uma
+# decisao consciente com motivo escrito -- e o unico jeito de uma rota passar
+# sem area, agora que `_exigir_area` nega o que nao esta mapeado.
+ENDPOINTS_ABERTOS_A_QUALQUER_PERFIL: dict[str, str] = {
+    "comum.index": (
+        "a casca da SPA, e o destino de `_negar_acesso`. Exigir area aqui "
+        "seria o laco: quem nao a tivesse seria recusado e mandado para a "
+        "propria rota que acabou de recusa-lo. Ela nao entrega dado de "
+        "zona -- so o HTML, que ja mostra apenas as abas do perfil."
+    ),
+    "comum.configuracao_interface": (
+        "metadados termicos (nomes de especie, indice e campos) que a "
+        "interface le antes de saber qual aba abrir. Nao ha leitura de "
+        "sensor nem de zona: e o vocabulario da tela, igual para todo perfil."
+    ),
+    "auth.logout": "encerrar a sessao nao pode depender de area nenhuma",
+    "sharedauth_ui.static": (
+        "CSS e JS do componente comum de aviso, pedidos por `index.html`. "
+        "Sao dois estaticos da biblioteca, sem dado do app."
+    ),
+}
+
 # Restricao ADICIONAL: mesmo com a area liberada, so os perfis listados
 # podem chamar o endpoint. Ver comentario de PERFIS_QUE_PODEM_EXCLUIR_DADOS_ENTRADA.
 PERFIS_EXTRA_POR_ENDPOINT: dict[str, frozenset[str]] = {
@@ -344,6 +395,35 @@ PERFIS_EXTRA_POR_ENDPOINT: dict[str, frozenset[str]] = {
 
 def area_permitida(perfil: str, area: str) -> bool:
     return area in AREAS_POR_PERFIL.get(perfil, frozenset())
+
+
+#: As abas na ordem em que `templates/index.html` as apresenta, cada uma com a
+#: area que a libera. Serve para decidir qual delas abre.
+ABAS_NA_ORDEM: tuple[tuple[str, str], ...] = (
+    ("principal", "dashboard"),
+    ("analises", "analises"),
+    ("historico", "historico"),
+    ("operacao", "operacao"),
+    ("zonas", "cadastro"),
+    ("configuracoes", "configuracoes"),
+    ("sistema", "sistema"),
+    ("dados-entrada", "dados_entrada"),
+)
+
+
+def primeira_aba_permitida(perfil: str) -> str | None:
+    """A aba que abre para este perfil: a primeira que ele pode ver.
+
+    Derivada, e nao fixa em "principal", pelo mesmo motivo que o destino do
+    login do ControleBancario deixou de ser uma tela concreta: aba inicial
+    fixa obriga a area dela a estar em todos os perfis, e essa obrigacao nao
+    fica escrita em lugar nenhum -- some no dia em que alguem monta um perfil
+    sem ela, e a tela abre vazia.
+    """
+    for aba, area in ABAS_NA_ORDEM:
+        if area_permitida(perfil, area):
+            return aba
+    return None
 
 
 def usuario_atual() -> dict | None:
@@ -388,8 +468,11 @@ def registrar_carregamento_usuario(app: Flask) -> None:
 
 
 def registrar_controle_de_area(app: Flask) -> None:
-    """Registra o hook que confere a area exigida por endpoint, quando
-    houver uma em AREA_POR_ENDPOINT/PERFIS_EXTRA_POR_ENDPOINT.
+    """Registra o hook que confere a area exigida por endpoint.
+
+    Nega por padrao: endpoint sem entrada em `AREA_POR_ENDPOINT` so passa se
+    estiver declarado em `ENDPOINTS_ISENTOS_DE_LOGIN` (nem login exige) ou em
+    `ENDPOINTS_ABERTOS_A_QUALQUER_PERFIL` (exige login, dispensa area).
 
     Precisa rodar DEPOIS do gate de login do `sharedauth.access`: por isso
     não repete a checagem de `g.usuario is None` -- se a requisição chegou
@@ -399,15 +482,29 @@ def registrar_controle_de_area(app: Flask) -> None:
 
     @app.before_request
     def _exigir_area() -> ResponseReturnValue | None:
-        endpoint = request.endpoint or ""
+        # URL que nao casa com rota nenhuma: deixa o Flask responder 404, como
+        # faz o gate de login do `sharedauth.access`. Nao ha o que autorizar.
+        if request.endpoint is None:
+            return None
+
+        endpoint = request.endpoint
         if endpoint in ENDPOINTS_ISENTOS_DE_LOGIN:
+            return None
+        if endpoint in ENDPOINTS_ABERTOS_A_QUALQUER_PERFIL:
             return None
 
         area_requerida = AREA_POR_ENDPOINT.get(endpoint)
-        if area_requerida is not None:
-            areas_aceitas = (area_requerida,) if isinstance(area_requerida, str) else area_requerida
-            if not any(area_permitida(g.usuario["perfil"], area) for area in areas_aceitas):
-                return _negar_acesso()
+        if area_requerida is None:
+            # Rota sem area declarada NEGA, e nao passa. Ate 29/08/2026 era o
+            # contrario, e o preco foi seis leituras respondendo a quem o
+            # template escondia a aba correspondente. Com a negacao por
+            # padrao, esquecer o mapeamento vira uma rota que nao funciona --
+            # visivel na hora, em vez de uma porta aberta que ninguem nota.
+            return _negar_acesso()
+
+        areas_aceitas = (area_requerida,) if isinstance(area_requerida, str) else area_requerida
+        if not any(area_permitida(g.usuario["perfil"], area) for area in areas_aceitas):
+            return _negar_acesso()
 
         perfis_extra = PERFIS_EXTRA_POR_ENDPOINT.get(endpoint)
         if perfis_extra is not None and g.usuario["perfil"] not in perfis_extra:

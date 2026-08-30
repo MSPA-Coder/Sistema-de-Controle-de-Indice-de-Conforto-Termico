@@ -60,6 +60,14 @@ def index():
         usuario_atual=usuario,
         areas_permitidas=areas_permitidas,
         perfil_label=auth.PERFIL_LABEL,
+        # `index.html` decide por esta variavel qual aba nasce marcada e qual
+        # painel nasce sem `oculto`. Ela NAO era passada: as quatro expressoes
+        # `aba_inicial == '...'` do template comparavam com o Undefined do
+        # Jinja, davam False, e a aplicacao abria com os oito paineis ocultos
+        # e nenhuma aba selecionada -- so aparecia conteudo depois de clicar.
+        # `ativarAba` tampouco corrige no carregamento: so esta ligada ao
+        # clique. Ver `tests/test_aba_inicial.py`.
+        aba_inicial=auth.primeira_aba_permitida(usuario["perfil"]) if usuario else None,
     )
 
 
