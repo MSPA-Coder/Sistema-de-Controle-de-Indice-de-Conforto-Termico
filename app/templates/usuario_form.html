@@ -34,13 +34,22 @@
           {% endfor %}
         </select>
       </div>
+      {% if modo == "criar" %}
       <div class="campo-config">
-        <label for="campo-senha">
-          {{ "Senha" if modo == "criar" else "Nova senha (deixe em branco para manter a atual)" }}
-        </label>
+        <label for="campo-senha">Senha</label>
         <input type="password" id="campo-senha" name="senha" autocomplete="new-password"
-               minlength="{{ senha_tamanho_minimo }}" {{ "required" if modo == "criar" else "" }}>
+               minlength="{{ senha_tamanho_minimo }}" required>
       </div>
+      {% else %}
+      {# A edicao nao mexe mais em senha. Para redefinir, a acao "Redefinir
+         senha" da lista sorteia uma temporaria e obriga a troca -- um campo
+         aqui seria o caminho pelo qual um administrador continuaria
+         escolhendo, e sabendo, a senha de outra pessoa. #}
+      <p class="admin-subtitulo">
+        Para redefinir a senha desta conta, use <strong>Redefinir senha</strong>
+        na lista de usuários.
+      </p>
+      {% endif %}
       <label class="check admin-check-ativo">
         <input type="checkbox" name="ativo" {{ "checked" if usuario.ativo else "" }}>
         <span>Conta ativa (permite login)</span>

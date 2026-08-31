@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, cast
 from flask import Flask, g, jsonify, request
 from flask.json.provider import DefaultJSONProvider
 from flask_limiter import Limiter
-from sharedauth.access import requer_login
+from sharedauth.access import requer_login, requer_troca_de_senha
 from sharedauth.config import ler_flag
 from sharedauth.csrf import iniciar_csrf
 from sharedauth.health import registrar_health
@@ -431,6 +431,38 @@ def criar_app_ict(config: AppConfig | None = None) -> Flask:
         # `sharedauth.access` aceita as duas por parâmetro.
         chave_erro_api="erro",
     )
+
+    # Senha redefinida por um administrador vale ate o primeiro acesso: com a
+    # marca ligada, toda requisicao cai na tela de troca. Verificar so no login
+    # deixaria a marca sem efeito -- bastaria digitar outra URL depois do
+    # desvio para seguir usando a senha que o administrador conhece.
+    #
+    # Fica ANTES do controle de area de proposito: quem esta com a senha
+    # vencida nao deve ser avaliado por perfil antes de resolver isso, e a
+    # ordem deixa o desvio acontecer uma vez so.
+    #
+    # `auth.trocar_senha` e isento pela propria biblioteca. Os daqui sao os que
+    # faltam: sem `auth.logout` a pessoa fica presa dentro do aplicativo, e sem
+    # os estaticos a tela de troca chega sem CSS. `health_ict` entra para o
+    # conteiner nao ser reportado como doente justamente para quem esta com a
+    # senha vencida.
+    requer_troca_de_senha(
+        app,
+        endpoint_troca="auth.trocar_senha",
+        endpoints_isentos=frozenset(
+            {
+                "auth.logout",
+                "comum.favicon",
+                "health_ict",
+                "static",
+                "sharedauth_ui.static",
+            }
+        ),
+        esta_autenticado=lambda: g.usuario is not None,
+        precisa_trocar=lambda: bool(g.usuario and g.usuario.get("trocar_senha")),
+        chave_erro_api="erro",
+    )
+
     auth.registrar_controle_de_area(app)
 
     # O rate-limit de 5/min no login nunca chegou a funcionar: usava um

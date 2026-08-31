@@ -24,7 +24,9 @@ contratos no código, migrações, configuração e testes afetados.
 `/api/interno/*`. `criar_app_ict()` não deve importar cliente Modbus,
 `zona_service` nem estado do coletor. O navegador consome somente a API do ICT.
 
-Sessão, CSRF, limite de login, controle de acesso, hash de senha, cabeçalhos de
+Sessão, CSRF, limite de login, controle de acesso, hash de senha, senha
+temporária e trava de troca pendente, destino pós-login seguro e a marca que
+amarra a sessão à senha em vigor, cabeçalhos de
 segurança, CSP e health checks vêm do SharedAuth. Perfis e áreas permanecem
 próprios deste projeto em `app/auth.py`. Preserve autorização no servidor; não
 trate a ocultação de elementos da interface como controle de acesso.

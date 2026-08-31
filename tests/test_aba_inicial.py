@@ -21,6 +21,7 @@ from __future__ import annotations
 import re
 
 import pytest
+from sharedauth.session import marca_de_sessao
 
 from app import auth
 
@@ -30,7 +31,7 @@ _PAINEL_VISIVEL = re.compile(r'class="[^"]*aba-conteudo"[^>]*data-aba-conteudo="
 
 
 @pytest.fixture
-def abrir(client, monkeypatch):
+def abrir(app, client, monkeypatch):
     """Carrega a pagina inicial como um perfil, sem tocar o banco."""
 
     def carregar(perfil: str) -> str:
@@ -45,8 +46,15 @@ def abrir(client, monkeypatch):
                 "ativo": True,
             },
         )
+        # A sessao carrega tambem a marca da senha em vigor: sem ela, o
+        # carregamento a recusa (ver `registrar_carregamento_usuario`). O hash
+        # e substituido junto, para a marca ser calculavel sem banco.
+        monkeypatch.setattr(auth.db, "obter_hash_de_senha", lambda _id: "hash-de-teste")
         with client.session_transaction() as sessao:
             sessao["usuario_id"] = 1
+            sessao[auth.CHAVE_MARCA_DE_SENHA] = marca_de_sessao(
+                "hash-de-teste", chave_secreta=app.secret_key
+            )
         resposta = client.get("/")
         assert resposta.status_code == 200
         return resposta.get_data(as_text=True)
