@@ -302,6 +302,9 @@ export function criarCadastroZonas({
     atualizarSelectIndiceZona();
     if (zona) document.getElementById("zona-indice").value = zona.indice;
     document.getElementById("zona-ativa").checked = zona ? zona.ativa : true;
+    document.getElementById("zona-ciclos-expiracao-leitura").value = String(
+      zona?.ciclos_expiracao_leitura || 3
+    );
     esconderErroDialog("zona-form-erro");
 
     document.getElementById("dialog-zona").showModal();
@@ -314,6 +317,7 @@ export function criarCadastroZonas({
       especie: document.getElementById("zona-especie").value,
       indice: document.getElementById("zona-indice").value,
       ativa: document.getElementById("zona-ativa").checked,
+      ciclos_expiracao_leitura: Number(document.getElementById("zona-ciclos-expiracao-leitura").value),
     };
     const url = zonaEmEdicaoId ? "/api/zonas/" + zonaEmEdicaoId : "/api/zonas";
     const metodo = zonaEmEdicaoId ? "PUT" : "POST";

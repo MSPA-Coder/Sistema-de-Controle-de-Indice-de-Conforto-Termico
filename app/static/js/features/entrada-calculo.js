@@ -463,25 +463,19 @@ export function criarEntradaCalculo({
 
   async function consolidarHistorico() {
     const botao = document.getElementById("btn-consolidar-historico");
-    const confirmado = await confirmar({
-      mensagem: "Consolidar agora o histórico pendente no banco?",
-      titulo: "Consolidar histórico",
-      severidade: "warning",
-    });
-    if (!confirmado) return;
     if (botao) botao.disabled = true;
     try {
-      const resposta = await fetch("/api/consolidar-historico", { method: "POST" });
+      const resposta = await fetch("/api/manutencao/atualizar-agregados-historicos", { method: "POST" });
       const corpo = await resposta.json().catch(() => ({}));
       if (!resposta.ok || !corpo.ok) {
-        avisar({ mensagem: corpo.erro || "Não foi possível consolidar o histórico.", severidade: "error" });
+        avisar({ mensagem: corpo.erro || "Não foi possível atualizar os agregados.", severidade: "error" });
         return;
       }
       const total = Array.isArray(corpo.resultados) ? corpo.resultados.length : 0;
-      avisar({ mensagem: `Consolidação concluída para ${total} zona(s).`, severidade: "success" });
+      avisar({ mensagem: `Agregados atualizados para ${total} zona(s), sem alterar medições.`, severidade: "success" });
     } catch (erro) {
       console.error("Erro ao consolidar histórico:", erro);
-      avisar({ mensagem: "Falha de comunicação ao consolidar o histórico.", severidade: "error" });
+      avisar({ mensagem: "Falha de comunicação ao atualizar os agregados.", severidade: "error" });
     } finally {
       if (botao) botao.disabled = false;
     }

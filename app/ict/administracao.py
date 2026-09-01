@@ -12,6 +12,7 @@ from flask import Blueprint, current_app, jsonify, request
 from .. import agregacao
 from .. import database as db
 from ..app_factory import confirmacao_de_exclusao_valida
+from ..audit_log import registrar_evento_revisavel
 from .coletor_client import chamar_coletor
 
 administracao_bp = Blueprint("administracao", __name__)
@@ -43,15 +44,24 @@ def _configuracoes_publicas(config: dict) -> dict:
 # ---------------------------------------------------------------------------
 # Configuracoes e reset
 # ---------------------------------------------------------------------------
-@administracao_bp.route("/api/consolidar-historico", methods=["POST"])
-def consolidar_historico():
-    """Consolida todas as zonas por acao explicita de administracao."""
+@administracao_bp.route(
+    "/api/manutencao/atualizar-agregados-historicos", methods=["POST"]
+)
+def atualizar_agregados_historicos():
+    """Recalcula somente agregados pendentes; nunca remove leituras brutas."""
     try:
-        return jsonify({"ok": True, "resultados": agregacao.executar()})
+        resultados = agregacao.executar()
+        registrar_evento_revisavel(
+            "AGREGADOS_HISTORICOS_ATUALIZADOS",
+            "manutencao",
+            "Atualizou agregados históricos pendentes",
+            detalhes={"zonas_processadas": len(resultados)},
+        )
+        return jsonify({"ok": True, "resultados": resultados})
     except Exception:
         from ..app_factory import MENSAGEM_ERRO_INTERNO
 
-        current_app.logger.exception("Falha ao consolidar o historico")
+        current_app.logger.exception("Falha ao atualizar os agregados historicos")
         return jsonify({"ok": False, "erro": MENSAGEM_ERRO_INTERNO}), 500
 
 
@@ -72,6 +82,12 @@ def salvar_configuracoes():
         if chaves_tecnicas:
             return jsonify({"erro": "Seu perfil não pode alterar configurações técnicas."}), 403
     salvas = db.salvar_configuracoes(dados)
+    registrar_evento_revisavel(
+        "CONFIGURACOES_ATUALIZADAS",
+        "configuracao",
+        "Atualizou configurações",
+        detalhes={"chaves": sorted(dados)},
+    )
     return jsonify(_configuracoes_publicas(salvas))
 
 
@@ -92,6 +108,9 @@ def reset():
     if not confirmacao_de_exclusao_valida(dados):
         return jsonify({"erro": "Digite APAGAR para confirmar a exclusão."}), 400
     db.limpar_historico()
+    registrar_evento_revisavel(
+        "HISTORICO_LIMPO", "dados", "Removeu medições e agregados históricos"
+    )
     return jsonify({"ok": True})
 
 
@@ -102,7 +121,11 @@ def reset():
 def criar_zona():
     dados = request.get_json(force=True, silent=True) or {}
     try:
-        return jsonify(db.criar_zona(dados)), 201
+        zona = db.criar_zona(dados)
+        registrar_evento_revisavel(
+            "ZONA_CRIADA", "cadastro", "Criou zona", detalhes={"zona_id": zona["id"]}
+        )
+        return jsonify(zona), 201
     except db.ZonaInvalidaError:
         return jsonify({"erro": "Os dados da zona são inválidos."}), 400
 
@@ -124,6 +147,9 @@ def atualizar_zona(zona_id):
         return jsonify({"erro": "Os dados da zona são inválidos."}), 400
     if zona is None:
         return jsonify({"erro": f"Zona {zona_id} não encontrada."}), 404
+    registrar_evento_revisavel(
+        "ZONA_ATUALIZADA", "cadastro", "Atualizou zona", detalhes={"zona_id": zona_id}
+    )
     return jsonify(zona)
 
 
@@ -133,6 +159,9 @@ def excluir_zona(zona_id):
         return jsonify({"erro": f"Zona {zona_id} não encontrada."}), 404
     # Ver docstring do modulo: a limpeza do estado em memoria do coletor
     # para esta zona acontece no proximo ciclo automatico dele, nao aqui.
+    registrar_evento_revisavel(
+        "ZONA_EXCLUIDA", "cadastro", "Excluiu zona", detalhes={"zona_id": zona_id}
+    )
     return jsonify({"ok": True})
 
 
@@ -140,7 +169,14 @@ def excluir_zona(zona_id):
 def criar_equipamento(zona_id):
     dados = request.get_json(force=True, silent=True) or {}
     try:
-        return jsonify(db.criar_equipamento(zona_id, dados)), 201
+        equipamento = db.criar_equipamento(zona_id, dados)
+        registrar_evento_revisavel(
+            "EQUIPAMENTO_CRIADO",
+            "cadastro",
+            "Criou equipamento",
+            detalhes={"zona_id": zona_id, "equipamento_id": equipamento["id"]},
+        )
+        return jsonify(equipamento), 201
     except db.ZonaNaoEncontradaError:
         return jsonify({"erro": f"Zona {zona_id} não encontrada."}), 404
     except db.ZonaInvalidaError:
@@ -160,6 +196,12 @@ def atualizar_equipamento(zona_id, equipamento_id):
         return jsonify(
             {"erro": f"Equipamento {equipamento_id} não encontrado na zona {zona_id}."}
         ), 404
+    registrar_evento_revisavel(
+        "EQUIPAMENTO_ATUALIZADO",
+        "cadastro",
+        "Atualizou equipamento",
+        detalhes={"zona_id": zona_id, "equipamento_id": equipamento_id},
+    )
     return jsonify(equipamento)
 
 
@@ -173,7 +215,22 @@ def excluir_equipamento(zona_id, equipamento_id):
             {"erro": f"Equipamento {equipamento_id} não encontrado na zona {zona_id}."}
         ), 404
     db.excluir_equipamento(equipamento_id)
+    registrar_evento_revisavel(
+        "EQUIPAMENTO_EXCLUIDO",
+        "cadastro",
+        "Excluiu equipamento",
+        detalhes={"zona_id": zona_id, "equipamento_id": equipamento_id},
+    )
     return jsonify({"ok": True})
+
+
+@administracao_bp.route("/api/auditoria", methods=["GET"])
+def listar_auditoria():
+    try:
+        limite = int(request.args.get("limite", 100))
+    except ValueError:
+        return jsonify({"erro": "Parâmetro 'limite' precisa ser inteiro."}), 400
+    return jsonify({"eventos": db.listar_eventos_auditoria(limite)})
 
 
 # ---------------------------------------------------------------------------

@@ -106,6 +106,7 @@ AREAS_POR_PERFIL: dict[str, frozenset[str]] = {
             "sistema",
             "dados_entrada",
             "usuarios",
+            "auditoria",
         }
     ),
 }
@@ -342,14 +343,15 @@ AREA_POR_ENDPOINT: dict[str, str | tuple[str, ...]] = {
     # sobre por que essas rotas saíram de coletor_bp)
     "administracao.obter_configuracoes": ("configuracoes", "sistema"),
     "administracao.salvar_configuracoes": ("configuracoes", "sistema"),
-    "administracao.consolidar_historico": "sistema",
-    "comum.consolidar_historico_zona": "historico",
+    "administracao.atualizar_agregados_historicos": "sistema",
+    "administracao.listar_auditoria": "auditoria",
+    "comum.atualizar_agregados_zona": "historico",
     # --- comum_bp: as LEITURAS das abas Historico e Operacao ------------
     # Estas seis ficaram fora do mapa ate 29/08/2026, e enquanto isso
     # respondiam a qualquer perfil autenticado. O template escondia a aba
     # Historico de quem nao tem a area, e as quatro leituras dela
     # continuavam entregando as medicoes; a ESCRITA da mesma aba
-    # (`consolidar_historico_zona`, logo acima) sempre exigiu area. Ou seja:
+    # (`atualizar_agregados_zona`, logo acima) sempre exigiu area. Ou seja:
     # dentro do mesmo arquivo, o botao estava fechado e a porta ao lado,
     # aberta.
     "comum.historico_zona": "historico",
@@ -436,6 +438,7 @@ ABAS_NA_ORDEM: tuple[tuple[str, str], ...] = (
     ("zonas", "cadastro"),
     ("configuracoes", "configuracoes"),
     ("sistema", "sistema"),
+    ("auditoria", "auditoria"),
     ("dados-entrada", "dados_entrada"),
 )
 

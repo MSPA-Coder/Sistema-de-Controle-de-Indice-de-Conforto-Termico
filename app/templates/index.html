@@ -74,6 +74,9 @@
       {% if "sistema" in areas_permitidas %}
       <button class="aba-botao{{ ' ativo' if aba_inicial == 'sistema' else '' }}" type="button" role="tab" data-aba="sistema" aria-controls="aba-sistema" aria-selected="{{ 'true' if aba_inicial == 'sistema' else 'false' }}">Sistema</button>
       {% endif %}
+      {% if "auditoria" in areas_permitidas %}
+      <button class="aba-botao{{ ' ativo' if aba_inicial == 'auditoria' else '' }}" type="button" role="tab" data-aba="auditoria" aria-controls="aba-auditoria" aria-selected="{{ 'true' if aba_inicial == 'auditoria' else 'false' }}">Auditoria</button>
+      {% endif %}
     </div>
     {% endif %}
     {% if "dados_entrada" in areas_permitidas %}
@@ -235,6 +238,19 @@
     </div>
     <button id="btn-limpar" class="botao botao--perigo botao--compacto oculto" type="button">Limpar histórico</button>
   </section>
+
+  {% if "auditoria" in areas_permitidas %}
+  <section id="aba-auditoria" class="grade aba-conteudo{{ '' if aba_inicial == 'auditoria' else ' oculto' }}" data-aba-conteudo="auditoria" role="tabpanel">
+    <section class="painel tabela-painel">
+      <div class="tabela-cabecalho">
+        <div><h2 class="painel-titulo">Trilha de auditoria</h2><p class="texto-ajuda">Registra mudanças administrativas e de dados; visualizações não entram na trilha.</p></div>
+        <button id="btn-atualizar-auditoria" class="botao botao--fantasma botao--compacto" type="button">Atualizar</button>
+      </div>
+      <div class="tabela-scroll"><table id="tabela-auditoria"><thead><tr><th>Quando</th><th>Ator</th><th>Ação</th><th>Contexto</th></tr></thead><tbody></tbody></table></div>
+      <p id="auditoria-vazia" class="texto-ajuda oculto">Nenhum evento auditável registrado ainda.</p>
+    </section>
+  </section>
+  {% endif %}
 
   <section id="aba-analises" class="grade aba-conteudo{{ '' if aba_inicial == 'analises' else ' oculto' }}" data-aba-conteudo="analises" role="tabpanel">
     <section class="painel tabela-painel executivo-painel">
@@ -504,7 +520,8 @@
           </div>
         </div>
         <div id="configuracoes-historico" class="configuracoes-bloco configuracoes-bloco--acoes">
-          <button id="btn-consolidar-historico" class="botao botao--fantasma botao--compacto" type="button">Consolidar histórico pendente</button>
+          <button id="btn-consolidar-historico" class="botao botao--fantasma botao--compacto" type="button">Atualizar agregados pendentes</button>
+          <p class="texto-ajuda">Manutenção segura: recalcula apenas agregados de 15 minutos e horários pendentes, sem apagar medições.</p>
         </div>
         {# O resultado de consolidação/limpeza é exibido por toast
            (`window.sharedauth.avisar`) em entrada-calculo.js. #}
@@ -585,6 +602,10 @@
       <div class="campo-config">
         <label for="zona-especie">Espécie</label>
         <select id="zona-especie"></select>
+      </div>
+      <div class="campo-config">
+        <label for="zona-ciclos-expiracao-leitura">Expirar leitura após</label>
+        <select id="zona-ciclos-expiracao-leitura"><option value="2">2 ciclos de coleta</option><option value="3">3 ciclos de coleta (padrão)</option></select>
       </div>
       <div class="campo-config">
         <label for="zona-indice">Índice</label>

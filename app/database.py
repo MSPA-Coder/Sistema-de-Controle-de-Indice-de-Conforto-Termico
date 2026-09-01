@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import os
 
+from .database_auditoria import listar_eventos_auditoria as listar_eventos_auditoria
+from .database_auditoria import registrar_evento_auditoria as registrar_evento_auditoria
 from .database_comum import PERFIS_VALIDOS as PERFIS_VALIDOS
 from .database_comum import coagir_booleano as coagir_booleano
 from .database_comum import conexao

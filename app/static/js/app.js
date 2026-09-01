@@ -5,6 +5,7 @@
 import { configurarFetchComCsrf } from "./core/api.js";
 import { carregarConfiguracaoInterface, CONFIG_APP } from "./core/interface-config.js";
 import { criarAnalises } from "./features/analises.js";
+import { criarAuditoria } from "./features/auditoria.js";
 import { criarCadastroZonas } from "./features/cadastro-zonas.js";
 import { criarDashboardZonas } from "./features/dashboard-zonas.js";
 import { criarDadosEntrada } from "./features/dados-entrada.js";
@@ -107,6 +108,7 @@ const estado = { especie: "frangos", indice: "ITU", zonaId: null };
 
 let audioCtx = null;
 let analises;
+let auditoria;
 let cadastroZonas;
 let dashboardZonas;
 let dadosEntrada;
@@ -409,6 +411,7 @@ function ativarAba(aba) {
   if (aba === "principal" || aba === "operacao") {
     operacao.atualizarMonitoramento();
   }
+  if (aba === "auditoria") auditoria?.carregar();
 
   if (aba === "analises") {
     analises.carregar();
@@ -620,6 +623,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     statusHistorico: STATUS_HISTORICO,
     rotuloTipoValorHistorico: ROTULO_TIPO_VALOR_HISTORICO,
   });
+  auditoria = criarAuditoria({});
 
   cadastroZonas = criarCadastroZonas({
     obterZonas: () => dashboardZonas.obterZonas(),
@@ -640,6 +644,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   inicializarAbas();
 
   historico.inicializar();
+  auditoria.inicializar();
   await entradaCalculo.carregarConfiguracoes();
   dashboardZonas.atualizarEquipamento(null, null);
   dashboardZonas.atualizarSensorRemoto();

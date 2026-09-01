@@ -29,8 +29,12 @@ Perfis e a associação entre perfis e áreas pertencem a `app/auth.py`.
 
 O ICT grava cadastros e configurações. O coletor lê esses parâmetros e grava
 leituras, estados, heartbeat e eventos. Agregados de 15 minutos e resumos
-horários são derivados das leituras e podem ser recalculados. O Alembic é a
-única autoridade para criar ou alterar schema.
+horários são derivados das leituras e podem ser recalculados de modo
+idempotente: a manutenção processa somente períodos fechados pendentes e nunca
+remove medições brutas. A trilha de auditoria persistente registra mutações
+administrativas e de dados com ator, horário e contexto mínimo; só
+administradores podem consultá-la. O Alembic é a única autoridade para criar
+ou alterar schema.
 
 `app/db_backend.py` adapta chamadas SQL existentes para o driver PostgreSQL;
 não é um backend SQLite nem uma alternativa de persistência.
@@ -39,7 +43,8 @@ A exportação CSV de dados de entrada percorre o resultado PostgreSQL e entrega
 o corpo HTTP incrementalmente. Ela não materializa todas as medições nem uma
 segunda cópia completa do CSV no processo ICT. No monitoramento, uma leitura
 de zona só conserva a classificação térmica visual enquanto sua idade estiver
-dentro de três intervalos configurados (com piso de 10 segundos); depois disso,
+de dois ou três intervalos configurados por zona (três por padrão, com piso de
+10 segundos); depois disso,
 a API e a tela a identificam explicitamente como desatualizada.
 
 ## Simulação e Modbus

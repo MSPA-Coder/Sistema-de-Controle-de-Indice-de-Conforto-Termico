@@ -97,6 +97,40 @@ def test_estado_operacional_preserva_sem_leitura_quando_nunca_houve_ciclo(monkey
     assert estado["idade_leitura_segundos"] is None
 
 
+def test_estado_operacional_respeita_ciclos_de_expiracao_por_zona(monkeypatch):
+    recente = (datetime.datetime.now() - datetime.timedelta(seconds=150)).replace(microsecond=0)
+    zonas = [
+        {"id": 9, "nome": "Dois ciclos", "ativa": True, "ciclos_expiracao_leitura": 2,
+         "controle": {"modo": "automatico", "acionamento_habilitado": True}},
+        {"id": 10, "nome": "Três ciclos", "ativa": True, "ciclos_expiracao_leitura": 3,
+         "controle": {"modo": "automatico", "acionamento_habilitado": True}},
+    ]
+
+    @contextmanager
+    def conexao_falsa(*, escrita=False):
+        assert escrita is False
+        yield _ConexaoEstadoFalsa(
+            [
+                {"zona_id": zona["id"], "falhas": "[]", "qualidade": "boa",
+                 "ultimo_ciclo_em": recente.isoformat(), "ventilador_desejado": False,
+                 "nebulizador_desejado": False, "ventilador_confirmado": False,
+                 "nebulizador_confirmado": False, "intensidade": None}
+                for zona in zonas
+            ]
+        )
+
+    monkeypatch.setattr(database_zonas, "listar_zonas", lambda: zonas)
+    monkeypatch.setattr(database_zonas, "_conexao", conexao_falsa)
+    monkeypatch.setattr(database_zonas, "obter_configuracoes", lambda: {"intervaloLeituraSegundos": 60})
+
+    dois_ciclos, tres_ciclos = database_zonas.obter_estado_operacional_zonas()
+
+    assert dois_ciclos["leitura_atual"] is False
+    assert dois_ciclos["limite_atualidade_segundos"] == 120
+    assert tres_ciclos["leitura_atual"] is True
+    assert tres_ciclos["limite_atualidade_segundos"] == 180
+
+
 def test_exportacao_csv_e_incremental(app, monkeypatch):
     consumidas = []
 

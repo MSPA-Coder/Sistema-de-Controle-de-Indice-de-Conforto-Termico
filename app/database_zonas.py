@@ -152,6 +152,14 @@ def _validar_zona(dados: dict) -> dict:
         "especie": especie,
         "indice": indice,
         "ativa": coagir_booleano(dados.get("ativa", True), True),
+        # Três ciclos é o padrão escolhido para equilibrar atraso transitório
+        # e sinalização rápida. A política deliberadamente só admite 2 ou 3.
+        "ciclos_expiracao_leitura": _validar_inteiro(
+            dados.get("ciclos_expiracao_leitura", 3),
+            "ciclos de expiração da leitura",
+            2,
+            3,
+        ),
     }
 
 
@@ -160,12 +168,15 @@ def criar_zona(dados: dict) -> dict:
     agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
     with _conexao() as conn:
         cursor = conn.execute(
-            "INSERT INTO zonas (nome, especie, indice, ativa, criado_em) VALUES (?, ?, ?, ?, ?)",
+            """INSERT INTO zonas
+               (nome, especie, indice, ativa, ciclos_expiracao_leitura, criado_em)
+               VALUES (?, ?, ?, ?, ?, ?)""",
             (
                 validado["nome"],
                 validado["especie"],
                 validado["indice"],
                 int(validado["ativa"]),
+                validado["ciclos_expiracao_leitura"],
                 agora,
             ),
         )
@@ -184,6 +195,7 @@ def criar_zona(dados: dict) -> dict:
         "especie": validado["especie"],
         "indice": validado["indice"],
         "ativa": validado["ativa"],
+        "ciclos_expiracao_leitura": validado["ciclos_expiracao_leitura"],
         "criado_em": agora,
         "equipamentos": [],
         "controle": {
@@ -270,10 +282,11 @@ def obter_estado_operacional_zonas() -> list[dict]:
 
     configuracoes = obter_configuracoes()
     intervalo = float(configuracoes.get("intervaloLeituraSegundos") or 1)
-    limite_atualidade = datetime.timedelta(seconds=max(10.0, intervalo * 3))
     agora = datetime.datetime.now()
     resultado = []
     for zona in zonas:
+        ciclos_expiracao = int(zona.get("ciclos_expiracao_leitura") or 3)
+        limite_atualidade = datetime.timedelta(seconds=max(10.0, intervalo * ciclos_expiracao))
         estado = estados.get(zona["id"], {})
         falhas = estado.get("falhas") or "[]"
         try:
@@ -315,6 +328,8 @@ def obter_estado_operacional_zonas() -> list[dict]:
                 "qualidade_original": qualidade_original,
                 "leitura_atual": leitura_atual,
                 "idade_leitura_segundos": idade_leitura_segundos,
+                "limite_atualidade_segundos": int(limite_atualidade.total_seconds()),
+                "ciclos_expiracao_leitura": ciclos_expiracao,
                 "falhas": falhas,
                 "ultimo_ciclo_em": ultimo_ciclo_em,
             }
@@ -339,12 +354,14 @@ def atualizar_zona(zona_id: int, dados: dict) -> dict | None:
         if existe is None:
             return None
         conn.execute(
-            "UPDATE zonas SET nome = ?, especie = ?, indice = ?, ativa = ? WHERE id = ?",
+            """UPDATE zonas SET nome = ?, especie = ?, indice = ?, ativa = ?,
+               ciclos_expiracao_leitura = ? WHERE id = ?""",
             (
                 validado["nome"],
                 validado["especie"],
                 validado["indice"],
                 int(validado["ativa"]),
+                validado["ciclos_expiracao_leitura"],
                 zona_id,
             ),
         )

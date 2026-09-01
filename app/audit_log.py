@@ -96,6 +96,39 @@ def log_evento(
         audit_logger.warning(json.dumps(registro, ensure_ascii=False))
 
 
+def registrar_evento_revisavel(
+    evento: str, categoria: str, acao: str, *, detalhes: dict[str, Any] | None = None
+) -> None:
+    """Registra uma mutação relevante no log operacional e na trilha da UI.
+
+    Não é usado para visualizações, polling ou leituras de dados: esses eventos
+    não agregam valor à revisão e tornariam a trilha inutilmente ruidosa.
+    """
+    detalhes_seguros = _sanitizar_detalhes(detalhes or {})
+    contexto = _obter_contexto_requisicao()
+    usuario = _obter_usuario_atual()
+    log_evento(evento, categoria, acao, detalhes=detalhes_seguros)
+    from .database_auditoria import registrar_evento_auditoria
+
+    try:
+        registrar_evento_auditoria(
+            evento=evento,
+            categoria=categoria,
+            acao=acao,
+            sucesso=True,
+            ator_id=usuario["id"],
+            ator_login=usuario["login"],
+            ator_perfil=usuario["perfil"],
+            contexto=contexto,
+            detalhes=detalhes_seguros,
+        )
+    except Exception:
+        # A mutação já foi concluída antes desta chamada. Não a transforme em
+        # aparente falha por indisponibilidade da trilha; o JSON acima ainda
+        # permanece no log operacional para investigação e o erro é visível.
+        audit_logger.exception("Falha ao persistir evento de auditoria revisável")
+
+
 def _sanitizar_detalhes(detalhes: dict[str, Any]) -> dict[str, Any]:
     """Sanitiza dados sensíveis dos detalhes do log.
 
