@@ -35,6 +35,13 @@ horários são derivados das leituras e podem ser recalculados. O Alembic é a
 `app/db_backend.py` adapta chamadas SQL existentes para o driver PostgreSQL;
 não é um backend SQLite nem uma alternativa de persistência.
 
+A exportação CSV de dados de entrada percorre o resultado PostgreSQL e entrega
+o corpo HTTP incrementalmente. Ela não materializa todas as medições nem uma
+segunda cópia completa do CSV no processo ICT. No monitoramento, uma leitura
+de zona só conserva a classificação térmica visual enquanto sua idade estiver
+dentro de três intervalos configurados (com piso de 10 segundos); depois disso,
+a API e a tela a identificam explicitamente como desatualizada.
+
 ## Simulação e Modbus
 
 `modoSimuladoZonas` é verdadeiro por padrão. Nesse modo, o simulador fornece

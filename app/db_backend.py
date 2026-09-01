@@ -159,6 +159,10 @@ class ResultadoCompat:
     def fetchall(self) -> list[LinhaCompat]:
         return [LinhaCompat(row) for row in self._result.fetchall()]
 
+    def fetchmany(self, tamanho: int = 1000) -> list[LinhaCompat]:
+        """Lê um lote sem materializar o restante do resultado em memória."""
+        return [LinhaCompat(row) for row in self._result.fetchmany(tamanho)]
+
 
 _INSERT_TABLE_RE = re.compile(
     r"^\s*INSERT\s+INTO\s+(?:[A-Za-z_][A-Za-z0-9_]*\.)?"

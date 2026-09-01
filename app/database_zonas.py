@@ -19,6 +19,7 @@ import json
 from . import thermal_indices as ti
 from .database_comum import coagir_booleano as coagir_booleano
 from .database_comum import conexao as _conexao
+from .database_configuracoes import obter_configuracoes
 
 MODOS_OPERACAO = ("desligado", "manual", "automatico", "manutencao")
 MODO_OPERACAO_PADRAO = "manual"
@@ -267,6 +268,10 @@ def obter_estado_operacional_zonas() -> list[dict]:
     def _bool_opcional(valor):
         return None if valor is None else bool(valor)
 
+    configuracoes = obter_configuracoes()
+    intervalo = float(configuracoes.get("intervaloLeituraSegundos") or 1)
+    limite_atualidade = datetime.timedelta(seconds=max(10.0, intervalo * 3))
+    agora = datetime.datetime.now()
     resultado = []
     for zona in zonas:
         estado = estados.get(zona["id"], {})
@@ -275,6 +280,17 @@ def obter_estado_operacional_zonas() -> list[dict]:
             falhas = json.loads(falhas)
         except (TypeError, json.JSONDecodeError):
             falhas = []
+        ultimo_ciclo_em = estado.get("ultimo_ciclo_em")
+        idade_leitura_segundos = None
+        leitura_atual = False
+        if ultimo_ciclo_em:
+            try:
+                idade = agora - datetime.datetime.fromisoformat(ultimo_ciclo_em)
+                idade_leitura_segundos = max(0, int(idade.total_seconds()))
+                leitura_atual = idade <= limite_atualidade
+            except (TypeError, ValueError):
+                pass
+        qualidade_original = estado.get("qualidade") or "sem_leitura"
         resultado.append(
             {
                 "zona_id": zona["id"],
@@ -291,9 +307,16 @@ def obter_estado_operacional_zonas() -> list[dict]:
                     "nebulizador": _bool_opcional(estado.get("nebulizador_confirmado")),
                 },
                 "intensidade": estado.get("intensidade"),
-                "qualidade": estado.get("qualidade") or "sem_leitura",
+                "qualidade": (
+                    qualidade_original
+                    if leitura_atual or ultimo_ciclo_em is None
+                    else "desatualizada"
+                ),
+                "qualidade_original": qualidade_original,
+                "leitura_atual": leitura_atual,
+                "idade_leitura_segundos": idade_leitura_segundos,
                 "falhas": falhas,
-                "ultimo_ciclo_em": estado.get("ultimo_ciclo_em"),
+                "ultimo_ciclo_em": ultimo_ciclo_em,
             }
         )
     return resultado
