@@ -25,6 +25,19 @@ O serviço `schema` precisa terminar com sucesso antes de `ict` e `coletor`.
 Mantenha `CONFORTO_DEBUG=0` fora de desenvolvimento local. Não imprima nem
 altere segredos durante o diagnóstico.
 
+## Manutenção e auditoria
+
+**Atualizar agregados pendentes**, na aba Sistema, é manutenção segura e
+idempotente: recalcula somente agregados de 15 minutos e resumos horários de
+períodos fechados ainda pendentes. Não exclui nem resume irreversivelmente as
+medições originais. A aba Auditoria, exclusiva de administradores, permite
+revisar as mutações administrativas e de dados relevantes; ela não registra
+visualizações ou polling.
+
+Cada zona define se sua última leitura expira após dois ou três ciclos de
+coleta; três é o padrão. O limite efetivo acompanha o intervalo global de
+coleta e tem piso de dez segundos.
+
 Para parar preservando os volumes:
 
 ```powershell

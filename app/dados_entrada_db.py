@@ -506,6 +506,38 @@ def obter_medicoes_csv(execucao_id: int | None = None) -> tuple[list[str], list[
     return colunas, [tuple(linha[coluna] for coluna in colunas) for linha in linhas]
 
 
+def iterar_medicoes_csv(
+    execucao_id: int | None = None, *, tamanho_lote: int = 500
+) -> tuple[list[str], Iterator[tuple]]:
+    """Devolve as medições em lotes, mantendo a conexão só durante a iteração.
+
+    A exportação HTTP consome esse iterador incrementalmente. Assim, nem o
+    resultado SQL nem o CSV completo precisam coexistir em memória — condição
+    importante no contêiner ICT, cujo limite é deliberadamente pequeno.
+    """
+    colunas = [coluna for coluna in _COLUNAS_MEDICAO if coluna != "execucao_id"]
+    lote = max(1, min(5000, int(tamanho_lote)))
+
+    def _linhas() -> Iterator[tuple]:
+        with _conexao(escrita=False) as conn:
+            if execucao_id is None:
+                resultado = conn.execute(
+                    f"SELECT {','.join(colunas)} FROM medicoes "
+                    "ORDER BY execucao_id,zona_id,timestamp_utc"
+                )
+            else:
+                resultado = conn.execute(
+                    f"SELECT {','.join(colunas)} FROM medicoes WHERE execucao_id=? "
+                    "ORDER BY zona_id,timestamp_utc",
+                    (execucao_id,),
+                )
+            while linhas := resultado.fetchmany(lote):
+                for linha in linhas:
+                    yield tuple(linha[coluna] for coluna in colunas)
+
+    return colunas, _linhas()
+
+
 def obter_cache_clima(chave: str) -> dict | None:
     with _conexao(escrita=False) as conn:
         linha = conn.execute(

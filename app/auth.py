@@ -48,6 +48,7 @@ from typing import TYPE_CHECKING
 from flask import (
     Blueprint,
     Flask,
+    current_app,
     flash,
     g,
     jsonify,
@@ -57,13 +58,21 @@ from flask import (
     session,
     url_for,
 )
-from sharedauth.passwords import MIN_PASSWORD_LENGTH, SenhaMuitoCurtaError, validar_tamanho
+from sharedauth.access import url_proximo_seguro
+from sharedauth.passwords import (
+    MIN_PASSWORD_LENGTH,
+    SenhaMuitoCurtaError,
+    gerar_senha_temporaria,
+    validar_tamanho,
+    validar_troca,
+)
 from sharedauth.passwords import conferir_hash as _conferir_hash
 from sharedauth.passwords import gerar_hash as _gerar_hash
 
 # `sharedauth.secrets` (biblioteca), nao o `secrets` da stdlib importado acima
 # -- este arquivo usa os dois, e sao coisas diferentes.
 from sharedauth.secrets import DIRETORIO_SECRETS_COMPOSE, resolver_segredo
+from sharedauth.session import marca_de_sessao, marcas_conferem
 
 from . import database as db
 
@@ -97,6 +106,7 @@ AREAS_POR_PERFIL: dict[str, frozenset[str]] = {
             "sistema",
             "dados_entrada",
             "usuarios",
+            "auditoria",
         }
     ),
 }
@@ -129,6 +139,19 @@ PERFIS_QUE_PODEM_EXCLUIR_DADOS_ENTRADA = frozenset({"tecnico", "administrador"})
 # Re-exportado de sharedauth.passwords: piso comum aos apps Flask do
 # mantenedor, não mais uma constante própria deste projeto.
 SENHA_TAMANHO_MINIMO = MIN_PASSWORD_LENGTH
+
+#: Onde a marca da senha em vigor fica guardada na sessao. Ver
+#: `registrar_carregamento_usuario`: e ela que faz a troca de senha derrubar as
+#: sessoes abertas em outros lugares.
+CHAVE_MARCA_DE_SENHA = "marca_senha"
+
+
+def _marca_da_senha_em_vigor(usuario_id: int) -> str:
+    """Marca calculada a partir do hash guardado hoje para esta conta."""
+    return marca_de_sessao(
+        db.obter_hash_de_senha(usuario_id),
+        chave_secreta=current_app.secret_key,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -320,14 +343,15 @@ AREA_POR_ENDPOINT: dict[str, str | tuple[str, ...]] = {
     # sobre por que essas rotas saíram de coletor_bp)
     "administracao.obter_configuracoes": ("configuracoes", "sistema"),
     "administracao.salvar_configuracoes": ("configuracoes", "sistema"),
-    "administracao.consolidar_historico": "sistema",
-    "comum.consolidar_historico_zona": "historico",
+    "administracao.atualizar_agregados_historicos": "sistema",
+    "administracao.listar_auditoria": "auditoria",
+    "comum.atualizar_agregados_zona": "historico",
     # --- comum_bp: as LEITURAS das abas Historico e Operacao ------------
     # Estas seis ficaram fora do mapa ate 29/08/2026, e enquanto isso
     # respondiam a qualquer perfil autenticado. O template escondia a aba
     # Historico de quem nao tem a area, e as quatro leituras dela
     # continuavam entregando as medicoes; a ESCRITA da mesma aba
-    # (`consolidar_historico_zona`, logo acima) sempre exigiu area. Ou seja:
+    # (`atualizar_agregados_zona`, logo acima) sempre exigiu area. Ou seja:
     # dentro do mesmo arquivo, o botao estava fechado e a porta ao lado,
     # aberta.
     "comum.historico_zona": "historico",
@@ -361,6 +385,7 @@ AREA_POR_ENDPOINT: dict[str, str | tuple[str, ...]] = {
     "usuarios.criar_usuario_rota": "usuarios",
     "usuarios.editar_usuario_rota": "usuarios",
     "usuarios.excluir_usuario_rota": "usuarios",
+    "usuarios.redefinir_senha_rota": "usuarios",
 }
 
 # Endpoints que respondem a QUALQUER perfil autenticado. Estar aqui e uma
@@ -379,6 +404,12 @@ ENDPOINTS_ABERTOS_A_QUALQUER_PERFIL: dict[str, str] = {
         "sensor nem de zona: e o vocabulario da tela, igual para todo perfil."
     ),
     "auth.logout": "encerrar a sessao nao pode depender de area nenhuma",
+    "auth.trocar_senha": (
+        "trocar a propria senha e a conta de quem esta logado, nao "
+        "administracao de conta alheia -- exigir a area 'usuarios' aqui "
+        "deixaria todo perfil que nao a tem preso na trava de senha "
+        "temporaria, sem a tela que a resolve."
+    ),
     "sharedauth_ui.static": (
         "CSS e JS do componente comum de aviso, pedidos por `index.html`. "
         "Sao dois estaticos da biblioteca, sem dado do app."
@@ -407,6 +438,7 @@ ABAS_NA_ORDEM: tuple[tuple[str, str], ...] = (
     ("zonas", "cadastro"),
     ("configuracoes", "configuracoes"),
     ("sistema", "sistema"),
+    ("auditoria", "auditoria"),
     ("dados-entrada", "dados_entrada"),
 )
 
@@ -461,6 +493,16 @@ def registrar_carregamento_usuario(app: Flask) -> None:
         # conta propria -- e o que torna a desativacao de um usuario
         # efetiva de imediato, nao so na proxima vez que a sessao vencer.
         if usuario is None or not usuario["ativo"]:
+            session.clear()
+            return None
+        # A senha mudou depois que esta sessao comecou: derruba. Sem isto,
+        # trocar a senha nao expulsava quem tivesse entrado com a antiga --
+        # exatamente o que quem troca por desconfiar de acesso indevido
+        # acredita estar fazendo. Sessao sem marca (de antes desta mudanca)
+        # tambem cai, uma vez so, no primeiro acesso depois do deploy.
+        if not marcas_conferem(
+            session.get(CHAVE_MARCA_DE_SENHA), _marca_da_senha_em_vigor(usuario_id)
+        ):
             session.clear()
             return None
         g.usuario = usuario
@@ -532,7 +574,17 @@ def login() -> ResponseReturnValue:
     erro = None
     # Nome do parametro e "next", nao "proxima": sharedauth.access.requer_login
     # (que gera o redirect para ca quando a sessao expira) sempre usa "next".
-    proximo = request.values.get("next", "")
+    #
+    # Ate 31/08/2026 este valor era so ecoado de volta no campo escondido do
+    # formulario e NUNCA lido no sucesso -- o campo existia e nao servia para
+    # nada, e havia teste registrando isso como decisao. Nao era: o destino
+    # simplesmente nunca foi implementado, e a mesma checagem estava escrita
+    # a mao em outros dois apps. Agora a decisao mora em
+    # `sharedauth.access.url_proximo_seguro` e vale nos tres.
+    #
+    # `requer_login` so gera `next` para caminho de pagina: rota sob `/api/`
+    # recebe 401 JSON, e nunca chega aqui.
+    proximo = url_proximo_seguro(request.values.get("next"))
 
     if request.method == "POST":
         login_digitado = str(request.form.get("login", "")).strip()
@@ -558,18 +610,77 @@ def login() -> ResponseReturnValue:
         else:
             session.clear()
             session["usuario_id"] = usuario["id"]
+            session[CHAVE_MARCA_DE_SENHA] = marca_de_sessao(
+                usuario["senha_hash"], chave_secreta=current_app.secret_key
+            )
             session.permanent = True
             db.registrar_login_usuario(usuario["id"])
             log_login_sucesso(usuario["id"], login_digitado)
-            return redirect(url_for("comum.index"))
+            return redirect(proximo or url_for("comum.index"))
 
-    return render_template("login.html", erro=erro, proxima=proximo)
+    return render_template("login.html", erro=erro, proxima=proximo or "")
 
 
 @auth_bp.route("/logout", methods=["POST"])
 def logout() -> ResponseReturnValue:
     session.clear()
     return redirect(url_for("auth.login"))
+
+
+@auth_bp.route("/minha-senha", methods=["GET", "POST"])
+def trocar_senha() -> ResponseReturnValue:
+    """Troca da propria senha, obrigatoria ou voluntaria.
+
+    Fica no `auth_bp`, e nao no `usuarios_bp`: aquele blueprint e a area
+    "usuarios" (so administrador) e trata de contas alheias; isto e a conta de
+    quem esta logado, e vale para qualquer perfil -- por isso o endpoint entra
+    em `ENDPOINTS_ABERTOS_A_QUALQUER_PERFIL`.
+
+    Quando `trocar_senha` esta ligado, `requer_troca_de_senha` (registrado em
+    `app_factory`) prende a sessao aqui ate a troca acontecer. A diferenca
+    entre os dois casos e so de apresentacao: sob obrigacao a tela nao oferece
+    o caminho de volta, que o portao devolveria para ca de qualquer jeito.
+    """
+    obrigatoria = bool(g.usuario.get("trocar_senha"))
+    erro = None
+
+    if request.method == "POST":
+        # `obter_usuario_por_login` traz a linha inteira; `g.usuario` vem de
+        # `_linha_usuario_publica`, que remove o hash de proposito.
+        completo = db.obter_usuario_por_login(g.usuario["login"])
+        try:
+            validar_troca(
+                hash_atual=completo["senha_hash"] if completo else None,
+                senha_atual=request.form.get("senha_atual", ""),
+                senha_nova=request.form.get("senha_nova", ""),
+                confirmacao=request.form.get("senha_confirmacao", ""),
+            )
+        except ValueError as recusa:
+            # Todas as recusas de `validar_troca` sao `ValueError`, e a
+            # mensagem de cada uma ja e adequada a pessoa.
+            erro = str(recusa)
+        else:
+            novo_hash = gerar_hash_senha(request.form.get("senha_nova", ""))
+            db.trocar_senha_propria(g.usuario["id"], novo_hash)
+            # Renova a marca DESTA sessao. O efeito que se quer e derrubar as
+            # OUTRAS; sem isto a pessoa seria deslogada pela propria troca, na
+            # requisicao seguinte.
+            session[CHAVE_MARCA_DE_SENHA] = marca_de_sessao(
+                novo_hash, chave_secreta=current_app.secret_key
+            )
+            # Sem `flash()`: neste app so `usuarios.html` renderiza mensagem
+            # de sessao, e o destino aqui e a SPA. Um aviso guardado agora
+            # ficaria esperando ate alguem abrir a tela de usuarios, onde
+            # apareceria fora de contexto -- e sem CSS, porque so a categoria
+            # "erro" tem estilo.
+            return redirect(url_for("comum.index"))
+
+    return render_template(
+        "trocar_senha.html",
+        obrigatoria=obrigatoria,
+        erro=erro,
+        senha_tamanho_minimo=SENHA_TAMANHO_MINIMO,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -584,15 +695,53 @@ def logout() -> ResponseReturnValue:
 usuarios_bp = Blueprint("usuarios", __name__, url_prefix="/usuarios")
 
 
-@usuarios_bp.route("/", methods=["GET"])
-def pagina_usuarios() -> ResponseReturnValue:
+def _render_usuarios(**extra) -> ResponseReturnValue:
+    """Tela de usuarios. `extra` existe para a senha temporaria.
+
+    Ela **nao pode ir por `flash()`**: o `flash` do Flask guarda a mensagem na
+    sessao, e a sessao e um cookie assinado -- assinado nao e cifrado. Uma
+    senha em texto claro ali sairia legivel no cabecalho da resposta. Vai como
+    variavel de contexto, que morre no HTML desta resposta.
+    """
     return render_template(
         "usuarios.html",
         usuarios=db.listar_usuarios(),
         perfis=db.PERFIS_VALIDOS,
         perfil_label=PERFIL_LABEL,
         usuario_atual=g.usuario,
+        **extra,
     )
+
+
+@usuarios_bp.route("/", methods=["GET"])
+def pagina_usuarios() -> ResponseReturnValue:
+    return _render_usuarios()
+
+
+@usuarios_bp.route("/<int:usuario_id>/redefinir-senha", methods=["POST"])
+def redefinir_senha_rota(usuario_id: int) -> ResponseReturnValue:
+    """Redefine a senha de outra conta e mostra a senha temporaria gerada.
+
+    Quem administra nao escolhe mais a senha de outra pessoa: uma senha
+    escolhida por ele e uma senha que ele conhece e que tende a se repetir
+    entre contas. O sistema sorteia, mostra uma vez, e o dono e obrigado a
+    trocar no primeiro acesso.
+
+    Responde **renderizando** a tela, e nao com redirect: um redirect perderia
+    a unica copia em texto claro da senha no caminho.
+    """
+    usuario = db.obter_usuario(usuario_id)
+    if usuario is None:
+        return redirect(url_for("usuarios.pagina_usuarios"))
+
+    senha_temporaria = gerar_senha_temporaria()
+    try:
+        db.redefinir_senha_usuario(usuario_id, gerar_hash_senha(senha_temporaria))
+    except db.UsuarioInvalidoError as erro:
+        flash(str(erro), "erro")
+        return redirect(url_for("usuarios.pagina_usuarios"))
+
+    return _render_usuarios(senha_temporaria=senha_temporaria, senha_de=usuario["login"])
 
 
 @usuarios_bp.route("/novo", methods=["GET", "POST"])
@@ -660,14 +809,11 @@ def editar_usuario_rota(usuario_id: int) -> ResponseReturnValue:
                 "perfil": perfil_novo,
                 "ativo": ativo_novo,
             }
-            senha = request.form.get("senha", "")
-            if senha:
-                try:
-                    validar_tamanho(senha)
-                except SenhaMuitoCurtaError as erro_senha:
-                    erro = str(erro_senha)
-                else:
-                    valores["senha_hash"] = gerar_hash_senha(senha)
+            # A edicao nao mexe mais em senha: quem precisa redefinir usa a
+            # acao "Redefinir senha" da lista, que sorteia uma temporaria e
+            # obriga a troca. Manter um campo de senha aqui seria o caminho
+            # pelo qual um administrador continuaria escolhendo -- e sabendo
+            # -- a senha de outra pessoa.
             if erro is None:
                 try:
                     db.atualizar_usuario(usuario_id, valores)

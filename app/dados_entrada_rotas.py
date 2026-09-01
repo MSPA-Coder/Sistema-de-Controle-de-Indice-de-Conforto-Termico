@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 import io
 
-from flask import Blueprint, Response, current_app, jsonify, request
+from flask import Blueprint, Response, current_app, jsonify, request, stream_with_context
 
 from . import dados_entrada_db as dados_db
 from . import database as db
@@ -80,14 +80,22 @@ def exportar_csv():
         return jsonify({"erro": "execucao_id deve ser inteiro."}), 400
     if execucao_id is not None and dados_db.obter_execucao(execucao_id) is None:
         return jsonify({"erro": f"Execução {execucao_id} não encontrada."}), 404
-    colunas, linhas = dados_db.obter_medicoes_csv(execucao_id)
-    saida = io.StringIO(newline="")
-    escritor = csv.writer(saida)
-    escritor.writerow(colunas)
-    escritor.writerows(linhas)
+    colunas, linhas = dados_db.iterar_medicoes_csv(execucao_id)
+
+    def gerar_csv():
+        saida = io.StringIO(newline="")
+        escritor = csv.writer(saida)
+        escritor.writerow(colunas)
+        yield "\ufeff" + saida.getvalue()
+        for linha in linhas:
+            saida.seek(0)
+            saida.truncate(0)
+            escritor.writerow(linha)
+            yield saida.getvalue()
+
     sufixo = f"_{execucao_id}" if execucao_id is not None else "_todas"
     return Response(
-        "\ufeff" + saida.getvalue(),
+        stream_with_context(gerar_csv()),
         mimetype="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="dados_entrada{sufixo}.csv"'},
     )

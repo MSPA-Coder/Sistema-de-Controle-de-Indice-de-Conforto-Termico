@@ -20,7 +20,6 @@ export function criarCadastroZonas({
   const CONFIG_APP = obterConfiguracao();
   const document = documento;
   const fetch = requisitar;
-  const confirm = confirmar;
   let zonaEmEdicaoId = null;
   let equipamentoEmEdicao = null;
   let zonaCadastroSelecionadaId = null;
@@ -303,6 +302,9 @@ export function criarCadastroZonas({
     atualizarSelectIndiceZona();
     if (zona) document.getElementById("zona-indice").value = zona.indice;
     document.getElementById("zona-ativa").checked = zona ? zona.ativa : true;
+    document.getElementById("zona-ciclos-expiracao-leitura").value = String(
+      zona?.ciclos_expiracao_leitura || 3
+    );
     esconderErroDialog("zona-form-erro");
 
     document.getElementById("dialog-zona").showModal();
@@ -310,17 +312,12 @@ export function criarCadastroZonas({
 
   async function salvarZona(evento) {
     evento.preventDefault();
-    const confirmado = await confirm({
-      mensagem: zonaEmEdicaoId ? "Salvar as alterações desta zona?" : "Criar esta zona?",
-      titulo: zonaEmEdicaoId ? "Salvar zona" : "Criar zona",
-      severidade: "warning",
-    });
-    if (!confirmado) return;
     const payload = {
       nome: document.getElementById("zona-nome").value.trim(),
       especie: document.getElementById("zona-especie").value,
       indice: document.getElementById("zona-indice").value,
       ativa: document.getElementById("zona-ativa").checked,
+      ciclos_expiracao_leitura: Number(document.getElementById("zona-ciclos-expiracao-leitura").value),
     };
     const url = zonaEmEdicaoId ? "/api/zonas/" + zonaEmEdicaoId : "/api/zonas";
     const metodo = zonaEmEdicaoId ? "PUT" : "POST";
@@ -485,12 +482,6 @@ export function criarCadastroZonas({
   async function salvarEquipamento(evento) {
     evento.preventDefault();
     const { zonaId, equipamentoId } = equipamentoEmEdicao;
-    const confirmado = await confirm({
-      mensagem: equipamentoId ? "Salvar as alterações deste equipamento?" : "Criar este equipamento?",
-      titulo: equipamentoId ? "Salvar equipamento" : "Criar equipamento",
-      severidade: "warning",
-    });
-    if (!confirmado) return;
     const payload = coletarPayloadEquipamento();
     const url = equipamentoId
       ? "/api/zonas/" + zonaId + "/equipamentos/" + equipamentoId

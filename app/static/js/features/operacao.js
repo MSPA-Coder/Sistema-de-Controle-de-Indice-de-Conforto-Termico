@@ -7,6 +7,7 @@ export function criarOperacao({
   obterUltimasEntradas,
   obterUltimoStatus,
   atualizarEquipamento,
+  atualizarAtualidadeZonas,
   preencherEntradasDoResultado,
   formatarHora,
   mostrarErro,
@@ -213,6 +214,7 @@ export function criarOperacao({
 
   function renderizarEstadoOperacional(payload) {
     estadoOperacionalCache = payload;
+    atualizarAtualidadeZonas(payload?.zonas || []);
     const coletor = payload?.coletor || {};
     const textoColetor = coletor.online
       ? "Coletor online · heartbeat " + formatarHora(coletor.heartbeat_em)
@@ -280,7 +282,8 @@ export function criarOperacao({
     if (botaoCalcular) botaoCalcular.disabled = !manual;
     document.querySelectorAll("[data-comando-tipo]").forEach((botao) => {
       botao.disabled =
-        !manual || !global.habilitarEquipamentos || !zonaEstado.acionamento_habilitado;
+        !manual || !global.habilitarEquipamentos || !zonaEstado.acionamento_habilitado ||
+        !zonaEstado.leitura_atual;
     });
   }
 

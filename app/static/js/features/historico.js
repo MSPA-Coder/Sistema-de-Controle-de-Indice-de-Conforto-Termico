@@ -693,7 +693,7 @@ export function criarHistorico({
     try {
       const zonaParaConsolidar = filtroHistoricoZona || obterZonaPrincipal()?.id;
       if (zonaParaConsolidar && !zonasConsolidadasNestaSessao.has(String(zonaParaConsolidar))) {
-        const consolidacao = await fetch(`/api/zonas/${zonaParaConsolidar}/consolidar-historico`, {
+        const consolidacao = await fetch(`/api/zonas/${zonaParaConsolidar}/atualizar-agregados`, {
           method: "POST",
         });
         if (consolidacao.ok) zonasConsolidadasNestaSessao.add(String(zonaParaConsolidar));

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import os
 
+from .database_auditoria import listar_eventos_auditoria as listar_eventos_auditoria
+from .database_auditoria import registrar_evento_auditoria as registrar_evento_auditoria
 from .database_comum import PERFIS_VALIDOS as PERFIS_VALIDOS
 from .database_comum import coagir_booleano as coagir_booleano
 from .database_comum import conexao
@@ -59,9 +61,12 @@ from .database_usuarios import (
 from .database_usuarios import criar_usuario as criar_usuario
 from .database_usuarios import excluir_usuario as excluir_usuario
 from .database_usuarios import listar_usuarios as listar_usuarios
+from .database_usuarios import obter_hash_de_senha as obter_hash_de_senha
 from .database_usuarios import obter_usuario as obter_usuario
 from .database_usuarios import obter_usuario_por_login as obter_usuario_por_login
+from .database_usuarios import redefinir_senha_usuario as redefinir_senha_usuario
 from .database_usuarios import registrar_login_usuario as registrar_login_usuario
+from .database_usuarios import trocar_senha_propria as trocar_senha_propria
 from .database_zonas import EPSILON_TENDENCIA as EPSILON_TENDENCIA
 from .database_zonas import LIMITE_LEITURAS_PAINEL_EXECUTIVO as LIMITE_LEITURAS_PAINEL_EXECUTIVO
 from .database_zonas import MODO_OPERACAO_PADRAO as MODO_OPERACAO_PADRAO

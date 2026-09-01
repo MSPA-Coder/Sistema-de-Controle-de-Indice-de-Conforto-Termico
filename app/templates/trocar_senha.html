@@ -1,0 +1,53 @@
+{% extends "_layout_auth.html" %}
+{% block titulo %}Trocar senha · Conforto Térmico{% endblock %}
+{# Sem `data-sa-` nesta pagina: o componente comum sairia do ar de graca. Ele
+   fica ligado mesmo assim (padrao do layout) porque, ao contrario do login,
+   esta tela exige sessao -- entao `sharedauth_ui.static` responde normalmente
+   e nao produz o 302 que quebra o MIME. #}
+{% block conteudo %}
+<div class="auth-pagina">
+  <div class="auth-cartao painel">
+    <h1 class="auth-titulo">Trocar senha</h1>
+
+    {% if obrigatoria %}
+    <p class="auth-subtitulo">
+      Sua senha foi redefinida por um administrador. Escolha uma senha nova
+      para continuar.
+    </p>
+    {% else %}
+    <p class="auth-subtitulo">A senha atual é exigida para confirmar que é você.</p>
+    {% endif %}
+
+    {% if erro %}
+    <p class="auth-erro" role="alert">{{ erro }}</p>
+    {% endif %}
+
+    <form method="post" action="{{ url_for('auth.trocar_senha') }}" class="auth-form">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <div class="campo-config">
+        <label for="campo-senha-atual">Senha atual</label>
+        <input type="password" id="campo-senha-atual" name="senha_atual"
+               autocomplete="current-password" autofocus required>
+      </div>
+      <div class="campo-config">
+        <label for="campo-senha-nova">Nova senha</label>
+        <input type="password" id="campo-senha-nova" name="senha_nova"
+               autocomplete="new-password" minlength="{{ senha_tamanho_minimo }}" required>
+      </div>
+      <div class="campo-config">
+        <label for="campo-senha-confirmacao">Confirme a nova senha</label>
+        <input type="password" id="campo-senha-confirmacao" name="senha_confirmacao"
+               autocomplete="new-password" minlength="{{ senha_tamanho_minimo }}" required>
+      </div>
+      <button type="submit" class="botao botao--primario auth-botao">Trocar senha</button>
+    </form>
+
+    {# O logout fica na propria tela porque, sob obrigacao, e a unica saida:
+       todo outro destino volta para ca ate a troca acontecer. #}
+    <form method="post" action="{{ url_for('auth.logout') }}" class="auth-sair-form">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="botao botao--texto">Sair</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

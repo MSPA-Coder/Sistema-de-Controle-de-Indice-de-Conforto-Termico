@@ -19,6 +19,7 @@ import json
 from . import thermal_indices as ti
 from .database_comum import coagir_booleano as coagir_booleano
 from .database_comum import conexao as _conexao
+from .database_configuracoes import obter_configuracoes
 
 MODOS_OPERACAO = ("desligado", "manual", "automatico", "manutencao")
 MODO_OPERACAO_PADRAO = "manual"
@@ -151,6 +152,14 @@ def _validar_zona(dados: dict) -> dict:
         "especie": especie,
         "indice": indice,
         "ativa": coagir_booleano(dados.get("ativa", True), True),
+        # Três ciclos é o padrão escolhido para equilibrar atraso transitório
+        # e sinalização rápida. A política deliberadamente só admite 2 ou 3.
+        "ciclos_expiracao_leitura": _validar_inteiro(
+            dados.get("ciclos_expiracao_leitura", 3),
+            "ciclos de expiração da leitura",
+            2,
+            3,
+        ),
     }
 
 
@@ -159,12 +168,15 @@ def criar_zona(dados: dict) -> dict:
     agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
     with _conexao() as conn:
         cursor = conn.execute(
-            "INSERT INTO zonas (nome, especie, indice, ativa, criado_em) VALUES (?, ?, ?, ?, ?)",
+            """INSERT INTO zonas
+               (nome, especie, indice, ativa, ciclos_expiracao_leitura, criado_em)
+               VALUES (?, ?, ?, ?, ?, ?)""",
             (
                 validado["nome"],
                 validado["especie"],
                 validado["indice"],
                 int(validado["ativa"]),
+                validado["ciclos_expiracao_leitura"],
                 agora,
             ),
         )
@@ -183,6 +195,7 @@ def criar_zona(dados: dict) -> dict:
         "especie": validado["especie"],
         "indice": validado["indice"],
         "ativa": validado["ativa"],
+        "ciclos_expiracao_leitura": validado["ciclos_expiracao_leitura"],
         "criado_em": agora,
         "equipamentos": [],
         "controle": {
@@ -267,14 +280,30 @@ def obter_estado_operacional_zonas() -> list[dict]:
     def _bool_opcional(valor):
         return None if valor is None else bool(valor)
 
+    configuracoes = obter_configuracoes()
+    intervalo = float(configuracoes.get("intervaloLeituraSegundos") or 1)
+    agora = datetime.datetime.now()
     resultado = []
     for zona in zonas:
+        ciclos_expiracao = int(zona.get("ciclos_expiracao_leitura") or 3)
+        limite_atualidade = datetime.timedelta(seconds=max(10.0, intervalo * ciclos_expiracao))
         estado = estados.get(zona["id"], {})
         falhas = estado.get("falhas") or "[]"
         try:
             falhas = json.loads(falhas)
         except (TypeError, json.JSONDecodeError):
             falhas = []
+        ultimo_ciclo_em = estado.get("ultimo_ciclo_em")
+        idade_leitura_segundos = None
+        leitura_atual = False
+        if ultimo_ciclo_em:
+            try:
+                idade = agora - datetime.datetime.fromisoformat(ultimo_ciclo_em)
+                idade_leitura_segundos = max(0, int(idade.total_seconds()))
+                leitura_atual = idade <= limite_atualidade
+            except (TypeError, ValueError):
+                pass
+        qualidade_original = estado.get("qualidade") or "sem_leitura"
         resultado.append(
             {
                 "zona_id": zona["id"],
@@ -291,9 +320,18 @@ def obter_estado_operacional_zonas() -> list[dict]:
                     "nebulizador": _bool_opcional(estado.get("nebulizador_confirmado")),
                 },
                 "intensidade": estado.get("intensidade"),
-                "qualidade": estado.get("qualidade") or "sem_leitura",
+                "qualidade": (
+                    qualidade_original
+                    if leitura_atual or ultimo_ciclo_em is None
+                    else "desatualizada"
+                ),
+                "qualidade_original": qualidade_original,
+                "leitura_atual": leitura_atual,
+                "idade_leitura_segundos": idade_leitura_segundos,
+                "limite_atualidade_segundos": int(limite_atualidade.total_seconds()),
+                "ciclos_expiracao_leitura": ciclos_expiracao,
                 "falhas": falhas,
-                "ultimo_ciclo_em": estado.get("ultimo_ciclo_em"),
+                "ultimo_ciclo_em": ultimo_ciclo_em,
             }
         )
     return resultado
@@ -316,12 +354,14 @@ def atualizar_zona(zona_id: int, dados: dict) -> dict | None:
         if existe is None:
             return None
         conn.execute(
-            "UPDATE zonas SET nome = ?, especie = ?, indice = ?, ativa = ? WHERE id = ?",
+            """UPDATE zonas SET nome = ?, especie = ?, indice = ?, ativa = ?,
+               ciclos_expiracao_leitura = ? WHERE id = ?""",
             (
                 validado["nome"],
                 validado["especie"],
                 validado["indice"],
                 int(validado["ativa"]),
+                validado["ciclos_expiracao_leitura"],
                 zona_id,
             ),
         )

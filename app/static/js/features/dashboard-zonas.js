@@ -13,6 +13,7 @@ export function criarDashboardZonas({
   corStatus,
   corCampoEntrada,
   formatarHora,
+  formatarDataHoraCurta,
   camposDaEspecie,
   normalizarChaveTexto,
   rotuloIntensidade,
@@ -44,6 +45,8 @@ export function criarDashboardZonas({
   let ultimosHistoricosGrafico = {};
   let ultimoStatusPorZona = new Map();
   let ultimasEntradasPorZona = new Map();
+  let ultimaLeituraPorZona = new Map();
+  let atualidadePorZona = new Map();
   let zonasCache = [];
 
   async function carregarHistorico(opcoes = {}) {
@@ -148,26 +151,39 @@ export function criarDashboardZonas({
   function atualizarLinhaComHistoricoZonaPrincipal(zona, historico) {
     if (!zona || !Array.isArray(historico) || !historico.length) return;
     const ultima = historico[historico.length - 1];
+    ultimaLeituraPorZona.set(zona.id, ultima);
     ultimoStatusPorZona.set(zona.id, ultima.status);
     ultimasEntradasPorZona.set(zona.id, ultima.entradas || {});
+    const atualidade = atualidadePorZona.get(zona.id);
+    const desatualizada = atualidade?.leitura_atual === false;
     const classe = classeStatus(ultima.status);
 
     const readoutValor = elementoLinhaZonaPrincipal(zona.id, "readout-valor");
     if (readoutValor) {
       readoutValor.textContent = Number(ultima.valor).toFixed(2).replace(".", ",");
-      readoutValor.className = "readout-valor cor-" + classe;
+      readoutValor.className = desatualizada ? "readout-valor" : "readout-valor cor-" + classe;
     }
     const readoutIndice = elementoLinhaZonaPrincipal(zona.id, "readout-indice");
     if (readoutIndice) readoutIndice.textContent = ultima.indice || zona.indice;
 
     const faixa = elementoLinhaZonaPrincipal(zona.id, "faixa-status");
     const faixaTexto = elementoLinhaZonaPrincipal(zona.id, "faixa-status-texto");
-    if (faixa) faixa.className = "faixa-status faixa-" + classe;
-    if (faixaTexto) faixaTexto.textContent = String(ultima.status || "").toUpperCase();
+    if (faixa) faixa.className = desatualizada
+      ? "faixa-status faixa-status--vazio"
+      : "faixa-status faixa-" + classe;
+    if (faixaTexto) faixaTexto.textContent = desatualizada
+      ? "DADO DESATUALIZADO"
+      : String(ultima.status || "").toUpperCase();
 
     const mensagem = elementoLinhaZonaPrincipal(zona.id, "mensagem-orientacao");
-    if (mensagem) mensagem.textContent = "Ultima leitura registrada as " + formatarHora(ultima.criado_em) + ".";
-    obterOperacao().atualizarEquipamentoDaZona(zona, ultima.status);
+    if (mensagem) mensagem.textContent = desatualizada
+      ? "Última leitura em " + formatarDataHoraCurta(ultima.criado_em) + ". O status térmico não é atual."
+      : "Última leitura registrada às " + formatarHora(ultima.criado_em) + ".";
+    if (desatualizada) {
+      atualizarEquipamento(null, null, zona);
+    } else {
+      obterOperacao().atualizarEquipamentoDaZona(zona, ultima.status);
+    }
     if (zona.id === estado.zonaId) {
       obterEntradaCalculo().renderCamposEntradaDashboard(ultima.entradas, zona);
       const zonaEstado = obterOperacao().obterEstadoDaZona(zona.id);
@@ -747,8 +763,17 @@ export function criarDashboardZonas({
     return ultimoStatusPorZona.get(zonaId);
   }
 
+  function atualizarAtualidadeZonas(zonas) {
+    atualidadePorZona = new Map((zonas || []).map((item) => [item.zona_id, item]));
+    zonasCache.forEach((zona) => {
+      const ultima = ultimaLeituraPorZona.get(zona.id);
+      if (ultima) atualizarLinhaComHistoricoZonaPrincipal(zona, [ultima]);
+    });
+  }
+
   return {
     atualizarEquipamento,
+    atualizarAtualidadeZonas,
     atualizarErroLinhaZonaPrincipal,
     atualizarResultado,
     atualizarSensorRemoto,

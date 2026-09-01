@@ -95,13 +95,17 @@ def main() -> int:
         return 1
 
     try:
+        # `exigir_troca=False`: quem roda este script tem shell no conteiner e
+        # escolheu a propria senha -- nao existe o terceiro que a criacao pela
+        # tela pressupoe. Ver a docstring de `database_usuarios.criar_usuario`.
         usuario = db.criar_usuario(
             {
                 "nome": nome,
                 "login": login,
                 "perfil": "administrador",
                 "senha_hash": auth.gerar_hash_senha(senha),
-            }
+            },
+            exigir_troca=False,
         )
     except db.UsuarioInvalidoError as erro:
         print(f"Não foi possível criar o usuário: {erro}", file=sys.stderr)

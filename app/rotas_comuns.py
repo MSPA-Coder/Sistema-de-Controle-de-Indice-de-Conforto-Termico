@@ -194,9 +194,9 @@ def historico_leituras():
     )
 
 
-@comum_bp.route("/api/zonas/<int:zona_id>/consolidar-historico", methods=["POST"])
-def consolidar_historico_zona(zona_id):
-    """Materializa os resumos pendentes da zona antes de exibir seu historico."""
+@comum_bp.route("/api/zonas/<int:zona_id>/atualizar-agregados", methods=["POST"])
+def atualizar_agregados_zona(zona_id):
+    """Materializa agregados pendentes sem alterar as medições originais."""
     zona = db.obter_zona(zona_id)
     if zona is None:
         return jsonify({"erro": f"Zona {zona_id} nao encontrada."}), 404

@@ -45,7 +45,42 @@ def test_login_e_publico(client):
     assert client.get("/login").status_code == 200
 
 
-def test_login_ignora_next_e_redireciona_para_inicio(app, client, monkeypatch):
+def test_login_leva_ao_destino_pedido(app, client, monkeypatch):
+    """O campo escondido do formulario finalmente serve para alguma coisa.
+
+    Ate 31/08/2026 a view nunca lia o `next`, e o teste no lugar deste
+    registrava isso como decisao. Nao era: o destino simplesmente nao tinha
+    sido implementado -- o `<input type="hidden" name="next">` ja estava no
+    template desde sempre, sem ninguem do outro lado.
+    """
+    app.config["WTF_CSRF_ENABLED"] = False
+    monkeypatch.setattr(
+        auth.db,
+        "obter_usuario_por_login",
+        lambda login: {"id": 7, "ativo": True, "senha_hash": "hash"},
+    )
+    monkeypatch.setattr(auth, "conferir_senha", lambda senha, hash_: True)
+    monkeypatch.setattr(auth.db, "registrar_login_usuario", lambda usuario_id: None)
+
+    resposta = client.post(
+        "/login",
+        data={"login": "admin", "senha": "senha-valida", "next": "/usuarios/"},
+        follow_redirects=False,
+    )
+
+    assert resposta.status_code == 302
+    assert resposta.headers["Location"] == "/usuarios/"
+
+
+def test_o_formulario_de_login_carrega_o_destino(client):
+    # Sem o campo escondido, o POST perde o que o GET recebeu -- o `action`
+    # posta em `/login` sem query.
+    html = client.get("/login?next=/usuarios/").get_data(as_text=True)
+
+    assert 'name="next" value="/usuarios/"' in html
+
+
+def test_login_ignora_next_externo_e_redireciona_para_inicio(app, client, monkeypatch):
     app.config["WTF_CSRF_ENABLED"] = False
     monkeypatch.setattr(
         auth.db,

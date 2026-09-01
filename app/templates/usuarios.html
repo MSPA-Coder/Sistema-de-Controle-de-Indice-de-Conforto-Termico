@@ -14,6 +14,7 @@
     <div class="admin-sessao">
       Logado como <strong>{{ usuario_atual.nome }}</strong>
       ({{ perfil_label.get(usuario_atual.perfil, usuario_atual.perfil) }})
+      <a class="botao--texto" href="{{ url_for('auth.trocar_senha') }}">Minha senha</a>
       <form method="post" action="{{ url_for('auth.logout') }}" class="admin-logout-form">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <button type="submit" class="botao botao--texto">Sair</button>
@@ -30,6 +31,20 @@
     </div>
     {% endif %}
   {% endwith %}
+
+  {% if senha_temporaria is defined and senha_temporaria %}
+  {# Bloco fixo, nao mensagem de sessao: e a unica copia em texto claro da
+     senha, e `flash()` a guardaria no cookie de sessao -- assinado, nao
+     cifrado. Ver `_render_usuarios` em `app/auth.py`. #}
+  <div class="painel admin-painel senha-temporaria" role="status">
+    <h2 class="painel-titulo">Senha temporária de {{ senha_de }}</h2>
+    <p><code class="senha-temporaria-valor">{{ senha_temporaria }}</code></p>
+    <p class="admin-subtitulo">
+      Anote agora: ela não será mostrada de novo. Quem entrar com ela terá de
+      trocá-la antes de usar o sistema.
+    </p>
+  </div>
+  {% endif %}
 
   <div class="painel admin-painel">
     <div class="admin-painel-cabecalho">
@@ -59,6 +74,18 @@
             <td>{{ usuario.ultimo_login_em or "Nunca" }}</td>
             <td class="admin-acoes">
               <a class="botao botao--fantasma botao--compacto" href="{{ url_for('usuarios.editar_usuario_rota', usuario_id=usuario.id) }}">Editar</a>
+              {# Sem campo de senha: quem administra nao escolhe mais a senha de
+                 outra pessoa. O sistema sorteia, mostra uma vez, e o dono e
+                 obrigado a trocar no primeiro acesso. #}
+              <form method="post" action="{{ url_for('usuarios.redefinir_senha_rota', usuario_id=usuario.id) }}"
+                    class="admin-excluir-form">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="botao botao--fantasma botao--compacto"
+                        data-sa-confirmar="Redefinir a senha de {{ usuario.nome }}? O sistema vai gerar uma senha temporária, mostrada uma única vez."
+                        data-sa-titulo="Redefinir senha"
+                        data-sa-severidade="warning"
+                        data-sa-ok="Redefinir">Redefinir senha</button>
+              </form>
               {% if usuario.id != usuario_atual.id %}
               {# O `onsubmit="return confirm(...)"` que estava aqui NUNCA
                  disparava: a CSP do projeto é `script-src 'self'` sem
