@@ -10,6 +10,7 @@ from app.app_factory import (
     AppConfig,
     _validar_debug,
     _validar_testing,
+    _validar_transporte,
 )
 
 
@@ -62,6 +63,34 @@ def test_testing_local_explicito_e_aceito():
 def test_sem_testing_nao_ha_exigencia_nenhuma():
     # O caminho de produção normal: a variável desligada não exige nada.
     _validar_testing(False, _config(debug=False, host="0.0.0.0", development=False))
+
+
+def test_transporte_recusa_host_publico_com_cookie_inseguro():
+    """CT-02: o defeito era a ausência exatamente desta trava.
+
+    Até 01/09/2026, a única garantia de que `CONFORTO_COOKIE_SEGURO` estaria
+    ligado em produção era o exemplo versionado de `.env.vps` trazê-lo assim
+    -- copiar o arquivo errado (o de desenvolvimento) desligava `Secure` em
+    silêncio, sem nada recusar a subida.
+    """
+    with pytest.raises(RuntimeError, match="CONFORTO_COOKIE_SEGURO"):
+        _validar_transporte(
+            _config(debug=False, host="0.0.0.0", development=False), cookie_seguro=False
+        )
+
+
+def test_transporte_aceita_host_publico_com_cookie_seguro():
+    # O caminho de produção correto: `Secure` ligado libera escutar em público.
+    _validar_transporte(
+        _config(debug=False, host="0.0.0.0", development=False), cookie_seguro=True
+    )
+
+
+def test_transporte_aceita_loopback_com_cookie_inseguro():
+    # Desenvolvimento local em HTTP: loopback dispensa `Secure`.
+    _validar_transporte(
+        _config(debug=False, host="127.0.0.1", development=True), cookie_seguro=False
+    )
 
 
 def test_api_nao_expoe_descricao_de_http_500(app, client, caplog, monkeypatch):

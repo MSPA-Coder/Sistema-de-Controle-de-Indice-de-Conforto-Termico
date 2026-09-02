@@ -99,6 +99,16 @@ O estágio executa `ruff check . && pytest`. Mudanças de persistência,
 migrações, dependências ou contêineres também exigem a pilha completa e
 `scripts.verificar_postgres`. Veja [Desenvolvimento e validação](docs/DESENVOLVIMENTO.md).
 
+## Logs
+
+Mensagens de log que carregam texto de fora (login digitado, parâmetro de
+requisição, exceção de biblioteca) passam por
+`sharedauth.logs.sanitizar_log`. Ela é rede, não garantia: redige por
+reconhecimento de padrão e não substitui a disciplina de nunca colocar um
+segredo na mensagem em primeiro lugar — ver `sharedauth.secrets`, cujas
+exceções nunca carregam o valor lido. Um rótulo novo a reconhecer entra em
+`sharedauth.logs.CHAVES_SENSIVEIS`, na biblioteca, nunca numa cópia local.
+
 ## Dados e backup
 
 O projeto irmão [BackupRestore](https://github.com/MSPA-Coder/BackupRestore)

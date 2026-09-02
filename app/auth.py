@@ -87,6 +87,16 @@ if TYPE_CHECKING:
 # unica presente em TODOS os perfis porque a aba Dashboard nunca tem uma
 # acao de escrita -- e so exibicao, sem risco em liberar para qualquer
 # pessoa autenticada.
+#
+# Por isso "dashboard" NAO E UMA AREA COMO AS OUTRAS (CT-05): na pratica, ela
+# equivale a "qualquer conta autenticada" -- e mapear um endpoint nela e o
+# mesmo que declara-lo aberto a todo mundo que fez login, sem excecao nenhuma.
+# Foi essa propriedade, nao documentada no ponto de uso, que deixou passar
+# CT-01: a rota estava corretamente mapeada em "dashboard", e ninguem notou
+# que a carga (fiacao Modbus) nao cabia em "qualquer conta autenticada".
+# `test_area_dashboard_e_universal_e_so_de_leitura` fixa as duas metades desta
+# garantia: todo perfil precisa ter "dashboard", e nenhum endpoint mapeado
+# nela pode ser de escrita.
 AREAS_POR_PERFIL: dict[str, frozenset[str]] = {
     "operador": frozenset({"dashboard", "operacao"}),
     "tecnico": frozenset(
@@ -260,14 +270,17 @@ def obter_ou_criar_token_interno() -> str:
     de pessoa.
 
     Mesmo padrao de `obter_chave_secreta` acima, incluindo a
-    precedencia da variavel de ambiente: instalacoes em que coletor e
-    "outra parte" rodam em MAQUINAS diferentes (nao compartilham
-    `instance/`) precisam definir `CONFORTO_INTERNO_TOKEN` explicitamente
-    e IGUAL nos dois processos -- sem isso, cada lado geraria e
-    persistiria um token diferente e a chamada interna sempre falharia
-    com 403. Essa limitacao acompanha a mesma premissa ja documentada no
-    README para a implantação em contêineres (as duas partes compartilham
-    a mesma origem de segredo)."""
+    precedencia da variavel de ambiente e a mesma trava de geracao (CT-04,
+    fechada em 02/09/2026: ate ali este caminho gerava e persistia um token
+    em silencio fora de desenvolvimento, e a ausencia de configuracao virava
+    uma indisponibilidade sem causa aparente em vez de um erro na
+    inicializacao). Instalacoes em que coletor e "outra parte" rodam em
+    MAQUINAS diferentes (nao compartilham `instance/`) precisam definir
+    `CONFORTO_INTERNO_TOKEN` explicitamente e IGUAL nos dois processos --
+    sem isso, cada lado geraria e persistiria um token diferente e a chamada
+    interna sempre falharia com 403. Essa limitacao acompanha a mesma
+    premissa ja documentada no README para a implantação em contêineres (as
+    duas partes compartilham a mesma origem de segredo)."""
     variavel_ambiente = os.environ.get("CONFORTO_INTERNO_TOKEN")
     if variavel_ambiente:
         return variavel_ambiente
@@ -278,6 +291,17 @@ def obter_ou_criar_token_interno() -> str:
     )
     if token is not None:
         return token
+
+    if not _ambiente_permite_gerar_chave():
+        raise RuntimeError(
+            "Token interno ausente. Em produção ele é obrigatório e precisa ser "
+            "IGUAL nos dois processos: defina CONFORTO_INTERNO_TOKEN_FILE "
+            "apontando para /run/secrets/internal_token (o Compose já monta "
+            "esse segredo) ou CONFORTO_INTERNO_TOKEN. Gerar um token sozinho "
+            "faria ICT e coletor discordarem, e a API interna recusaria tudo "
+            "com 403 -- uma indisponibilidade sem causa aparente, em vez de "
+            "um erro de inicialização que nomeia a variável que falta."
+        )
 
     caminho = Path(db.INSTANCE_DIR) / "interno_token.txt"
     try:
@@ -360,11 +384,13 @@ AREA_POR_ENDPOINT: dict[str, str | tuple[str, ...]] = {
     "comum.resumo_horario_zona": "historico",
     "comum.status_operacao": "operacao",
     "comum.eventos_operacao": "operacao",
-    # A aba Dashboard nao tem escrita, e "dashboard" pertence a todos os
-    # perfis -- exigi-la nao restringe ninguem hoje. Vale declarar mesmo
-    # assim: e o que faz a area existir no mapa em vez de so na tabela de
-    # perfis, e o que faz um perfil futuro sem "dashboard" ser obedecido
-    # aqui em vez de silenciosamente ignorado.
+    # "dashboard" equivale a "qualquer conta autenticada" (ver o comentario
+    # em AREAS_POR_PERFIL, acima) -- exigi-la nao restringe ninguem hoje.
+    # Vale declarar mesmo assim: e o que faz a area existir no mapa em vez de
+    # so na tabela de perfis, e o que faz um perfil futuro sem "dashboard"
+    # ser obedecido aqui em vez de silenciosamente ignorado. Por ser
+    # universal, so pode ser exigida por LEITURA -- nunca por um endpoint de
+    # escrita, que ficaria aberto a qualquer pessoa logada sem excecao.
     "comum.listar_zonas": "dashboard",
     "comum.historicos_recentes_zonas": "dashboard",
     # --- administracao_bp: Cadastro (zonas/equipamentos, fiacao Modbus) -

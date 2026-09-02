@@ -19,9 +19,17 @@ Por isso o que se mede aqui e comportamento e cobertura do mapa, nao texto.
 from __future__ import annotations
 
 import pytest
+from flask import url_for
 from sharedauth.session import marca_de_sessao
 
-from app import auth
+from app import (
+    auth,
+    dados_entrada_rotas,
+    database,
+    database_configuracoes,
+    database_zonas,
+    rotas_comuns,
+)
 
 
 def _endpoints_da_aplicacao(app) -> set[str]:
@@ -64,6 +72,46 @@ def test_listas_de_excecao_nao_apodrecem(app):
         set(auth.AREA_POR_ENDPOINT) & set(auth.ENDPOINTS_ABERTOS_A_QUALQUER_PERFIL)
     )
     assert not duplicados, f"Classificados como abertos E com area: {duplicados}"
+
+
+def test_area_dashboard_e_universal_e_so_de_leitura(app):
+    """CT-05: "dashboard" equivale a "qualquer conta autenticada".
+
+    A propriedade tem duas metades, e as duas precisam continuar valendo: (a)
+    todo perfil tem "dashboard" -- um perfil novo sem ela quebraria a premissa
+    silenciosamente; (b) nenhum endpoint mapeado nela é de escrita -- um POST
+    ali ficaria aberto a qualquer pessoa logada, sem exceção nenhuma. Foi essa
+    segunda metade, não verificada em lugar nenhum, que deixou `GET
+    /api/zonas` (CT-01) passar despercebido por tanto tempo.
+    """
+    sem_dashboard = sorted(
+        perfil for perfil, areas in auth.AREAS_POR_PERFIL.items() if "dashboard" not in areas
+    )
+    assert not sem_dashboard, (
+        f"Perfis sem a área universal 'dashboard': {sem_dashboard}. Ou o perfil "
+        "está errado, ou 'dashboard' deixou de ser universal e o comentário em "
+        "AREAS_POR_PERFIL precisa mudar junto."
+    )
+
+    metodos_por_endpoint = {regra.endpoint: regra.methods for regra in app.url_map.iter_rules()}
+    metodos_de_escrita = {"POST", "PUT", "PATCH", "DELETE"}
+    endpoints_dashboard = [
+        endpoint
+        for endpoint, area in auth.AREA_POR_ENDPOINT.items()
+        if area == "dashboard" or (isinstance(area, tuple) and "dashboard" in area)
+    ]
+    assert endpoints_dashboard, "'dashboard' parou de aparecer no mapa -- ajuste este teste"
+
+    de_escrita = sorted(
+        endpoint
+        for endpoint in endpoints_dashboard
+        if (metodos_por_endpoint.get(endpoint) or set()) & metodos_de_escrita
+    )
+    assert not de_escrita, (
+        f"Endpoint(s) de escrita mapeados em 'dashboard': {de_escrita}. Isso "
+        "abriria a ação para qualquer conta autenticada, sem exceção -- mova "
+        "para uma área mais restrita."
+    )
 
 
 def test_toda_area_do_mapa_de_perfis_e_exigida_por_alguma_rota():
@@ -171,4 +219,244 @@ def test_rota_nao_mapeada_e_negada(app, entrar, monkeypatch):
 
     assert resposta.status_code == 403, (
         "Rota sem area declarada passou. O hook voltou a liberar por omissao."
+    )
+
+
+# ---------------------------------------------------------------------------
+# A CARGA tambem precisa caber na area que libera a rota
+#
+# O mapa de areas responde "quem entra". Ele nao responde "o que sai" -- e foi
+# nessa distancia que `GET /api/zonas` ficou entregando a fiacao Modbus a todos
+# os seis perfis: a rota esta corretamente mapeada em `dashboard`, e o problema
+# era a carga nao caber nessa area.
+# ---------------------------------------------------------------------------
+
+#: O endereco do equipamento na rede industrial. Junto, e o bastante para falar
+#: com ele sem passar por esta aplicacao.
+FIACAO_MODBUS = frozenset(
+    {
+        "host",
+        "porta",
+        "porta_serial",
+        "baud_rate",
+        "unidade_id",
+        "tipo_registrador",
+        "endereco_registrador",
+    }
+)
+
+
+def test_colunas_publicas_de_equipamento_nao_trazem_fiacao():
+    """Invariante barata: ninguem acrescenta `host` a lista publica sem ver isto."""
+    publicas = set(database_zonas.COLUNAS_EQUIPAMENTO_SEM_FIACAO)
+
+    assert not publicas & FIACAO_MODBUS, (
+        f"Campos de fiacao na lista publica de equipamento: "
+        f"{sorted(publicas & FIACAO_MODBUS)}"
+    )
+
+
+@pytest.mark.parametrize(
+    "perfil,espera_fiacao",
+    [
+        ("operador", False),
+        ("gestor", False),
+        ("veterinario", False),
+        ("analista", False),
+        ("tecnico", True),
+        ("administrador", True),
+    ],
+)
+def test_listagem_de_zonas_so_traz_fiacao_para_quem_tem_cadastro(
+    entrar, monkeypatch, perfil, espera_fiacao
+):
+    """`GET /api/zonas` e liberada por `dashboard`, que os seis perfis tem.
+
+    A fiacao pertence a `cadastro` -- e o que `administracao.obter_zona`
+    restringe a tecnico e administrador. Ate 01/09/2026 a rota de TODAS as
+    zonas entregava exatamente o que a rota de UMA protegia.
+    """
+    assert auth.area_permitida(perfil, "dashboard"), (
+        f"O teste pressupoe que {perfil} alcanca a rota"
+    )
+    assert auth.area_permitida(perfil, "cadastro") is espera_fiacao, (
+        f"O teste pressupoe que {perfil} {'tem' if espera_fiacao else 'nao tem'} `cadastro`"
+    )
+
+    pedidos: list[dict] = []
+
+    def _listar_zonas(**argumentos):
+        pedidos.append(argumentos)
+        return []
+
+    monkeypatch.setattr(rotas_comuns.db, "listar_zonas", _listar_zonas)
+
+    resposta = entrar(perfil).get("/api/zonas")
+
+    assert resposta.status_code == 200
+    assert pedidos == [{"com_fiacao": espera_fiacao}], (
+        f"{perfil} recebeu com_fiacao={pedidos}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# A mesma pergunta, agora em TODOS os endpoints do mapa -- nao so /api/zonas
+#
+# O teste acima fixa o CONTRATO exato de uma rota (chama com `com_fiacao=`
+# tal). O que falta, e o que a recomendacao P1 e a issue 2 pedem, e a rede
+# generica: percorrer CADA endpoint GET de AREA_POR_ENDPOINT com CADA um dos
+# seis perfis e afirmar sobre as CHAVES devolvidas, nao so sobre o status.
+#
+# A lista de endpoints vem do PROPRIO AREA_POR_ENDPOINT (parametrize le o
+# dict no momento da coleta dos testes) -- um endpoint novo mapeado entra
+# aqui sozinho, sem editar nada neste arquivo.
+# ---------------------------------------------------------------------------
+
+#: Equipamento com a fiacao Modbus completa -- o mesmo formato que
+#: `obter_zona`/`listar_zonas(com_fiacao=True)` devolvem de verdade. Usado
+#: para popular os dois unicos pontos de leitura que realmente tocam a
+#: tabela `equipamentos`; os demais mocks abaixo devolvem colecao vazia
+#: porque a tabela que consultam de verdade (leituras, eventos, auditoria,
+#: configuracoes) nao tem essas colunas -- nao ha o que vazar por ali.
+_EQUIPAMENTO_COM_FIACAO = {
+    "id": 1,
+    "zona_id": 1,
+    "tipo": "ventilador",
+    "nome": "Equipamento de teste",
+    "campo_medido": None,
+    "modo_conexao": "tcp",
+    "host": "10.0.0.5",
+    "porta": 502,
+    "porta_serial": None,
+    "baud_rate": None,
+    "unidade_id": 1,
+    "tipo_registrador": "holding",
+    "endereco_registrador": 10,
+}
+
+
+def _fake_listar_zonas(*, apenas_ativas=False, com_fiacao=False):
+    # Mesmo contrato da funcao real (database_zonas.listar_zonas): so traz
+    # fiacao quando pedida explicitamente. E o comportamento deste `if` que
+    # protege /api/zonas, e e ele que este fake precisa reproduzir para o
+    # teste continuar significativo.
+    equipamento = dict(_EQUIPAMENTO_COM_FIACAO)
+    if not com_fiacao:
+        equipamento = {
+            campo: equipamento[campo] for campo in database_zonas.COLUNAS_EQUIPAMENTO_SEM_FIACAO
+        }
+    return [{"id": 1, "nome": "Zona de teste", "equipamentos": [equipamento]}]
+
+
+def _fake_obter_zona(zona_id):
+    # Ao contrario de `listar_zonas`, a funcao real NUNCA filtra a fiacao
+    # aqui -- quem restringe e a area `cadastro` do endpoint, nao a funcao.
+    return {"id": zona_id, "nome": "Zona de teste", "equipamentos": [dict(_EQUIPAMENTO_COM_FIACAO)]}
+
+
+@pytest.fixture
+def leituras_da_aplicacao(monkeypatch):
+    """Troca toda funcao de leitura usada pelas rotas GET do mapa por um
+    retorno minimo, para exercitar as rotas sem PostgreSQL (nao ha banco
+    real nesta suite -- ver conftest.py).
+
+    Patchear `database.<nome>` (o modulo, nao o alias `db` de cada arquivo
+    de rotas) alcanca todo mundo: `rotas_comuns`, `ict/rotas`,
+    `ict/administracao` e `dados_entrada_rotas` importam com
+    `from . import database as db`, que so cria um APELIDO para o mesmo
+    objeto de modulo -- o atributo consultado em `db.funcao()` e sempre o
+    do modulo `database`, mesmo depois do patch.
+    """
+    monkeypatch.setattr(database, "listar_zonas", _fake_listar_zonas)
+    monkeypatch.setattr(database, "obter_zona", _fake_obter_zona)
+    monkeypatch.setattr(database, "obter_estatisticas_zonas", lambda: [])
+    monkeypatch.setattr(database, "obter_painel_zonas", lambda: [])
+    monkeypatch.setattr(
+        database, "obter_configuracoes", lambda *a, **k: dict(database_configuracoes.CONFIGURACOES_PADRAO)
+    )
+    monkeypatch.setattr(database, "obter_status_coletor", lambda: {})
+    monkeypatch.setattr(database, "obter_estado_operacional_zonas", lambda: [])
+    monkeypatch.setattr(database, "listar_eventos_operacao", lambda *a, **k: [])
+    monkeypatch.setattr(database, "obter_leituras_recentes_zona", lambda *a, **k: [])
+    monkeypatch.setattr(database, "obter_historico_por_zona", lambda *a, **k: [])
+    monkeypatch.setattr(database, "obter_historico_leituras", lambda *a, **k: {})
+    monkeypatch.setattr(database, "obter_agregados_15min", lambda *a, **k: [])
+    monkeypatch.setattr(database, "obter_resumos_horarios", lambda *a, **k: [])
+    monkeypatch.setattr(database, "obter_historicos_recentes_zonas", lambda *a, **k: {})
+    monkeypatch.setattr(database, "listar_eventos_auditoria", lambda *a, **k: [])
+    monkeypatch.setattr(database, "listar_usuarios", lambda: [])
+    monkeypatch.setattr(dados_entrada_rotas.dados_db, "listar_configuracoes", lambda *a, **k: [])
+    monkeypatch.setattr(dados_entrada_rotas.dados_db, "listar_execucoes", lambda *a, **k: [])
+    monkeypatch.setattr(
+        dados_entrada_rotas.dados_db, "iterar_medicoes_csv", lambda *a, **k: (["execucao_id"], iter([]))
+    )
+
+
+def _chaves_recursivas(valor) -> set[str]:
+    """Todas as chaves de dict encontradas em `valor`, em qualquer profundidade."""
+    chaves: set[str] = set()
+    if isinstance(valor, dict):
+        chaves |= set(valor.keys())
+        for sub in valor.values():
+            chaves |= _chaves_recursivas(sub)
+    elif isinstance(valor, list):
+        for item in valor:
+            chaves |= _chaves_recursivas(item)
+    return chaves
+
+
+@pytest.mark.parametrize("perfil", sorted(auth.AREAS_POR_PERFIL))
+@pytest.mark.parametrize("endpoint", sorted(auth.AREA_POR_ENDPOINT))
+def test_leitura_do_mapa_nao_vaza_campo_de_outra_area(
+    app, entrar, leituras_da_aplicacao, endpoint, perfil
+):
+    """Para CADA endpoint GET do mapa e CADA perfil: quem entra, e o que sai.
+
+    `entrar` e `leituras_da_aplicacao` sao independentes (a sessao nao muda
+    o que o banco -- aqui, o mock -- devolve), entao a combinacao das duas
+    fixtures cobre exatamente o que a issue 2 pediu: exercitar a rota de
+    verdade, com sessao de verdade, sem precisar de PostgreSQL.
+    """
+    regra = next((r for r in app.url_map.iter_rules() if r.endpoint == endpoint), None)
+    assert regra is not None, f"{endpoint} esta em AREA_POR_ENDPOINT mas nao tem rota registrada"
+    if "GET" not in regra.methods:
+        pytest.skip(f"{endpoint} nao aceita GET; fica para uma rede de mutacoes, se um dia existir")
+
+    valores = dict.fromkeys(regra.arguments, 1)
+    with app.test_request_context():
+        url = url_for(endpoint, **valores)
+
+    area_exigida = auth.AREA_POR_ENDPOINT[endpoint]
+    areas_aceitas = (area_exigida,) if isinstance(area_exigida, str) else area_exigida
+    tem_acesso = any(auth.area_permitida(perfil, area) for area in areas_aceitas)
+
+    resposta = entrar(perfil).get(url)
+
+    if not tem_acesso:
+        # `_negar_acesso` (app/auth.py) responde diferente por FORMA da rota,
+        # nao por area: 403 sob `/api/`, redirect nas paginas Jinja fora dela
+        # (ex.: `usuarios.pagina_usuarios`). As duas recusam a mesma coisa; um
+        # redirect nao carrega a pagina protegida no corpo, entao nao ha o que
+        # escanear por campo vazado nesse caso.
+        esperado = 403 if regra.rule.startswith("/api/") else 302
+        assert resposta.status_code == esperado, (
+            f"{endpoint} respondeu {resposta.status_code} para {perfil}, que nao tem "
+            f"nenhuma das areas {areas_aceitas} (esperava {esperado})"
+        )
+        return
+
+    assert resposta.status_code != 403, f"{endpoint} barrou {perfil}, que tem {areas_aceitas}"
+
+    if not resposta.is_json:
+        return  # Pagina HTML (usuarios.pagina_usuarios) ou CSV (exportar_csv).
+
+    if auth.area_permitida(perfil, "cadastro"):
+        # Tem o direito de ver fiacao onde ela existir de verdade (ex.:
+        # administracao.obter_zona) -- nao ha o que proibir aqui.
+        return
+
+    vazadas = _chaves_recursivas(resposta.get_json()) & FIACAO_MODBUS
+    assert not vazadas, (
+        f"{endpoint} devolveu {sorted(vazadas)} para {perfil}, que nao tem a area 'cadastro'. "
+        "Isso e exatamente o defeito de CT-01, agora por outra rota."
     )

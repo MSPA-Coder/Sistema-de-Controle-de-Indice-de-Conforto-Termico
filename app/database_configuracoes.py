@@ -34,11 +34,17 @@ CONFIGURACOES_PADRAO = {
     "indice": "ITU",
     # Parametros SMTP editaveis pela interface. Variaveis de ambiente SMTP_*
     # continuam como fallback por campo (ver models.Email.enviar). "" (vazio)
-    # para host/usuario/senha significa "nao configurado".
+    # para host/usuario significa "nao configurado".
+    #
+    # A SENHA nao tem chave aqui, de proposito (CT-03): ate 01/09/2026 ela
+    # persistia em texto claro nesta tabela -- o dump que o BackupRestore gera
+    # e cataloga todo dia a replicava sem passar por tela nenhuma. Agora vem
+    # exclusivamente de `models.senha_smtp_configurada`/`_resolver_senha_smtp`
+    # (segredo do Compose ou a variavel `SMTP_PASS`, ja documentada em
+    # `.env.example`).
     "smtpHost": "",
     "smtpPorta": 587,
     "smtpUsuario": "",
-    "smtpSenha": "",
     # Modo simulado para as Zonas Modbus: quando ligado (padrao, ja que
     # normalmente ainda nao ha hardware Modbus real conectado), leitura de
     # sensor/escrita em atuador/teste de conexao das zonas nao tocam a rede
@@ -171,7 +177,9 @@ def _sanitizar_configuracoes(configuracoes: dict, *, base: dict | None = None) -
         "smtpHost": _coagir_texto_livre(bruto["smtpHost"], padrao["smtpHost"]),
         "smtpPorta": _coagir_numero(bruto["smtpPorta"], padrao["smtpPorta"], 1, 65535),
         "smtpUsuario": _coagir_texto_livre(bruto["smtpUsuario"], padrao["smtpUsuario"]),
-        "smtpSenha": _coagir_texto_livre(bruto["smtpSenha"], padrao["smtpSenha"]),
+        # Sem "smtpSenha" aqui de proposito (CT-03): a senha do SMTP nao mora
+        # mais nesta tabela. Ver `models.senha_smtp_configurada` e a migracao
+        # `20260902_0001_remover_smtp_senha`, que apaga o valor ja persistido.
         "modoSimuladoZonas": _coagir_booleano(
             bruto["modoSimuladoZonas"], padrao["modoSimuladoZonas"]
         ),
@@ -217,15 +225,6 @@ def limpar_cache_configuracoes() -> None:
 def salvar_configuracoes(configuracoes: dict) -> dict:
     configuracoes = dict(configuracoes or {})
 
-    # `smtpSenha` e um campo "somente escrita": a API nunca devolve a senha
-    # real de volta ao navegador (ver `coletor.rotas`), entao um
-    # valor em branco aqui significa "o usuario nao mudou a senha", nao
-    # "apague a senha". Sem este tratamento, salvar QUALQUER outro campo
-    # (ex.: marcar uma checkbox) apagaria silenciosamente a senha SMTP ja
-    # configurada, porque o front-end sempre envia o payload completo e o
-    # campo de senha no navegador sempre chega vazio (nunca e preenchido de
-    # volta a partir do servidor).
-    #
     # A leitura e a escrita ocorrem na mesma transacao. Em PostgreSQL, um
     # advisory lock protege o documento de configuracoes contra lost updates
     # entre processos diferentes; a serialização local do backend anterior não
@@ -235,9 +234,11 @@ def salvar_configuracoes(configuracoes: dict) -> dict:
         conn.execute("SELECT pg_advisory_xact_lock(hashtext('conforto:configuracoes'))")
         linhas = conn.execute("SELECT chave, valor FROM configuracoes").fetchall()
         atuais = _decodificar_configuracoes(linhas)
-        if not str(configuracoes.get("smtpSenha", "")).strip():
-            configuracoes.pop("smtpSenha", None)
 
+        # `smtpSenha` nao esta mais em CONFIGURACOES_PADRAO (CT-03): o filtro
+        # `if k in padrao` de `_sanitizar_configuracoes` ja descarta sozinho
+        # qualquer valor de senha que um cliente antigo ainda envie, sem
+        # precisar de tratamento especial aqui.
         salvas = _sanitizar_configuracoes(configuracoes, base=atuais)
         conn.executemany(
             """

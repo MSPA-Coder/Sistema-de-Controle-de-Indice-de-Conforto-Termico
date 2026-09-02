@@ -216,6 +216,27 @@ def _validar_testing(testing: bool, config: AppConfig) -> None:
         raise RuntimeError("CONFORTO_TESTING só pode escutar em host de loopback.")
 
 
+def _validar_transporte(config: AppConfig, cookie_seguro: bool) -> None:
+    """Impede escuta fora de loopback com o cookie de sessão sem `Secure` (CT-02).
+
+    Mesma trava de :func:`_validar_debug` e :func:`_validar_testing`, aplicada
+    a `CONFORTO_COOKIE_SEGURO`: até 01/09/2026 a única garantia era o exemplo
+    versionado do arquivo de ambiente de produção trazer a variável ligada --
+    uma garantia por documentação, silenciosa se o arquivo copiado para o
+    servidor fosse o errado (ver `.env.vps.example` e a nota sobre a
+    divergência de nome entre o arquivo local e o de produção).
+    """
+    if cookie_seguro or config.host in HOSTS_LOOPBACK:
+        return
+    raise RuntimeError(
+        "CONFORTO_COOKIE_SEGURO desligado com escuta fora de loopback: o cookie "
+        "de sessão sairia sem Secure, e sem HSTS emitido pela aplicação a garantia "
+        "de transporte dependeria inteiramente do Nginx à frente. Defina "
+        "CONFORTO_COOKIE_SEGURO=1 (produção) ou escute em host de loopback "
+        "(desenvolvimento local em HTTP)."
+    )
+
+
 class ProvedorJSON(DefaultJSONProvider):
     """Serializador JSON com suporte às tabelas imutáveis do domínio."""
 
@@ -298,11 +319,13 @@ def criar_app_ict(config: AppConfig | None = None) -> Flask:
     limiter: Limiter = app.extensions["conforto_rate_limiter"]
 
     app.secret_key = auth.obter_chave_secreta()
+    cookie_seguro = _ler_bool_env("CONFORTO_COOKIE_SEGURO", False)
+    _validar_transporte(config, cookie_seguro)
     configurar_sessao(
         app,
         nome_cookie=os.environ.get("CONFORTO_SESSION_COOKIE_NAME", "conforto_session").strip()
         or "conforto_session",
-        https_obrigatorio=_ler_bool_env("CONFORTO_COOKIE_SEGURO", False),
+        https_obrigatorio=cookie_seguro,
         duracao_horas=12,
     )
 

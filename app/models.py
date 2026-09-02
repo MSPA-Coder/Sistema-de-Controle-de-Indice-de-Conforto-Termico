@@ -24,6 +24,8 @@ import re
 import smtplib
 from email.mime.text import MIMEText
 
+from sharedauth.secrets import DIRETORIO_SECRETS_COMPOSE, resolver_segredo
+
 from . import thermal_indices as ti
 
 # Mesma checagem pragmatica usada em database.py: garante formato minimo de
@@ -34,6 +36,26 @@ _EMAIL_REGEX = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 def _email_valido(endereco: object) -> bool:
     return isinstance(endereco, str) and bool(_EMAIL_REGEX.fullmatch(endereco.strip()))
+
+
+def _resolver_senha_smtp() -> str | None:
+    """Senha do servidor SMTP, nunca guardada no banco (CT-03).
+
+    Host/porta/usuário continuam editáveis pela tela e persistidos em
+    `configuracoes` -- não são segredo. A senha é o único campo que saía de lá
+    em texto claro, replicado todo dia pelo dump que o BackupRestore gera e
+    cataloga. `resolver_segredo` aceita tanto `SMTP_PASS_FILE` (segredo do
+    Compose, ausente por padrão -- SMTP é recurso opcional, nenhuma
+    instalação é obrigada a provisionar este arquivo) quanto a variável direta
+    `SMTP_PASS`, já documentada em `.env.example` como o fallback deste app
+    quando o campo correspondente está vazio.
+    """
+    return resolver_segredo("SMTP_PASS", caminho_esperado=DIRETORIO_SECRETS_COMPOSE / "smtp_password")
+
+
+def senha_smtp_configurada() -> bool:
+    """Só para a tela saber se há senha configurada -- nunca expõe o valor."""
+    return bool(_resolver_senha_smtp())
 
 
 def formatar_linhas_entradas(entradas: dict | None) -> list[str]:
@@ -203,10 +225,13 @@ class Email:
     def enviar(self, smtp_config: dict | None = None) -> bool:
         """Envia o e-mail via SMTP.
 
-        `smtp_config` (opcional) traz host/porta/usuario/senha vindos da
-        configuracao persistida no banco. Quando um campo especifico vem
-        vazio, a respectiva variavel de ambiente (`SMTP_HOST`/`SMTP_PORT`/
-        `SMTP_USER`/`SMTP_PASS`) e usada como fallback."""
+        `smtp_config` (opcional) traz host/porta/usuario vindos da
+        configuracao persistida no banco -- nunca a senha (CT-03: ela nao
+        fica no banco, para nao ir parar em texto claro num dump). Quando um
+        campo especifico vem vazio, a respectiva variavel de ambiente
+        (`SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`) e usada como fallback; a senha
+        vem sempre de `_resolver_senha_smtp` (segredo do Compose ou
+        `SMTP_PASS`)."""
         import logging
 
         logger = logging.getLogger(__name__)
@@ -228,7 +253,7 @@ class Email:
         host = str(host)
         porta = smtp_config.get("porta") or int(os.environ.get("SMTP_PORT", "587"))
         usuario = str(smtp_config.get("usuario") or os.environ.get("SMTP_USER") or "")
-        senha = str(smtp_config.get("senha") or os.environ.get("SMTP_PASS") or "")
+        senha = str(smtp_config.get("senha") or _resolver_senha_smtp() or "")
         try:
             msg = MIMEText(self.conteudo, _charset="utf-8")
             msg["Subject"] = "Alerta - Sistema de Controle dos Índices de Conforto Térmico"

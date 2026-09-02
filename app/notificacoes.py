@@ -55,11 +55,16 @@ def deve_notificar_email(resposta: dict, config: dict) -> bool:
 
 
 def smtp_config_atual(config: dict) -> dict:
+    """Host/porta/usuario vem da configuracao persistida; a senha, nao (CT-03).
+
+    Sem a chave `"senha"` aqui, `Email.enviar` cai no proprio fallback
+    (`models._resolver_senha_smtp`, segredo do Compose ou `SMTP_PASS`) -- o
+    unico lugar que resolve a senha, para nao duplicar essa decisao.
+    """
     return {
         "host": config.get("smtpHost") or None,
         "porta": config.get("smtpPorta") or None,
         "usuario": config.get("smtpUsuario") or None,
-        "senha": config.get("smtpSenha") or None,
     }
 
 

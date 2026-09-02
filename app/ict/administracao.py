@@ -13,6 +13,7 @@ from .. import agregacao
 from .. import database as db
 from ..app_factory import confirmacao_de_exclusao_valida
 from ..audit_log import registrar_evento_revisavel
+from ..models import senha_smtp_configurada
 from .coletor_client import chamar_coletor
 
 administracao_bp = Blueprint("administracao", __name__)
@@ -33,10 +34,15 @@ CHAVES_CONFIGURACOES_NAO_TECNICAS = frozenset(
 
 
 def _configuracoes_publicas(config: dict) -> dict:
-    """Nunca deixa a senha SMTP sair do servidor -- mesma mascara que
-    existia em `coletor/rotas.py` antes desta rota se mudar de modulo."""
+    """Nunca deixa a senha SMTP sair do servidor.
+
+    `config` (vindo do banco) nunca TEM `smtpSenha` -- ela não mora mais lá
+    (CT-03). `smtpSenhaConfigurada` reflete se a senha resolve por segredo do
+    Compose ou variável de ambiente, não o banco; a tela só precisa saber SE
+    há senha, nunca qual é.
+    """
     publico = dict(config)
-    publico["smtpSenhaConfigurada"] = bool(publico.get("smtpSenha"))
+    publico["smtpSenhaConfigurada"] = senha_smtp_configurada()
     publico["smtpSenha"] = ""
     return publico
 
