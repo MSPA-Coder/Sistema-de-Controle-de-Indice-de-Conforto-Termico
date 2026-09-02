@@ -530,10 +530,12 @@
     </div>
 
     <div class="configuracoes-coluna">
-      <!-- Credenciais do servidor SMTP em si (mesmos 4 parametros ja -->
-      <!-- documentados no README como variaveis de ambiente -->
-      <!-- SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS). A decisao de "avisar a -->
-      <!-- partir de qual status" fica na aba Configuracoes, perto de quem -->
+      <!-- Host/porta/usuario do SMTP: editaveis aqui e persistidos no banco, -->
+      <!-- mesmos parametros documentados no README como variaveis de -->
+      <!-- ambiente SMTP_HOST/SMTP_PORT/SMTP_USER. A SENHA (CT-03) nao entra -->
+      <!-- nesta tela nem no banco -- so o servidor a conhece, via SMTP_PASS -->
+      <!-- ou segredo do Compose (ver docs/RUNBOOK.md). A decisao de "avisar -->
+      <!-- a partir de qual status" fica na aba Configuracoes, perto de quem -->
       <!-- decide o limiar de alerta. -->
       <section class="painel configuracoes-painel configuracoes-painel--smtp">
         <h2 class="painel-titulo">Servidor SMTP</h2>
@@ -551,8 +553,8 @@
             <input type="text" id="cfg-smtp-usuario" placeholder="usuario@seudominio.com" autocomplete="off">
           </div>
           <div class="campo-config">
-            <label for="cfg-smtp-senha">Senha SMTP</label>
-            <input type="password" id="cfg-smtp-senha" placeholder="Deixe em branco para manter a senha atual" autocomplete="new-password">
+            <label>Senha SMTP</label>
+            <p id="cfg-smtp-senha-estado" class="campo-config-ajuda">Definida pelo administrador do servidor, fora desta tela.</p>
           </div>
         </div>
       </section>

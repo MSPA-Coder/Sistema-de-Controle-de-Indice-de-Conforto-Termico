@@ -243,12 +243,9 @@ export function criarEntradaCalculo({
       smtpHost: document.getElementById("cfg-smtp-host")?.value || "",
       smtpPorta: lerNumeroConfiguracao("cfg-smtp-porta", 587, 1),
       smtpUsuario: document.getElementById("cfg-smtp-usuario")?.value || "",
-      // Campo somente-escrita: o servidor nunca devolve a senha real (ver
-      // coletor.rotas._configuracoes_publicas), entao so enviamos algo aqui quando o
-      // usuario de fato digitou uma senha nova nesta sessao. Deixar em
-      // branco significa "nao mexer na senha ja salva" - tratado do lado do
-      // servidor em database.salvar_configuracoes.
-      smtpSenha: document.getElementById("cfg-smtp-senha")?.value || "",
+      // Sem smtpSenha aqui de proposito (CT-03): a senha nao mora mais nesta
+      // tela nem no banco -- vem de configuracao do servidor. Ver
+      // app/database_configuracoes.py e app/models.py:_resolver_senha_smtp.
       modoSimuladoZonas: document.getElementById("cfg-zonas-simulado")?.checked ?? true,
     };
   }
@@ -266,19 +263,27 @@ export function criarEntradaCalculo({
 
   function refletirStatusSmtp() {
     const status = document.getElementById("smtp-status");
-    if (!status) return;
+    const estadoSenha = document.getElementById("cfg-smtp-senha-estado");
     const host = (document.getElementById("cfg-smtp-host")?.value || "").trim();
-    const senhaDigitadaAgora = (document.getElementById("cfg-smtp-senha")?.value || "").trim();
 
+    // A senha (CT-03) não é mais um campo desta tela: vem de configuração do
+    // servidor (`SMTP_PASS`/segredo do Compose). O que a tela ainda pode
+    // dizer é SE ela está configurada -- nunca editá-la nem exibi-la.
+    if (estadoSenha) {
+      estadoSenha.textContent = smtpSenhaJaConfigurada
+        ? "Configurada no servidor."
+        : "Não configurada no servidor -- defina SMTP_PASS para habilitar o envio real.";
+    }
+
+    if (!status) return;
     if (!host) {
       status.textContent =
         "Sem host SMTP configurado, o envio funciona em modo simulado (o e-mail é montado e mostrado na tela, mas nada é enviado de fato).";
-    } else if (senhaDigitadaAgora || smtpSenhaJaConfigurada) {
-      status.textContent =
-        "SMTP configurado (" + host + "). Uma senha já está salva; deixe o campo de senha em branco para mantê-la.";
+    } else if (smtpSenhaJaConfigurada) {
+      status.textContent = "SMTP configurado (" + host + ").";
     } else {
       status.textContent =
-        "Host SMTP definido, mas ainda sem senha salva. Informe a senha para habilitar o envio real.";
+        "Host SMTP definido, mas a senha ainda não está configurada no servidor. Peça ao administrador para definir SMTP_PASS.";
     }
   }
 
@@ -299,9 +304,6 @@ export function criarEntradaCalculo({
     definirValorConfiguracao("cfg-smtp-porta", config.smtpPorta);
     definirValorConfiguracao("cfg-smtp-usuario", config.smtpUsuario);
     definirValorConfiguracao("cfg-zonas-simulado", config.modoSimuladoZonas);
-    // cfg-smtp-senha propositalmente NAO e preenchido aqui: o servidor nunca
-    // devolve a senha real, entao o campo fica vazio ate o usuario digitar
-    // uma senha nova.
 
     // Especie/indice persistidos (agora configurados na aba Configuracoes,
     // nao mais na Principal). So aceita valores que a propria tabela
@@ -344,10 +346,6 @@ export function criarEntradaCalculo({
       if (!resposta.ok) return;
       const salvo = await resposta.json();
       smtpSenhaJaConfigurada = !!salvo.smtpSenhaConfigurada;
-      // Uma vez salva, a senha nao precisa continuar visivel no campo -- o
-      // status abaixo do card ja confirma que ela esta configurada.
-      const campoSenha = document.getElementById("cfg-smtp-senha");
-      if (campoSenha) campoSenha.value = "";
       refletirStatusSmtp();
     } catch (erro) {
       console.error("Nao foi possivel salvar configuracoes:", erro);
@@ -501,7 +499,6 @@ export function criarEntradaCalculo({
     });
     document.getElementById("cfg-altitude").addEventListener("input", atualizarCamposCalculados);
     document.getElementById("cfg-smtp-host")?.addEventListener("input", refletirStatusSmtp);
-    document.getElementById("cfg-smtp-senha")?.addEventListener("input", refletirStatusSmtp);
   }
 
   function inicializarPersistencia() {

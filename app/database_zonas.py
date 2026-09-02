@@ -206,11 +206,46 @@ def criar_zona(dados: dict) -> dict:
     }
 
 
-def listar_zonas(*, apenas_ativas: bool = False) -> list[dict]:
+#: O que a listagem de zonas conta sobre um equipamento SEM contar a fiação.
+#:
+#: `host`, `porta`, `porta_serial`, `baud_rate`, `unidade_id`,
+#: `tipo_registrador`, `endereco_registrador`, `tipo_dado` e `fator_escala`
+#: ficam de fora: juntos, são o endereço do equipamento na rede industrial e o
+#: bastante para falar com ele sem passar por esta aplicação. Quem precisa
+#: deles é a aba Zonas, e a área `cadastro` existe para restringi-la.
+#:
+#: O que sobra é vocabulário de domínio: qual zona, que tipo de equipamento,
+#: como se chama e o que mede.
+COLUNAS_EQUIPAMENTO_SEM_FIACAO = ("id", "zona_id", "tipo", "nome", "campo_medido")
+
+
+def listar_zonas(
+    *, apenas_ativas: bool = False, com_fiacao: bool = False
+) -> list[dict]:
+    """Zonas com seus equipamentos e o estado do controle.
+
+    ``com_fiacao`` decide se cada equipamento vem com o endereçamento Modbus.
+    **O padrão é NÃO trazer**, e essa escolha é de segurança, não de
+    desempenho: até 01/09/2026 esta função devolvia `SELECT *` para todo mundo,
+    e a rota pública `GET /api/zonas` — liberada pela área `dashboard`, que os
+    seis perfis têm — entregava a fiação completa a qualquer conta autenticada.
+    A rota de UMA zona (`administracao.obter_zona`) exigia `cadastro` e
+    devolvia os mesmos campos: estava fechada a porta e aberta a janela.
+
+    Com o padrão fechado, um chamador novo que precise da fiação tem de pedir
+    por nome — e quem esquecer recebe um `KeyError` visível, não um vazamento
+    silencioso. Mesmo princípio do `_exigir_area`, que nega o endpoint não
+    mapeado em vez de liberá-lo.
+
+    Nenhum consumidor interno precisou mudar: o laço do coletor e o
+    `ZonaService` leem a fiação por `obter_zona`, não por aqui.
+    """
     # Interpolação deliberada: `filtro` é escolhido entre dois literais fixos
     # por um booleano do próprio código, nunca por entrada do usuário — não há
-    # caminho de injeção.
+    # caminho de injeção. O mesmo vale para a lista de colunas abaixo, que é
+    # uma constante do módulo.
     filtro = "WHERE ativa = 1" if apenas_ativas else ""
+    colunas = "*" if com_fiacao else ", ".join(COLUNAS_EQUIPAMENTO_SEM_FIACAO)
     with _conexao(escrita=False) as conn:
         linhas_zonas = conn.execute(
             f"SELECT * FROM zonas {filtro} ORDER BY id"  # noqa: S608
@@ -219,7 +254,7 @@ def listar_zonas(*, apenas_ativas: bool = False) -> list[dict]:
         # de uma consulta por zona (N+1): antes, listar 20 zonas abria 21
         # conexoes/consultas; agora abre so 2, dentro da mesma conexao.
         linhas_equipamentos = conn.execute(
-            "SELECT * FROM equipamentos ORDER BY zona_id, tipo, id"
+            f"SELECT {colunas} FROM equipamentos ORDER BY zona_id, tipo, id"  # noqa: S608
         ).fetchall()
         linhas_controle = conn.execute(
             "SELECT zona_id, modo, acionamento_habilitado, atualizado_em "

@@ -150,6 +150,14 @@ services:
       CONFORTO_INTERNO_TOKEN_FILE: /run/secrets/internal_token
       CONFORTO_SECRET_KEY_FILE: /run/secrets/secret_key
       COLETOR_URL: http://coletor:5000
+      # Senha do servidor SMTP (CT-03): NUNCA fica na tabela `configuracoes`
+      # -- só host/porta/usuario, que não são segredo. Sem valor por padrão,
+      # porque SMTP é recurso opcional (sem ele, o alerta opera em modo
+      # simulado). Quem precisar do envio real tem duas formas, na mesma
+      # ordem de precedência de `sharedauth.secrets.resolver_segredo`:
+      # `SMTP_PASS_FILE` apontando para um segredo montado por fora deste
+      # Compose, ou esta variável direta.
+      SMTP_PASS: ${SMTP_PASS:-}
     secrets:
       - postgres_password
       - internal_token

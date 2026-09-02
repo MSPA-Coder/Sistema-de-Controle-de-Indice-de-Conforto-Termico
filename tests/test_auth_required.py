@@ -233,6 +233,50 @@ def test_segredos_compose_recusam_caminho_fora_do_mount(tmp_path, monkeypatch):
         auth.obter_ou_criar_token_interno()
 
 
+def _sem_token_configurado(monkeypatch):
+    monkeypatch.delenv("CONFORTO_INTERNO_TOKEN", raising=False)
+    monkeypatch.delenv("CONFORTO_INTERNO_TOKEN_FILE", raising=False)
+
+
+def test_producao_sem_token_recusa_subir(tmp_path, monkeypatch):
+    """Fora de desenvolvimento/teste, token ausente falha sem gerar sozinho (CT-04).
+
+    Até 01/09/2026 este caminho não tinha a trava que `obter_chave_secreta`
+    já tinha: a ausência virava uma indisponibilidade sem causa aparente (a
+    aba Operação parando com 403 na chamada interna), em vez de um erro de
+    inicialização que nomeia a variável que falta.
+    """
+    from app import database as db
+
+    _sem_token_configurado(monkeypatch)
+    monkeypatch.delenv("CONFORTO_DEVELOPMENT", raising=False)
+    monkeypatch.delenv("CONFORTO_TESTING", raising=False)
+    monkeypatch.setattr(db, "INSTANCE_DIR", str(tmp_path))
+
+    with pytest.raises(RuntimeError) as erro:
+        auth.obter_ou_criar_token_interno()
+
+    mensagem = str(erro.value)
+    assert "CONFORTO_INTERNO_TOKEN_FILE" in mensagem, "a mensagem tem de dizer o que definir"
+    assert not (tmp_path / "interno_token.txt").exists(), "nao pode gerar nada calado"
+
+
+def test_token_interno_gerado_persiste_em_desenvolvimento(tmp_path, monkeypatch):
+    """Em desenvolvimento a geração continua, igual já acontecia para a chave de sessão."""
+    from app import database as db
+
+    _sem_token_configurado(monkeypatch)
+    monkeypatch.setenv("CONFORTO_DEVELOPMENT", "1")
+    monkeypatch.setattr(db, "INSTANCE_DIR", str(tmp_path))
+
+    criado = auth.obter_ou_criar_token_interno()
+    caminho = tmp_path / "interno_token.txt"
+
+    assert caminho.is_file()
+    assert caminho.read_text(encoding="utf-8") == criado
+    assert auth.obter_ou_criar_token_interno() == criado
+
+
 def test_segredos_compose_aceitam_arquivo_montado_esperado(tmp_path, monkeypatch):
     token = tmp_path / "internal_token"
     senha = tmp_path / "postgres_password"

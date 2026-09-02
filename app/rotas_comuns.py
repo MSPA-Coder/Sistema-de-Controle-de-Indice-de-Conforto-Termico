@@ -93,7 +93,24 @@ def configuracao_interface():
 
 @comum_bp.route("/api/zonas", methods=["GET"])
 def listar_zonas():
-    return jsonify(db.listar_zonas())
+    """Zonas da instalação; a fiação Modbus só para quem tem a área `cadastro`.
+
+    A rota é liberada pela área `dashboard`, que os seis perfis possuem — é o
+    inventário que o painel e a aba Operação desenham. Mas o endereçamento
+    Modbus de cada equipamento (`host`, `porta`, `porta_serial`, `baud_rate`,
+    `unidade_id`, `tipo_registrador`, `endereco_registrador`) pertence à área
+    `cadastro`: é o que `administracao.obter_zona` restringe a técnico e
+    administrador, e não faria sentido a rota de TODAS as zonas entregar o que
+    a rota de uma só protege.
+
+    A decisão fica aqui, e não no mapa de áreas, porque não é sobre QUEM entra
+    e sim sobre O QUE sai — e a mesma URL serve os dois casos. Mesmo padrão de
+    `administracao.salvar_configuracoes`, que consulta a área do perfil para
+    decidir quais chaves aceita.
+    """
+    usuario = auth.usuario_atual()
+    perfil = usuario["perfil"] if usuario else ""
+    return jsonify(db.listar_zonas(com_fiacao=auth.area_permitida(perfil, "cadastro")))
 
 
 @comum_bp.route("/api/zonas/historicos-recentes", methods=["GET"])
