@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import pytest
 
-from app import dados_entrada_db
+from app.dados_entrada import db as dados_entrada_db
 
 
 class _Resultado:

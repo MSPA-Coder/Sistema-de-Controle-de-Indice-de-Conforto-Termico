@@ -7,10 +7,10 @@ import json
 import re
 from typing import Any, cast
 
-from . import cache as cache_module
-from . import thermal_indices as ti
-from .database_comum import coagir_booleano as _coagir_booleano
-from .database_comum import conexao
+from .. import cache as cache_module
+from .. import thermal_indices as ti
+from .comum import coagir_booleano as _coagir_booleano
+from .comum import conexao
 
 # Cache global para configurações e dados de referência (TTL: 5 minutos)
 _cache_configuracoes = cache_module.obter_cache(ttl_segundos=300.0)

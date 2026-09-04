@@ -217,7 +217,7 @@ secrets:
   secret_key:
     file: .secrets/secret_key.txt
   # PAT de acesso restrito (somente-leitura, só no repositório SharedAuth) --
-  # usado apenas durante o build, para o `pip install` do requirements.txt
+  # usado apenas durante o build, para o `pip install` do pyproject.toml
   # baixar a dependência Git privada. Nunca vira variável de ambiente do
   # runtime nem fica na imagem final. Mesmo token já usado no MegaSena e no
   # ControleRendaVariavel.

@@ -7,10 +7,10 @@ import io
 
 from flask import Blueprint, Response, current_app, jsonify, request, stream_with_context
 
-from . import dados_entrada_db as dados_db
-from . import database as db
-from .app_factory import MENSAGEM_ERRO_INTERNO, confirmacao_de_exclusao_valida
-from .dados_entrada_cidades import referencias_publicas
+from .. import database as db
+from ..app_factory import MENSAGEM_ERRO_INTERNO, confirmacao_de_exclusao_valida
+from . import db as dados_db
+from .cidades import referencias_publicas
 
 # Consultas da aba Dados de entrada.
 dados_entrada_leitura_bp = Blueprint("dados_entrada_leitura", __name__)

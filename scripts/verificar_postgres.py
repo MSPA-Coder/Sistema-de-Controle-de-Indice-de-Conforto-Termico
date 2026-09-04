@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from app import dados_entrada_db, database, db_backend
+from app import database, db_backend
+from app.dados_entrada import db as dados_entrada_db
 
 
 def main() -> int:

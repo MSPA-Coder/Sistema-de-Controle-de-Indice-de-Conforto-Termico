@@ -1,8 +1,76 @@
-# Configuracao de ferramentas do ConfortoTermico.
+# Metadados e configuracao de ferramentas do ConfortoTermico.
 #
-# A secao [tool.ruff] e comum aos quatro projetos do mantenedor; so
-# `target-version` e `known-first-party` variam, porque dependem da versao de
-# Python da imagem e do layout de pacotes. Mantenha o resto em sincronia.
+# As dependencias vivem aqui, em `[project]`, e nao em `requirements*.txt`:
+# uma unica fonte serve ao `pip install .` da imagem e ao `pip install -e
+# ".[dev]"` do venv de desenvolvimento. Os projetos irmaos seguem esta mesma
+# forma.
+
+[build-system]
+requires = ["hatchling>=1.26,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "conforto-termico"
+version = "2.2.0"
+description = "Coleta, agregacao e analise de indices de conforto termico."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+  "Flask>=3.0,<4.0",
+  "SQLAlchemy>=2.0,<3.0",
+  "psycopg[binary]>=3.2,<4.0",
+  "alembic>=1.14,<2.0",
+  # Servidor WSGI de producao usado pelos dois servicos no conteiner.
+  "waitress>=3.0,<4.0",
+  # Base IANA de fusos horarios usada por ZoneInfo.
+  "tzdata>=2025.2,<2027",
+  # Cadeia de autoridades certificadoras usada nas consultas HTTPS do clima.
+  "certifi>=2025.1,<2027",
+  # Usa o armazenamento nativo de certificados quando disponivel.
+  "truststore>=0.10,<1",
+  # A imagem e imutavel: o suporte Modbus precisa estar presente no build.
+  "pymodbus[serial]>=3.8,<4.0",
+  # Rate limiting para protecao contra brute-force e DoS.
+  "Flask-Limiter>=3.0,<5",
+  # Sessao, CSRF, rate-limit no login, controle de acesso e hash de senha
+  # compartilhados com os outros apps Flask do mantenedor. A tag e fixada
+  # manualmente e nunca aponta para branch.
+  #
+  # O extra `[flask]` e obrigatorio a partir da v0.2.0: o nucleo do pacote
+  # deixou de depender de Flask (para o ControleBancario, que e Django, poder
+  # instalar so a parte de Python puro) e sem o extra o Flask nao vem junto.
+  "sharedauth[flask] @ git+https://github.com/MSPA-Coder/SharedAuth.git@v0.10.0",
+  # CSRF do sharedauth usa Flask-WTF -- substitui a protecao propria em HMAC
+  # que este projeto escrevia a mao.
+  "Flask-WTF>=1.2.2,<2",
+]
+
+[project.optional-dependencies]
+# Instaladas apenas no estagio `quality` da imagem e no venv local, nunca no
+# `runtime`. Vem sobre as de execucao, nao no lugar delas: a suite mede o
+# codigo real -- cabecalhos, CSRF e autenticacao sao verificados por inspecao
+# das funcoes de `app/auth.py` (via inspect.getsource) e comparacao de
+# constantes, sem instanciar a fabrica nem usar app.test_client(). Ver o risco
+# registrado no AGENTS.md sobre o que essa suite nao cobre.
+dev = [
+  "ruff>=0.12,<1",
+  "pytest>=8.3,<10",
+  # Auditoria de CVE das dependencias instaladas. Piso na minor atual, teto na
+  # proxima major -- politica de faixa do mantenedor.
+  "pip-audit>=2.10,<3",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+# `sharedauth` e referencia direta a um repositorio Git (nao a um indice PyPI):
+# Hatchling recusa isso por padrao e exige este opt-in explicito.
+[tool.hatch.metadata]
+allow-direct-references = true
+
+# A secao [tool.ruff] e comum aos projetos irmaos; so `target-version` e
+# `known-first-party` variam, porque dependem da versao de Python da imagem e do
+# layout de pacotes. Mantenha o resto em sincronia.
 
 [tool.ruff]
 target-version = "py313"

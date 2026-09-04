@@ -163,10 +163,10 @@ jobs:
             test ! -w /workspace/config
             test ! -w /workspace/migrations
             test ! -w /workspace/scripts
-            for path in /workspace/.secrets /workspace/.certs /workspace/.env /workspace/requirements-dev.txt; do
+            for path in /workspace/.secrets /workspace/.certs /workspace/.env; do
               test ! -e "$path"
             done
-            for tool in gcc make wget; do
+            for tool in gcc make wget ruff pytest pip-audit; do
               ! command -v "$tool" >/dev/null 2>&1
             done
           '

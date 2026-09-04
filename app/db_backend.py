@@ -188,7 +188,7 @@ def _adaptar_placeholders(sql: str) -> tuple[str, int]:
     operador de `jsonb` para a consulta ser corrompida em silêncio.
 
     E não é hipótese distante — este projeto já consulta `jsonb`
-    (`l.entradas::jsonb`, em `database_leituras.py`). `?`, `?|` e `?&` são
+    (`l.entradas::jsonb`, em `app/database/leituras.py`). `?`, `?|` e `?&` são
     operadores legítimos ali: `coluna ? 'chave'` pergunta se a chave existe. No
     dia em que alguém escrevesse a consulta natural, o `replace` a transformaria
     em `coluna %s 'chave'` e o erro apareceria longe da causa.

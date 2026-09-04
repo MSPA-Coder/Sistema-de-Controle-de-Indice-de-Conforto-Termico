@@ -5,8 +5,11 @@ from __future__ import annotations
 import datetime
 import inspect
 from contextlib import contextmanager
+from pathlib import Path
 
-from app import dados_entrada_rotas, database_zonas
+import app
+from app.dados_entrada import rotas as dados_entrada_rotas
+from app.database import zonas as database_zonas
 
 
 class _ConexaoEstadoFalsa:
@@ -160,10 +163,9 @@ def test_salvar_zona_nao_empilha_confirmacao_sobre_dialogo_modal():
     fonte = inspect.getsource(dados_entrada_rotas).replace("\r\n", "\n")
     assert "stream_with_context(gerar_csv())" in fonte
 
-    caminho = (
-        database_zonas.__file__.replace("database_zonas.py", "")
-        + "static/js/features/cadastro-zonas.js"
-    )
+    # Ancorado no pacote `app`, nao no modulo de persistencia: o caminho do
+    # arquivo estatico nao tem relacao com onde `zonas.py` mora.
+    caminho = Path(app.__file__).parent / "static/js/features/cadastro-zonas.js"
     with open(caminho, encoding="utf-8") as arquivo:
         javascript = arquivo.read()
     salvar_zona = javascript.split("async function salvarZona", 1)[1].split(

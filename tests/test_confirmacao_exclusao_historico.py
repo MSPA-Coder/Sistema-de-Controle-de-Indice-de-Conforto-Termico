@@ -1,6 +1,6 @@
 """Duas rotas apagam toda a série temporal de todas as zonas de uma vez --
 `leituras`, `leituras_recentes_zona`, `agregados_15min` e `resumos_horarios`
-(ver `database_leituras.limpar_historico`): `/api/dados-entrada/apagar-
+(ver `app.database.leituras.limpar_historico`): `/api/dados-entrada/apagar-
 historico` e `/api/reset`. Até este teste nascer, só a primeira validava a
 confirmação no servidor -- `/api/reset` confiava inteiramente no
 `confirm()` do navegador, que não impede nada contra uma chamada direta
@@ -21,8 +21,8 @@ CSRF de verdade para um POST/DELETE completo.
 
 from __future__ import annotations
 
-from app import dados_entrada_rotas
 from app.app_factory import confirmacao_de_exclusao_valida
+from app.dados_entrada import rotas as dados_entrada_rotas
 from app.ict import administracao
 
 

@@ -15,7 +15,7 @@ variável de ambiente/arquivo local.
 from __future__ import annotations
 
 from app import models, notificacoes
-from app.database_configuracoes import CONFIGURACOES_PADRAO, _sanitizar_configuracoes
+from app.database.configuracoes import CONFIGURACOES_PADRAO, _sanitizar_configuracoes
 from app.ict.administracao import _configuracoes_publicas
 from app.models import Email, _resolver_senha_smtp, senha_smtp_configurada
 

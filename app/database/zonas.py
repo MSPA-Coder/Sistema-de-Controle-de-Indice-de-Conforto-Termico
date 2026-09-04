@@ -16,10 +16,10 @@ import bisect
 import datetime
 import json
 
-from . import thermal_indices as ti
-from .database_comum import coagir_booleano as coagir_booleano
-from .database_comum import conexao as _conexao
-from .database_configuracoes import obter_configuracoes
+from .. import thermal_indices as ti
+from .comum import coagir_booleano as coagir_booleano
+from .comum import conexao as _conexao
+from .configuracoes import obter_configuracoes
 
 MODOS_OPERACAO = ("desligado", "manual", "automatico", "manutencao")
 MODO_OPERACAO_PADRAO = "manual"

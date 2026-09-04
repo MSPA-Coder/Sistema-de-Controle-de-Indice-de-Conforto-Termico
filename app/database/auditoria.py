@@ -6,7 +6,7 @@ import datetime
 import json
 from typing import Any
 
-from .database_comum import conexao
+from .comum import conexao
 
 
 def registrar_evento_auditoria(

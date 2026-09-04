@@ -22,14 +22,10 @@ import pytest
 from flask import url_for
 from sharedauth.session import marca_de_sessao
 
-from app import (
-    auth,
-    dados_entrada_rotas,
-    database,
-    database_configuracoes,
-    database_zonas,
-    rotas_comuns,
-)
+from app import auth, database, rotas_comuns
+from app.dados_entrada import rotas as dados_entrada_rotas
+from app.database import configuracoes as database_configuracoes
+from app.database import zonas as database_zonas
 
 
 def _endpoints_da_aplicacao(app) -> set[str]:
@@ -336,7 +332,7 @@ _EQUIPAMENTO_COM_FIACAO = {
 
 
 def _fake_listar_zonas(*, apenas_ativas=False, com_fiacao=False):
-    # Mesmo contrato da funcao real (database_zonas.listar_zonas): so traz
+    # Mesmo contrato da funcao real (app.database.zonas.listar_zonas): so traz
     # fiacao quando pedida explicitamente. E o comportamento deste `if` que
     # protege /api/zonas, e e ele que este fake precisa reproduzir para o
     # teste continuar significativo.
@@ -362,7 +358,7 @@ def leituras_da_aplicacao(monkeypatch):
 
     Patchear `database.<nome>` (o modulo, nao o alias `db` de cada arquivo
     de rotas) alcanca todo mundo: `rotas_comuns`, `ict/rotas`,
-    `ict/administracao` e `dados_entrada_rotas` importam com
+    `ict/administracao` e `dados_entrada/rotas` importam com
     `from . import database as db`, que so cria um APELIDO para o mesmo
     objeto de modulo -- o atributo consultado em `db.funcao()` e sempre o
     do modulo `database`, mesmo depois do patch.

@@ -6,7 +6,7 @@ SQL". O invariante estava garantido por um comentario, e comentario nao
 executa. Estes testes o tornam executavel.
 
 O risco nao era teorico: `?`, `?|` e `?&` sao operadores de `jsonb` no
-PostgreSQL, e este projeto ja consulta `jsonb` em `database_leituras.py`.
+PostgreSQL, e este projeto ja consulta `jsonb` em `app/database/leituras.py`.
 """
 
 from __future__ import annotations
