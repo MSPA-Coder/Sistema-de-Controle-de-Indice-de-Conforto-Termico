@@ -74,7 +74,7 @@ from sharedauth.passwords import gerar_hash as _gerar_hash
 from sharedauth.secrets import DIRETORIO_SECRETS_COMPOSE, resolver_segredo
 from sharedauth.session import marca_de_sessao, marcas_conferem
 
-from . import database as db
+from .. import database as db
 
 if TYPE_CHECKING:
     from flask.typing import ResponseReturnValue
@@ -592,7 +592,7 @@ auth_bp = Blueprint("auth", __name__)
 
 @auth_bp.route("/login", methods=["GET", "POST"])
 def login() -> ResponseReturnValue:
-    from .audit_log import log_login_falha, log_login_sucesso
+    from app.seguranca.audit_log import log_login_falha, log_login_sucesso
 
     if g.usuario is not None:
         return redirect(url_for("comum.index"))

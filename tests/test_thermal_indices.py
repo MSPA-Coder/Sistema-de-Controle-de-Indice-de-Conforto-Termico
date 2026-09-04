@@ -9,7 +9,7 @@ import math
 
 import pytest
 
-from app import thermal_indices as ti
+from app.termico import thermal_indices as ti
 
 
 @pytest.mark.parametrize(

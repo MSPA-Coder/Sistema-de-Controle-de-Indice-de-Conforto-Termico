@@ -9,7 +9,7 @@
 | IGNU | `0.6 * tgn + 0.36 * tpo + 41.5` | globo negro e ponto de orvalho | frangos, bovinos e suínos |
 
 As fórmulas, faixas aceitas para entradas, combinações de espécie/índice e
-limites de classificação vivem em `app/thermal_indices.py`. O resultado é
+limites de classificação vivem em `app/termico/thermal_indices.py`. O resultado é
 classificado como Conforto, Alerta, Perigo ou Emergência conforme essas tabelas.
 Algumas fontes não subdividem todas as quatro faixas; nesses casos os limites
 repetidos no código fazem a classificação saltar uma faixa, sem inventar um

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import inspect
 
-from app import auth
+from app.seguranca import auth
 
 # A recusa em si -- com sessao, perfil e rota de verdade -- e medida em
 # `test_autorizacao_por_area.py`. O teste que ficava aqui lia o codigo-fonte do

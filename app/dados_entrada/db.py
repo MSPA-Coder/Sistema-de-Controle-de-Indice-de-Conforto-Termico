@@ -11,7 +11,8 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from .. import db_backend
+from app.nucleo import db_backend
+
 from .cidades import (
     CATEGORIAS_DENSIDADE,
     CIDADES_POR_ESPECIE,

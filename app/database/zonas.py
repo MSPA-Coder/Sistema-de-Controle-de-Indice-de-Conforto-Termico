@@ -16,7 +16,8 @@ import bisect
 import datetime
 import json
 
-from .. import thermal_indices as ti
+from app.termico import thermal_indices as ti
+
 from .comum import coagir_booleano as coagir_booleano
 from .comum import conexao as _conexao
 from .configuracoes import obter_configuracoes

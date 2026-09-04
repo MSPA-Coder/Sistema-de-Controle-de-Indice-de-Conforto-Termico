@@ -27,7 +27,7 @@ que checa se ha algo pendente.
 
 from __future__ import annotations
 
-from . import database as db
+from .. import database as db
 
 
 def executar_para_zona(zona: dict, logger=None) -> dict:

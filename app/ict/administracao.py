@@ -9,10 +9,11 @@ from __future__ import annotations
 
 from flask import Blueprint, current_app, jsonify, request
 
-from .. import agregacao
+from app.seguranca.audit_log import registrar_evento_revisavel
+from app.termico import agregacao
+
 from .. import database as db
 from ..app_factory import confirmacao_de_exclusao_valida
-from ..audit_log import registrar_evento_revisavel
 from ..models import senha_smtp_configurada
 from .coletor_client import chamar_coletor
 
@@ -79,7 +80,7 @@ def obter_configuracoes():
 @administracao_bp.route("/api/configuracoes", methods=["POST"])
 def salvar_configuracoes():
     dados = request.get_json(force=True, silent=True) or {}
-    from .. import auth
+    from app.seguranca import auth
 
     usuario = auth.usuario_atual()
     perfil = usuario["perfil"] if usuario else ""

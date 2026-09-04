@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from app import agregacao
 from app.coletor.controle import (
     INTERVALO_REPOUSO_SEM_AUTOMACAO_SEGUNDOS,
     GerenciadorControleZonas,
 )
+from app.termico import agregacao
 
 
 def test_consolidar_zona_processa_apenas_janelas_pendentes(monkeypatch):

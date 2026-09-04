@@ -9,7 +9,7 @@ nem conecte hardware como parte de uma tarefa sem autorização explícita e um
 plano de segurança próprio.
 
 As fórmulas, limites e combinações de espécie/índice têm fonte única em
-`app/thermal_indices.py`. Mudanças exigem justificativa, exemplos numéricos e
+`app/termico/thermal_indices.py`. Mudanças exigem justificativa, exemplos numéricos e
 testes. Testes do código validam a implementação de software, não constituem
 validação acadêmica ou experimental dos índices.
 
@@ -28,7 +28,7 @@ Sessão, CSRF, limite de login, controle de acesso, hash de senha, senha
 temporária e trava de troca pendente, destino pós-login seguro e a marca que
 amarra a sessão à senha em vigor, cabeçalhos de
 segurança, CSP e health checks vêm do SharedAuth. Perfis e áreas permanecem
-próprios deste projeto em `app/auth.py`. Preserve autorização no servidor; não
+próprios deste projeto em `app/seguranca/auth.py`. Preserve autorização no servidor; não
 trate a ocultação de elementos da interface como controle de acesso.
 
 Falhas de sensores ou atuadores devem ser observáveis sem derrubar processos.
@@ -41,7 +41,7 @@ migrações Alembic antes de `ict` e `coletor`; a aplicação não cria schema e
 runtime. Mudanças de schema usam nova revisão com `upgrade` e `downgrade`; não
 reescreva revisão aplicada nem use `stamp` para declarar compatibilidade.
 
-`app/db_backend.py` é apenas uma camada de compatibilidade de chamadas SQL sobre
+`app/nucleo/db_backend.py` é apenas uma camada de compatibilidade de chamadas SQL sobre
 PostgreSQL. Não amplie sua superfície. Ao escrever SQL, evite ambiguidade entre
 marcadores `?` e operadores JSONB: prefira `jsonb_exists(coluna, ?)`; considere
 também que `%` literal precisa ser tratado ao adaptar para o estilo do psycopg.

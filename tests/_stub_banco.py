@@ -24,7 +24,7 @@ inalcançável de verdade. `/health` continua respondendo 503 pelo motivo
 certo: o banco está fora do ar, só que a suíte não perde minutos descobrindo
 isso no Windows.
 
-`app/db_backend.py` importa `create_engine` de dentro da função `_engine`
+`app/nucleo/db_backend.py` importa `create_engine` de dentro da função `_engine`
 (`from sqlalchemy import create_engine`), e essa `Engine` é cacheada por URL
 (`lru_cache`) para o processo inteiro de teste -- por isso o patch precisa
 estar no lugar antes da primeira conexão de cada teste, e por isso um único
@@ -49,7 +49,7 @@ def recusar_conexao_com_banco(monkeypatch: MonkeyPatch) -> None:
     """Faz toda `Engine` criada por `sqlalchemy.create_engine` recusar conexão.
 
     Chame antes de `criar_app_ict()`/`criar_app_coletor()`: a fábrica cria o
-    engine (via `app.db_backend._engine`) na primeira consulta feita por uma
+    engine (via `app.nucleo.db_backend._engine`) na primeira consulta feita por uma
     rota, não no momento da criação da app -- mas o patch precisa estar no
     ar antes disso acontecer.
     """

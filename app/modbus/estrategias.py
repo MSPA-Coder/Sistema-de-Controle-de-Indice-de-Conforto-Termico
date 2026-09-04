@@ -11,7 +11,7 @@ import threading
 from dataclasses import dataclass
 from typing import cast
 
-from . import thermal_indices as ti
+from app.termico import thermal_indices as ti
 
 
 @dataclass(frozen=True)

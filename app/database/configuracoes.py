@@ -7,8 +7,9 @@ import json
 import re
 from typing import Any, cast
 
-from .. import cache as cache_module
-from .. import thermal_indices as ti
+from app.nucleo import cache as cache_module
+from app.termico import thermal_indices as ti
+
 from .comum import coagir_booleano as _coagir_booleano
 from .comum import conexao
 

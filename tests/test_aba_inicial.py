@@ -23,7 +23,7 @@ import re
 import pytest
 from sharedauth.session import marca_de_sessao
 
-from app import auth
+from app.seguranca import auth
 
 #: Qualquer atributo `data-aba="x"` de botao de aba no HTML renderizado.
 _BOTAO_ATIVO = re.compile(r'<button class="aba-botao ativo"[^>]*data-aba="([^"]+)"')

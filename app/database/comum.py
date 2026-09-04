@@ -5,7 +5,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
-from .. import db_backend
+from app.nucleo import db_backend
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

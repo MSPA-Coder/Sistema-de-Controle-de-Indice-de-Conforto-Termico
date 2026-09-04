@@ -35,8 +35,9 @@ import queue
 import threading
 from typing import TYPE_CHECKING
 
-from . import thermal_indices as ti
-from .models import Email
+from app.termico import thermal_indices as ti
+
+from ..models import Email
 
 if TYPE_CHECKING:
     import logging

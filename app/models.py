@@ -26,7 +26,7 @@ from email.mime.text import MIMEText
 
 from sharedauth.secrets import DIRETORIO_SECRETS_COMPOSE, resolver_segredo
 
-from . import thermal_indices as ti
+from app.termico import thermal_indices as ti
 
 # Mesma checagem pragmatica usada em database.py: garante formato minimo de
 # e-mail e, principalmente, ausencia de espacos/quebras de linha que

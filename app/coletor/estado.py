@@ -13,10 +13,11 @@ processo -- ver a nota sobre `estado_equipamentos` em `database.py`)."""
 
 from __future__ import annotations
 
+from app.modbus import modbus_client
+from app.modbus.modbus_simulador import SimuladorModbusZonas
+from app.termico.zona_service import ZonaService
+
 from .. import database as db
-from .. import modbus_client
-from ..modbus_simulador import SimuladorModbusZonas
-from ..zona_service import ZonaService
 from .controle import GerenciadorControleZonas
 
 zona_service = ZonaService(

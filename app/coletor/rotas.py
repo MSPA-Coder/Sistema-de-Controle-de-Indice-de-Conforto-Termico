@@ -12,11 +12,13 @@ import hmac
 from flask import Blueprint, current_app, jsonify, request
 from sharedauth.health import registrar_health
 
-from .. import auth, notificacoes
+from app.nucleo import notificacoes
+from app.seguranca import auth
+from app.termico import thermal_indices as ti
+from app.termico.zona_service import ZonaCalculoError
+
 from .. import database as db
-from .. import thermal_indices as ti
 from ..models import Email
-from ..zona_service import ZonaCalculoError
 from .controle import ModoOperacaoError, ZonaOcupadaError
 from .estado import gerenciador_controle, testar_conexao_equipamento
 

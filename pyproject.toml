@@ -49,7 +49,7 @@ dependencies = [
 # Instaladas apenas no estagio `quality` da imagem e no venv local, nunca no
 # `runtime`. Vem sobre as de execucao, nao no lugar delas: a suite mede o
 # codigo real -- cabecalhos, CSRF e autenticacao sao verificados por inspecao
-# das funcoes de `app/auth.py` (via inspect.getsource) e comparacao de
+# das funcoes de `app/seguranca/auth.py` (via inspect.getsource) e comparacao de
 # constantes, sem instanciar a fabrica nem usar app.test_client(). Ver o risco
 # registrado no AGENTS.md sobre o que essa suite nao cobre.
 dev = [

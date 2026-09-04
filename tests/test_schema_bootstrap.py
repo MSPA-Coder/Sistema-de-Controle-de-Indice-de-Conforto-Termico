@@ -74,7 +74,7 @@ def test_cadeia_alcanca_a_base_sem_ciclo():
 
 def test_configuracao_do_banco_exige_arquivo_de_senha_sem_url_direta(monkeypatch):
     """O bootstrap Alembic não pode cair em senha padrão de desenvolvimento."""
-    from app import db_backend
+    from app.nucleo import db_backend
 
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.delenv("DB_PASSWORD_FILE", raising=False)

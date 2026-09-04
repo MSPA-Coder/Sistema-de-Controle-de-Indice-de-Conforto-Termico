@@ -108,7 +108,7 @@ def registrar_evento_revisavel(
     contexto = _obter_contexto_requisicao()
     usuario = _obter_usuario_atual()
     log_evento(evento, categoria, acao, detalhes=detalhes_seguros)
-    from .database.auditoria import registrar_evento_auditoria
+    from ..database.auditoria import registrar_evento_auditoria
 
     try:
         registrar_evento_auditoria(
