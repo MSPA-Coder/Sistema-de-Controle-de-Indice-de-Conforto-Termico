@@ -22,12 +22,8 @@ import pytest
 from flask import url_for
 from sharedauth.session import marca_de_sessao
 
-from app import (
-    auth,
-    dados_entrada_rotas,
-    database,
-    rotas_comuns,
-)
+from app import auth, database, rotas_comuns
+from app.dados_entrada import rotas as dados_entrada_rotas
 from app.database import configuracoes as database_configuracoes
 from app.database import zonas as database_zonas
 
@@ -362,7 +358,7 @@ def leituras_da_aplicacao(monkeypatch):
 
     Patchear `database.<nome>` (o modulo, nao o alias `db` de cada arquivo
     de rotas) alcanca todo mundo: `rotas_comuns`, `ict/rotas`,
-    `ict/administracao` e `dados_entrada_rotas` importam com
+    `ict/administracao` e `dados_entrada/rotas` importam com
     `from . import database as db`, que so cria um APELIDO para o mesmo
     objeto de modulo -- o atributo consultado em `db.funcao()` e sempre o
     do modulo `database`, mesmo depois do patch.

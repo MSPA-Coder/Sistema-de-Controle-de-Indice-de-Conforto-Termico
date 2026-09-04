@@ -399,8 +399,8 @@ def criar_app_ict(config: AppConfig | None = None) -> Flask:
         limiter=limiter,
     )
 
-    from . import dados_entrada_db
-    from .dados_entrada_rotas import dados_entrada_bp, dados_entrada_leitura_bp
+    from .dados_entrada import db as dados_entrada_db
+    from .dados_entrada.rotas import dados_entrada_bp, dados_entrada_leitura_bp
     from .ict.administracao import administracao_bp
     from .ict.operacao import operacao_bp
     from .ict.rotas import ict_bp

@@ -30,8 +30,8 @@ from zoneinfo import ZoneInfo
 import certifi
 import truststore
 
-from . import dados_entrada_db as dados_db
 from . import thermal_indices as ti
+from .dados_entrada import db as dados_db
 
 FONTE_CLIMA = "Open-Meteo Historical Weather API / ERA5"
 URL_OPEN_METEO = "https://archive-api.open-meteo.com/v1/archive"

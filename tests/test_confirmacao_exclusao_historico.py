@@ -21,8 +21,8 @@ CSRF de verdade para um POST/DELETE completo.
 
 from __future__ import annotations
 
-from app import dados_entrada_rotas
 from app.app_factory import confirmacao_de_exclusao_valida
+from app.dados_entrada import rotas as dados_entrada_rotas
 from app.ict import administracao
 
 

@@ -1,7 +1,7 @@
 """Fixtures para os testes que exercitam requisições HTTP de verdade.
 
 `criar_app_ict()` não conecta ao banco na criação -- `db.iniciar_banco()` e
-`dados_entrada_db.iniciar_banco()` são no-ops (o schema é exclusivo do
+`dados_entrada.db.iniciar_banco()` são no-ops (o schema é exclusivo do
 Alembic); só rotas que de fato consultam dados (ex.: `/health`) tocam o
 banco. Isso permite `app.test_client()` de verdade para o gate de login, o
 CSRF e o rate-limit, sem precisar de PostgreSQL -- ao contrário do que

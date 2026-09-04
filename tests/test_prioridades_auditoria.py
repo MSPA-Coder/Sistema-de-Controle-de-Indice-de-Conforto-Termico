@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import app
-from app import dados_entrada_rotas
+from app.dados_entrada import rotas as dados_entrada_rotas
 from app.database import zonas as database_zonas
 
 
