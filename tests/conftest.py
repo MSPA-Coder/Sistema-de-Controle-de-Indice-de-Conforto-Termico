@@ -11,11 +11,22 @@ comentários mais antigos nesta suíte assumiam.
 `enabled=not app.testing`); é o padrão aqui para não fazer os testes se
 atropelarem no mesmo limite. O teste dedicado de rate-limit
 (`test_rate_limit.py`) cria a própria app sem essa variável, de propósito.
+
+`DATABASE_URL` abaixo aponta para uma porta sem nada escutando -- de
+propósito, para as rotas que de fato tocam o banco (ex.: `/health`) verem
+uma falha real em vez de um mock. Em Linux isso basta: o SO recusa o
+`connect()` na hora. Em Windows, com psycopg 3.2.13 e Python 3.14, a recusa
+nunca chega a acordar `psycopg.waiting.wait_conn`, e o teste trava para
+sempre -- `_stub_banco.recusar_conexao_com_banco` cobre isso fazendo o
+`sqlalchemy.create_engine` usado por `app/db_backend.py` recusar a conexão
+sem abrir socket nenhum; ver o docstring de `tests/_stub_banco.py` para o
+mecanismo completo do travamento e por que `connect_timeout` não resolve.
 """
 
 from __future__ import annotations
 
 import pytest
+from _stub_banco import recusar_conexao_com_banco
 
 from app.app_factory import AppConfig, criar_app_ict
 
@@ -44,6 +55,7 @@ def app(monkeypatch):
     monkeypatch.setenv(
         "DATABASE_URL", "postgresql+psycopg://test:test@localhost:5999/test"
     )
+    recusar_conexao_com_banco(monkeypatch)
     application = criar_app_ict(_config())
     application.config["TESTING"] = True
     return application
