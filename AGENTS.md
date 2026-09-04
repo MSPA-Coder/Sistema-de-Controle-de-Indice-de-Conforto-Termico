@@ -88,7 +88,7 @@ ciclo de edição. Para isso existe um venv por projeto:
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
 .\.venv\Scripts\python.exe -m pytest -q
 .\.venv\Scripts\python.exe -m ruff check .
 ```
@@ -99,7 +99,7 @@ proibição que vale é outra, e continua de pé -- nada de instalar dependênci
 do projeto no Python global do Windows.
 
 `sharedauth` vem de repositório privado: o `git` precisa estar autenticado,
-ou instale do clone local na tag que `requirements.txt` fixa.
+ou instale do clone local na tag que `pyproject.toml` fixa.
 
 Os dois ambientes acham defeitos diferentes, então nenhum substitui o outro.
 O venv é Windows e já pegou travamento de suíte que o contêiner nunca mostrou

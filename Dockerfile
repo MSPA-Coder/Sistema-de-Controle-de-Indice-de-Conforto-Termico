@@ -33,15 +33,22 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 FROM base AS runtime-dependencies
-COPY requirements.txt .
-# `requirements.txt` inclui `sharedauth` de um repositório Git privado
+COPY pyproject.toml README.md ./
+COPY app ./app
+# `pyproject.toml` inclui `sharedauth` de um repositório Git privado
 # (github.com/MSPA-Coder/SharedAuth) -- o secret `github_token` (BuildKit,
 # nunca vira camada da imagem) autentica só para este RUN; `git config
 # --unset` no fim da mesma instrução remove o token do `.gitconfig` antes de
 # commitar a camada. Mesmo mecanismo do MegaSena e do ControleRendaVariavel.
-RUN --mount=type=secret,id=github_token \
+#
+# As dependências vêm do `pyproject.toml`, fonte única do projeto. Como
+# `pip install .` precisa do código, copiar `app/` aqui faz esta camada ser
+# refeita a cada edição -- daí o `--mount=type=cache` no `pip`: a camada é
+# refeita, mas nada é baixado de novo. O cache é do BuildKit e não vira
+# camada da imagem.
+RUN --mount=type=cache,target=/root/.cache/pip --mount=type=secret,id=github_token \
     git config --global url."https://x-access-token:$(cat /run/secrets/github_token)@github.com/".insteadOf "https://github.com/" \
-    && python -m pip install --no-cache-dir -r requirements.txt \
+    && python -m pip install . \
     && git config --global --unset url."https://x-access-token:$(cat /run/secrets/github_token)@github.com/".insteadOf
 
 FROM runtime-dependencies AS runtime
@@ -107,10 +114,9 @@ USER root
 # nome e nunca vai para produção.
 RUN python -m ensurepip --upgrade \
     && python -m pip --version
-COPY requirements-dev.txt .
-RUN --mount=type=secret,id=github_token \
+RUN --mount=type=cache,target=/root/.cache/pip --mount=type=secret,id=github_token \
     git config --global url."https://x-access-token:$(cat /run/secrets/github_token)@github.com/".insteadOf "https://github.com/" \
-    && python -m pip install --no-cache-dir -r requirements-dev.txt \
+    && python -m pip install ".[dev]" \
     && git config --global --unset url."https://x-access-token:$(cat /run/secrets/github_token)@github.com/".insteadOf
 COPY --chown=app:app pyproject.toml ./
 COPY --chown=app:app tests ./tests
