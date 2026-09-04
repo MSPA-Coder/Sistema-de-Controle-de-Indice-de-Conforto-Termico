@@ -67,7 +67,8 @@ procedimento operacional está em `docs/RUNBOOK.md`.
 
 ## Desenvolvimento e validação
 
-Use somente as interfaces Docker documentadas pelo projeto:
+Use as interfaces Docker documentadas pelo projeto para validar a imagem e o
+Linux:
 
 ```powershell
 docker compose --env-file .env.docker config --quiet
@@ -79,6 +80,32 @@ docker compose --env-file .env.docker --profile quality run --build --rm quality
 `--build` faz parte do comando: o serviço `quality` não monta o código do
 host e `docker compose run` só reconstrói quando a imagem não existe. Sem
 ele, a validação roda a versão anterior do código e passa em verde.
+
+### Loop rápido no host
+
+O portão `quality` custa dezenas de segundos por rodada -- caro demais para o
+ciclo de edição. Para isso existe um venv por projeto:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe -m ruff check .
+```
+
+O `.venv/` é uma pasta do projeto, já ignorada pelo Git: não altera o Python
+do sistema nem o PATH, e apagar a pasta desfaz a instalação por inteiro. A
+proibição que vale é outra, e continua de pé -- nada de instalar dependências
+do projeto no Python global do Windows.
+
+`sharedauth` vem de repositório privado: o `git` precisa estar autenticado,
+ou instale do clone local na tag que `requirements.txt` fixa.
+
+Os dois ambientes acham defeitos diferentes, então nenhum substitui o outro.
+O venv é Windows e já pegou travamento de suíte que o contêiner nunca mostrou
+(ver o docstring de `tests/conftest.py`); o contêiner é Linux e é o único
+lugar com `ruff` e `pip-audit` na versão que a CI usa. Itere no venv e passe
+pelo `quality` antes de commitar.
 
 Valide proporcionalmente ao risco e percorra manualmente o fluxo alterado.
 Mudanças de persistência, migrações, dependências ou contêineres exigem a pilha
