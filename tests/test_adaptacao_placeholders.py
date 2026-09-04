@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.db_backend import _adaptar_placeholders, _conferir_aridade
+from app.nucleo.db_backend import _adaptar_placeholders, _conferir_aridade
 
 
 def converter(sql: str) -> str:

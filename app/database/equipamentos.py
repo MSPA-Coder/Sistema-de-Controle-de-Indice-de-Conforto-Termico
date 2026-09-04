@@ -5,7 +5,8 @@ from __future__ import annotations
 import datetime
 import json
 
-from .. import thermal_indices as ti
+from app.termico import thermal_indices as ti
+
 from .comum import conexao
 from .zonas import (
     ZonaInvalidaError,

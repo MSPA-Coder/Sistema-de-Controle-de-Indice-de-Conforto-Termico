@@ -23,7 +23,7 @@ navegador -> ICT -> API interna autenticada -> coletor
 
 O SharedAuth fornece sessão, CSRF, autenticação, rate limit de login,
 autorização comum, hash de senha, cabeçalhos de segurança, CSP e health checks.
-Perfis e a associação entre perfis e áreas pertencem a `app/auth.py`.
+Perfis e a associação entre perfis e áreas pertencem a `app/seguranca/auth.py`.
 
 ## Responsabilidades de dados
 
@@ -36,7 +36,7 @@ administrativas e de dados com ator, horário e contexto mínimo; só
 administradores podem consultá-la. O Alembic é a única autoridade para criar
 ou alterar schema.
 
-`app/db_backend.py` adapta chamadas SQL existentes para o driver PostgreSQL;
+`app/nucleo/db_backend.py` adapta chamadas SQL existentes para o driver PostgreSQL;
 não é um backend SQLite nem uma alternativa de persistência.
 
 A exportação CSV de dados de entrada percorre o resultado PostgreSQL e entrega

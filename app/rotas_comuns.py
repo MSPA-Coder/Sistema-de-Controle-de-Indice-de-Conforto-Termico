@@ -7,9 +7,11 @@ import math
 
 from flask import Blueprint, jsonify, render_template, request
 
-from . import agregacao, auth
+from app.seguranca import auth
+from app.termico import agregacao
+from app.termico import thermal_indices as ti
+
 from . import database as db
-from . import thermal_indices as ti
 
 comum_bp = Blueprint("comum", __name__)
 

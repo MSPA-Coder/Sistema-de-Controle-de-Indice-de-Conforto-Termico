@@ -16,7 +16,7 @@ from __future__ import annotations
 import pytest
 from sharedauth.session import marca_de_sessao
 
-from app import auth
+from app.seguranca import auth
 
 #: Hash fixo para o carregamento da sessao conferir a marca sem tocar o banco.
 HASH_EM_VIGOR = "hash-de-teste"

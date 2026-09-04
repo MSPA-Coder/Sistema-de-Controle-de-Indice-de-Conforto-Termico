@@ -10,7 +10,8 @@ from __future__ import annotations
 import datetime
 import json
 
-from .. import thermal_indices as ti
+from app.termico import thermal_indices as ti
+
 from .comum import conexao
 
 INTERVALO_MINIMO_LEITURAS = datetime.timedelta(minutes=1)

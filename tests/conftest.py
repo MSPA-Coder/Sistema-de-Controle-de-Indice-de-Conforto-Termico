@@ -18,7 +18,7 @@ uma falha real em vez de um mock. Em Linux isso basta: o SO recusa o
 `connect()` na hora. Em Windows, com psycopg 3.2.13 e Python 3.14, a recusa
 nunca chega a acordar `psycopg.waiting.wait_conn`, e o teste trava para
 sempre -- `_stub_banco.recusar_conexao_com_banco` cobre isso fazendo o
-`sqlalchemy.create_engine` usado por `app/db_backend.py` recusar a conexão
+`sqlalchemy.create_engine` usado por `app/nucleo/db_backend.py` recusar a conexão
 sem abrir socket nenhum; ver o docstring de `tests/_stub_banco.py` para o
 mecanismo completo do travamento e por que `connect_timeout` não resolve.
 """

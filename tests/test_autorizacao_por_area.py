@@ -22,10 +22,11 @@ import pytest
 from flask import url_for
 from sharedauth.session import marca_de_sessao
 
-from app import auth, database, rotas_comuns
+from app import database, rotas_comuns
 from app.dados_entrada import rotas as dados_entrada_rotas
 from app.database import configuracoes as database_configuracoes
 from app.database import zonas as database_zonas
+from app.seguranca import auth
 
 
 def _endpoints_da_aplicacao(app) -> set[str]:
@@ -429,7 +430,7 @@ def test_leitura_do_mapa_nao_vaza_campo_de_outra_area(
     resposta = entrar(perfil).get(url)
 
     if not tem_acesso:
-        # `_negar_acesso` (app/auth.py) responde diferente por FORMA da rota,
+        # `_negar_acesso` (app/seguranca/auth.py) responde diferente por FORMA da rota,
         # nao por area: 403 sob `/api/`, redirect nas paginas Jinja fora dela
         # (ex.: `usuarios.pagina_usuarios`). As duas recusam a mesma coisa; um
         # redirect nao carrega a pagina protegida no corpo, entao nao ha o que

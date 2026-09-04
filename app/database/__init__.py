@@ -7,7 +7,7 @@ módulo dentro deste pacote (``comum``, ``zonas``, ``leituras``,
 num teste, por exemplo -- importa o submódulo direto; o resto usa esta
 fachada.
 
-`app/db_backend.py` fica de fora de propósito: é a camada de engine e URL,
+`app/nucleo/db_backend.py` fica de fora de propósito: é a camada de engine e URL,
 usada também por `dados_entrada.db`, pelas migrações e pelos scripts, não
 um agregado de persistência.
 """

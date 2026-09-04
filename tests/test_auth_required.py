@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from app import auth, db_backend
+from app.nucleo import db_backend
+from app.seguranca import auth
 
 
 def test_isencao_de_login_e_curta_e_conhecida():
@@ -216,7 +217,7 @@ def test_token_interno_por_arquivo_falha_fechado_se_arquivo_nao_existe(tmp_path,
     monkeypatch.delenv("CONFORTO_INTERNO_TOKEN", raising=False)
     # O diretório esperado é lido do módulo consumidor a cada chamada, então
     # é ali que o teste o redireciona -- `from ... import` liga o nome no
-    # espaço de `app.auth`, não no de `sharedauth.secrets`.
+    # espaço de `app.seguranca.auth`, não no de `sharedauth.secrets`.
     monkeypatch.setattr(auth, "DIRETORIO_SECRETS_COMPOSE", tmp_path)
     monkeypatch.setenv("CONFORTO_INTERNO_TOKEN_FILE", str(tmp_path / "internal_token"))
 

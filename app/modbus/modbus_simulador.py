@@ -23,8 +23,8 @@ import threading
 import time
 from typing import TYPE_CHECKING
 
-from . import thermal_indices as ti
-from .services import SensorSimuladoService
+from app.modbus.estrategias import SensorSimuladoService
+from app.termico import thermal_indices as ti
 
 if TYPE_CHECKING:
     from collections.abc import Callable

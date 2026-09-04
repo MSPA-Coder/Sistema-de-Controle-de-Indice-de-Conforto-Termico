@@ -35,7 +35,7 @@
   {% if senha_temporaria is defined and senha_temporaria %}
   {# Bloco fixo, nao mensagem de sessao: e a unica copia em texto claro da
      senha, e `flash()` a guardaria no cookie de sessao -- assinado, nao
-     cifrado. Ver `_render_usuarios` em `app/auth.py`. #}
+     cifrado. Ver `_render_usuarios` em `app/seguranca/auth.py`. #}
   <div class="painel admin-painel senha-temporaria" role="status">
     <h2 class="painel-titulo">Senha temporária de {{ senha_de }}</h2>
     <p><code class="senha-temporaria-valor">{{ senha_temporaria }}</code></p>

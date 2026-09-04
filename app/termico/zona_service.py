@@ -28,9 +28,10 @@ import datetime
 import threading
 from typing import TYPE_CHECKING, cast
 
-from . import modbus_client
-from . import thermal_indices as ti
-from .models import Resfriamento, Temperatura
+from app.modbus import modbus_client
+from app.termico import thermal_indices as ti
+
+from ..models import Resfriamento, Temperatura
 
 if TYPE_CHECKING:
     from collections.abc import Callable

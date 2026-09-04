@@ -40,7 +40,9 @@ from sharedauth.ui import registrar_ui
 from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import auth, env_config
+from app.nucleo import env_config
+from app.seguranca import auth
+
 from . import database as db
 
 if TYPE_CHECKING:
@@ -578,7 +580,8 @@ def executar_ict(app: Flask, config: AppConfig) -> None:
 def executar_coletor(app: Flask, config: AppConfig) -> None:
     """Executa a API interna e a malha contínua do coletor."""
 
-    from . import notificacoes
+    from app.nucleo import notificacoes
+
     from .coletor.estado import gerenciador_controle
 
     fila = notificacoes.fila_notificacoes

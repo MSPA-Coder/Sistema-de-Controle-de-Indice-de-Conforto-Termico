@@ -49,7 +49,7 @@ def salvar_configuracoes():
 
 @dados_entrada_bp.route("/api/dados-entrada/gerar", methods=["POST"])
 def gerar_dados():
-    from .gerador_dados import GeracaoDadosError, gerar
+    from app.dados_entrada.gerador_dados import GeracaoDadosError, gerar
 
     dados = request.get_json(force=True, silent=True) or {}
     try:

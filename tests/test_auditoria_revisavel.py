@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app import audit_log
+from app.seguranca import audit_log
 
 
 def test_evento_revisavel_persiste_ator_contexto_e_oculta_segredo(monkeypatch, app):

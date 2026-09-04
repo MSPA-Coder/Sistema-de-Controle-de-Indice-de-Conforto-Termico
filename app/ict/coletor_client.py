@@ -9,8 +9,8 @@ import urllib.request
 
 from flask import current_app, jsonify
 
-from .. import auth
-from ..circuit_breaker import CircuitBreakerAbertoError, circuit_breaker_coletor
+from app.nucleo.circuit_breaker import CircuitBreakerAbertoError, circuit_breaker_coletor
+from app.seguranca import auth
 
 COLETOR_URL_PADRAO = "http://127.0.0.1:5001"
 TIMEOUT_COLETOR_SEGUNDOS = 5

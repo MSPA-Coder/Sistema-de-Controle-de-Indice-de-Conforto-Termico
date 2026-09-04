@@ -13,10 +13,12 @@ import time
 from collections import defaultdict
 from typing import TYPE_CHECKING, TypeVar, cast
 
-from .. import agregacao, notificacoes
+from app.nucleo import notificacoes
+from app.termico import agregacao
+from app.termico import thermal_indices as ti
+from app.termico.zona_service import ZonaCalculoError, ZonaService
+
 from .. import database as db
-from .. import thermal_indices as ti
-from ..zona_service import ZonaCalculoError, ZonaService
 
 if TYPE_CHECKING:
     from collections.abc import Callable
