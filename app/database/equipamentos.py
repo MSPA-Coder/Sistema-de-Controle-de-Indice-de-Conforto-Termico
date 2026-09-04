@@ -5,9 +5,9 @@ from __future__ import annotations
 import datetime
 import json
 
-from . import thermal_indices as ti
-from .database_comum import conexao
-from .database_zonas import (
+from .. import thermal_indices as ti
+from .comum import conexao
+from .zonas import (
     ZonaInvalidaError,
     ZonaNaoEncontradaError,
     _validar_inteiro,

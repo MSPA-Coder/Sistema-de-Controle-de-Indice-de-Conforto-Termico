@@ -13,7 +13,7 @@ def test_evento_revisavel_persiste_ator_contexto_e_oculta_segredo(monkeypatch, a
     def registrar(**kwargs):
         recebido.update(kwargs)
 
-    from app import database_auditoria
+    from app.database import auditoria as database_auditoria
 
     monkeypatch.setattr(database_auditoria, "registrar_evento_auditoria", registrar)
     with app.test_request_context("/api/zonas", method="POST", environ_base={"REMOTE_ADDR": "127.0.0.1"}):

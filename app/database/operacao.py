@@ -5,8 +5,8 @@ from __future__ import annotations
 import datetime
 import json
 
-from .database_comum import conexao
-from .database_configuracoes import obter_configuracoes
+from .comum import conexao
+from .configuracoes import obter_configuracoes
 
 
 def salvar_status_coletor(

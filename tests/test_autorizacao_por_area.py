@@ -26,10 +26,10 @@ from app import (
     auth,
     dados_entrada_rotas,
     database,
-    database_configuracoes,
-    database_zonas,
     rotas_comuns,
 )
+from app.database import configuracoes as database_configuracoes
+from app.database import zonas as database_zonas
 
 
 def _endpoints_da_aplicacao(app) -> set[str]:
@@ -336,7 +336,7 @@ _EQUIPAMENTO_COM_FIACAO = {
 
 
 def _fake_listar_zonas(*, apenas_ativas=False, com_fiacao=False):
-    # Mesmo contrato da funcao real (database_zonas.listar_zonas): so traz
+    # Mesmo contrato da funcao real (app.database.zonas.listar_zonas): so traz
     # fiacao quando pedida explicitamente. E o comportamento deste `if` que
     # protege /api/zonas, e e ele que este fake precisa reproduzir para o
     # teste continuar significativo.

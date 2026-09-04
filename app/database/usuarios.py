@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime
 
-from .database_comum import PERFIS_VALIDOS, coagir_booleano, conexao
+from .comum import PERFIS_VALIDOS, coagir_booleano, conexao
 
 
 class UsuarioInvalidoError(ValueError):

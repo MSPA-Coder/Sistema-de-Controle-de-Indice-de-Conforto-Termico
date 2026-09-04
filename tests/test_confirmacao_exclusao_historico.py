@@ -1,6 +1,6 @@
 """Duas rotas apagam toda a série temporal de todas as zonas de uma vez --
 `leituras`, `leituras_recentes_zona`, `agregados_15min` e `resumos_horarios`
-(ver `database_leituras.limpar_historico`): `/api/dados-entrada/apagar-
+(ver `app.database.leituras.limpar_historico`): `/api/dados-entrada/apagar-
 historico` e `/api/reset`. Até este teste nascer, só a primeira validava a
 confirmação no servidor -- `/api/reset` confiava inteiramente no
 `confirm()` do navegador, que não impede nada contra uma chamada direta

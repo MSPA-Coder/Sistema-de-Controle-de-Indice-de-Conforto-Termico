@@ -1,7 +1,7 @@
 """Remove a senha SMTP persistida em texto claro (CT-03).
 
 `smtpSenha` deixou de ter chave em `CONFIGURACOES_PADRAO`
-(`app/database_configuracoes.py`): a aplicação nunca mais grava nem lê esse
+(`app/database/configuracoes.py`): a aplicação nunca mais grava nem lê esse
 valor do banco -- a senha agora vem exclusivamente de segredo do Compose ou da
 variável `SMTP_PASS` (`models._resolver_senha_smtp`). Sem esta migração, o
 valor já gravado por uma configuração anterior continuaria na tabela --

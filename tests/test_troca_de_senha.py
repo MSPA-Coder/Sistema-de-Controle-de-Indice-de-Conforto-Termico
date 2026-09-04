@@ -328,7 +328,7 @@ def test_criar_usuario_liga_a_marca_por_padrao():
     # caminho novo -- nasca protegida.
     import inspect
 
-    from app import database_usuarios
+    from app.database import usuarios as database_usuarios
 
     assinatura = inspect.signature(database_usuarios.criar_usuario)
 
@@ -355,7 +355,7 @@ def test_edicao_de_usuario_com_senha_tambem_liga_a_marca():
     # dos fundos silenciosa.
     import inspect
 
-    from app import database_usuarios
+    from app.database import usuarios as database_usuarios
 
     fonte = inspect.getsource(database_usuarios.atualizar_usuario)
 
