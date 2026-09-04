@@ -12,9 +12,8 @@ conexão e trava em `psycopg.waiting.wait_conn`), também precisa repetir
 from __future__ import annotations
 
 import pytest
-from sharedauth.ratelimit import LIMITE_LOGIN_PADRAO
-
 from _stub_banco import recusar_conexao_com_banco
+from sharedauth.ratelimit import LIMITE_LOGIN_PADRAO
 
 from app.app_factory import AppConfig, criar_app_ict
 
