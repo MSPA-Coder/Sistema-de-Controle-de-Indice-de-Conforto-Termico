@@ -182,9 +182,10 @@ def historico_leituras():
     if indice is not None and indice not in ti.NOME_INDICE:
         return jsonify({"erro": f"Índice inválido: '{indice}'."}), 400
 
-    status = request.args.get("status") or None
-    if status is not None and ti.normalizar_chave_texto(status).lower() not in ti.STATUS_PESO:
-        return jsonify({"erro": f"Status inválido: '{status}'."}), 400
+    status_bruto = request.args.get("status") or None
+    status = ti.canonizar_status(status_bruto) if status_bruto is not None else None
+    if status_bruto is not None and status is None:
+        return jsonify({"erro": f"Status inválido: '{status_bruto}'."}), 400
 
     valor_referencia, erro = _parametro_float("valor_referencia")
     if erro:

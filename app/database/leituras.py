@@ -582,7 +582,7 @@ def consolidar_resumo_horario(
                 percentuais["Conforto"],
                 percentuais["Alerta"],
                 percentuais["Perigo"],
-                percentuais["Emergência"],
+                percentuais["Emergencia"],
                 agora,
             ),
         )

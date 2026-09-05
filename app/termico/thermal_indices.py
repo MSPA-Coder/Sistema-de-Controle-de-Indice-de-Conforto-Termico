@@ -284,7 +284,34 @@ LIMITES = _congelar(
     }
 )
 
-STATUS_ORDEM = ("Conforto", "Alerta", "Perigo", "Emergência")
+# O token canonico de status e sempre ASCII: e ele que a classificacao
+# devolve, que fica gravado em `historico.leituras.status`,
+# `leituras_recentes_zona.status`, `resumos_horarios.status_da_media` e
+# `dados_entrada.medicoes.status_termico`, e que o codigo compara. O acento
+# de "Emergencia" entra so na exibicao, via `rotulo_do_status`. Os outros
+# tres niveis nao tem acento, entao o rotulo coincide com o token.
+STATUS_ORDEM = ("Conforto", "Alerta", "Perigo", "Emergencia")
+
+ROTULOS_STATUS = _congelar({"Emergencia": "Emergência"})
+
+_STATUS_POR_CHAVE = _congelar(
+    {normalizar_chave_texto(_s).lower(): _s for _s in STATUS_ORDEM}
+)
+
+
+def rotulo_do_status(status: str) -> str:
+    """Rotulo de exibicao para um token de status. Identidade para os que
+    ja sao ASCII; "Emergencia" -> "Emergência" para o usuario ver."""
+    return cast("str", ROTULOS_STATUS.get(status, status))
+
+
+def canonizar_status(valor: str) -> str | None:
+    """Devolve o token canonico (ASCII, capitalizado) para qualquer grafia
+    de status -- com ou sem acento, em qualquer caixa --, ou `None` se nao
+    corresponde a nenhum nivel. Mantem URLs/clientes antigos que ainda
+    mandam "Emergência" funcionando depois da troca do token."""
+    return _STATUS_POR_CHAVE.get(normalizar_chave_texto(valor).lower())
+
 
 STATUS_PESO = _congelar(
     {
@@ -371,7 +398,7 @@ def classificar_status(valor: float, especie: str, indice: str) -> str:
         return "Alerta"
     if valor <= limites["perigo"]:
         return "Perigo"
-    return "Emergência"
+    return "Emergencia"
 
 
 def calcular_e_classificar(especie: str, indice: str, entradas: dict) -> tuple[float, str]:

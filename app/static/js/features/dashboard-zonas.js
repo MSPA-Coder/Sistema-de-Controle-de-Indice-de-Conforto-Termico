@@ -11,6 +11,7 @@ export function criarDashboardZonas({
   tocarSom,
   classeStatus,
   corStatus,
+  rotuloStatus,
   corCampoEntrada,
   formatarHora,
   formatarDataHoraCurta,
@@ -173,7 +174,7 @@ export function criarDashboardZonas({
       : "faixa-status faixa-" + classe;
     if (faixaTexto) faixaTexto.textContent = desatualizada
       ? "DADO DESATUALIZADO"
-      : String(ultima.status || "").toUpperCase();
+      : rotuloStatus(ultima.status).toUpperCase();
 
     const mensagem = elementoLinhaZonaPrincipal(zona.id, "mensagem-orientacao");
     if (mensagem) mensagem.textContent = desatualizada
@@ -223,7 +224,7 @@ export function criarDashboardZonas({
     const faixa = elementoLinhaZonaPrincipal(zona.id, "faixa-status");
     if (faixa) faixa.className = "faixa-status faixa-" + classe;
     const faixaTexto = elementoLinhaZonaPrincipal(zona.id, "faixa-status-texto");
-    if (faixaTexto) faixaTexto.textContent = selecionado.status.toUpperCase();
+    if (faixaTexto) faixaTexto.textContent = rotuloStatus(selecionado.status).toUpperCase();
 
     definirMensagemOrientacao(
       selecionado.mensagem,
@@ -248,7 +249,7 @@ export function criarDashboardZonas({
       console.error("Erro ao desenhar os graficos:", erro);
       mostrarErro(
         "O valor foi calculado normalmente (" + selecionado.valor.toFixed(2).replace(".", ",") +
-        ", " + selecionado.status + "), mas os gráficos não puderam ser desenhados. " +
+        ", " + rotuloStatus(selecionado.status) + "), mas os gráficos não puderam ser desenhados. " +
         "Detalhes no console do navegador (F12 → Console)."
       );
     }

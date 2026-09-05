@@ -29,7 +29,10 @@ const COR_STATUS = {
   "Emergencia": "#E1261C",
 };
 
-const STATUS_HISTORICO = ["Conforto", "Alerta", "Perigo", "Emerg\u00eancia"];
+// Token canonico de status: ASCII, igual ao que a API devolve e ao que o
+// backend grava. "Emergencia" recebe acento so na exibicao, via rotuloStatus.
+const STATUS_HISTORICO = ["Conforto", "Alerta", "Perigo", "Emergencia"];
+const ROTULO_STATUS = { Emergencia: "Emerg\u00eancia" };
 const ROTULO_TIPO_VALOR_HISTORICO = { minimo: "Mínimo", medio: "Médio", maximo: "Máximo" };
 const CORES_CAMPOS_ENTRADA = ["#4F8A93", "#D9A441", "#8FBF9F", "#C1443C", "#9E7BB5", "#6FA8DC"];
 const HISTORICO_LINHAS_POR_PAGINA = 20;
@@ -46,6 +49,10 @@ function classeStatus(status) {
 
 function corStatus(status, fallback = "#4F8A93") {
   return COR_STATUS[normalizarChaveTexto(status)] || fallback;
+}
+
+function rotuloStatus(status) {
+  return ROTULO_STATUS[normalizarChaveTexto(status)] || status || "";
 }
 
 function corCampoEntrada(campo) {
@@ -531,6 +538,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     tocarSom,
     classeStatus,
     corStatus,
+    rotuloStatus,
     corCampoEntrada,
     formatarHora,
     formatarDataHoraCurta,
@@ -558,6 +566,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     ativarAba,
     classeStatus,
     corStatus,
+    rotuloStatus,
     corCampoEntrada,
     formatarHora,
     formatarDataHoraCurta,
@@ -620,6 +629,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     obterEstado: () => estado,
     abrirHistoricoComZona: (...argumentos) => historico.abrirComZona(...argumentos),
     classeStatus,
+    rotuloStatus,
     statusHistorico: STATUS_HISTORICO,
     rotuloTipoValorHistorico: ROTULO_TIPO_VALOR_HISTORICO,
   });
