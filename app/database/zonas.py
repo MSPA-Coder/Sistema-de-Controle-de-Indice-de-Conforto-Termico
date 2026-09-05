@@ -438,7 +438,7 @@ def obter_estatisticas_zonas() -> list[dict]:
     minimo e maximo de indices diferentes nao sao comparaveis entre si):
 
     - `percentuais`: fracao do tempo (%) que a zona passou em cada status
-      (Conforto/Alerta/Perigo/Emergência), ou `None` se nao ha leituras.
+      (Conforto/Alerta/Perigo/Emergencia), ou `None` se nao ha leituras.
     - `media`/`minimo`/`maximo`: estatisticas do valor do indice, ou `None`
       se nao ha leituras.
 
@@ -731,7 +731,7 @@ def _resumir_painel_zona(
     # durante esse intervalo); o ultimo intervalo se estende ate agora,
     # para que o tempo no status atual continue contando em tempo real.
     datas_hoje = datas[inicio_hoje:]
-    minutos_por_status = {"Perigo": 0.0, "Emergência": 0.0}
+    minutos_por_status = {"Perigo": 0.0, "Emergencia": 0.0}
     for posicao, linha in enumerate(leituras_hoje):
         inicio_intervalo = datas_hoje[posicao]
         fim_intervalo = datas_hoje[posicao + 1] if posicao + 1 < len(leituras_hoje) else agora
@@ -741,7 +741,7 @@ def _resumir_painel_zona(
             ).total_seconds() / 60
 
     base["minutos_perigo_dia"] = round(minutos_por_status["Perigo"], 1)
-    base["minutos_emergencia_dia"] = round(minutos_por_status["Emergência"], 1)
+    base["minutos_emergencia_dia"] = round(minutos_por_status["Emergencia"], 1)
 
     # Horario previsto do pico: media do horario (hora:minuto) em que o
     # valor MAXIMO de cada dia ANTERIOR ocorreu. Precisa de pelo menos 2
@@ -811,11 +811,11 @@ def _recomendacao_operacional(painel: dict) -> str:
     partes = [ti.mensagem_do_status(status)]
 
     tendencia_15min = painel.get("tendencias", {}).get("15min")
-    if tendencia_15min == "subindo" and status in ("Perigo", "Emergência"):
+    if tendencia_15min == "subindo" and status in ("Perigo", "Emergencia"):
         partes.append("O índice ainda está subindo nos últimos 15 minutos: reforce o resfriamento.")
     elif tendencia_15min == "subindo" and status == "Alerta":
         partes.append("Tendência de subida nos últimos 15 minutos; monitore de perto.")
-    elif tendencia_15min == "descendo" and status in ("Perigo", "Emergência"):
+    elif tendencia_15min == "descendo" and status in ("Perigo", "Emergencia"):
         partes.append("O índice já vem caindo nos últimos 15 minutos.")
 
     sensores_indisponiveis = painel.get("sensores_indisponiveis") or []

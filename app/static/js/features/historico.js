@@ -6,6 +6,7 @@ export function criarHistorico({
   ativarAba,
   classeStatus,
   corStatus,
+  rotuloStatus,
   corCampoEntrada,
   formatarHora,
   formatarDataHoraCurta,
@@ -428,7 +429,7 @@ export function criarHistorico({
     opcoes.forEach((opcao) => {
       const option = document.createElement("option");
       option.value = opcao;
-      option.textContent = opcao;
+      option.textContent = rotuloStatus(opcao);
       select.appendChild(option);
     });
 
@@ -617,7 +618,7 @@ export function criarHistorico({
       const tdValor = document.createElement("td");
       tdValor.textContent = h.valor.toFixed(2).replace(".", ",");
       const tdStatus = document.createElement("td");
-      tdStatus.textContent = h.status;
+      tdStatus.textContent = rotuloStatus(h.status);
       tdStatus.className = classe;
 
       tr.append(tdHora, tdIndice, tdEntradas, tdValor, tdStatus);

@@ -308,7 +308,7 @@ class Email:
         """Monta o texto do e-mail no mesmo layout das Figuras 20/22/25/28."""
         agora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         return (
-            f"Status: {status}\n"
+            f"Status: {ti.rotulo_do_status(status)}\n"
             f"Data: {agora}\n"
             f"{Email._formatar_zona(zona)}"
             f"Valor do {indice}: {valor}\n"

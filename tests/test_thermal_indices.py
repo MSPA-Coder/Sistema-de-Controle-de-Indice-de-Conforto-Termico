@@ -65,7 +65,7 @@ def _status_esperado(valor, conforto, alerta, perigo):
         return "Alerta"
     if valor <= perigo:
         return "Perigo"
-    return "Emergência"
+    return "Emergencia"
 
 
 @pytest.mark.parametrize(
@@ -92,9 +92,9 @@ def test_classificacao_na_igualdade_e_imediatamente_acima_de_cada_limite(
     ("especie", "valor", "status"),
     [
         ("frangos", 76, "Conforto"),
-        ("frangos", math.nextafter(76, math.inf), "Emergência"),
+        ("frangos", math.nextafter(76, math.inf), "Emergencia"),
         ("suinos", 82.6, "Alerta"),
-        ("suinos", math.nextafter(82.6, math.inf), "Emergência"),
+        ("suinos", math.nextafter(82.6, math.inf), "Emergencia"),
     ],
 )
 def test_ignu_preserva_faixas_colapsadas_sem_inventar_categorias(especie, valor, status):
@@ -178,3 +178,29 @@ def test_decimal_com_virgula_e_fluxo_integrado_de_calculo_e_classificacao():
 def test_tabelas_compartilhadas_sao_imutaveis(tabela, chave, novo_valor):
     with pytest.raises(TypeError):
         tabela[chave] = novo_valor
+
+
+def test_token_de_status_e_sempre_ascii():
+    """O token canonico e persistido e comparado como literal; acento nele
+    quebra filtro de historico, contagem de percentuais e a migracao. O
+    acento vive so no rotulo de exibicao."""
+    for token in ti.STATUS_ORDEM:
+        assert token.isascii(), f"token de status com caractere nao-ASCII: {token!r}"
+    assert ti.classificar_status(1e9, "frangos", "ITU").isascii()
+    assert ti.rotulo_do_status("Emergencia") == "Emergência"
+    assert ti.rotulo_do_status("Conforto") == "Conforto"
+
+
+@pytest.mark.parametrize(
+    ("entrada", "esperado"),
+    [
+        ("Emergência", "Emergencia"),
+        ("emergencia", "Emergencia"),
+        ("EMERGÊNCIA", "Emergencia"),
+        ("Perigo", "Perigo"),
+        ("  ", None),
+        ("inexistente", None),
+    ],
+)
+def test_canonizar_status_aceita_qualquer_grafia(entrada, esperado):
+    assert ti.canonizar_status(entrada) == esperado

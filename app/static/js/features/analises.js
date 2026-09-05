@@ -7,6 +7,7 @@ export function criarAnalises({
   obterEstado,
   abrirHistoricoComZona,
   classeStatus,
+  rotuloStatus,
   statusHistorico,
   rotuloTipoValorHistorico,
   documento = document,
@@ -108,7 +109,7 @@ function construirCartaoExecutivoZona(zona) {
   const badgeStatus = document.createElement("span");
   if (zona.status_atual) {
     badgeStatus.className = "faixa-status executivo-status-badge faixa-" + classeStatus(zona.status_atual);
-    badgeStatus.textContent = zona.status_atual.toUpperCase();
+    badgeStatus.textContent = rotuloStatus(zona.status_atual).toUpperCase();
   } else {
     badgeStatus.className = "faixa-status executivo-status-badge faixa-status--vazio";
     badgeStatus.textContent = "SEM LEITURA";
@@ -306,7 +307,7 @@ function renderizarAnalisePercentuais(estatisticas) {
     STATUS_HISTORICO.forEach((status) => {
       const td = document.createElement("td");
       td.dataset.status = status;
-      td.title = "Ver histórico de " + zona.nome + " com status " + status;
+      td.title = "Ver histórico de " + zona.nome + " com status " + rotuloStatus(status);
       if (zona.percentuais) {
         td.textContent = zona.percentuais[status].toFixed(1).replace(".", ",") + "%";
         td.className = "status-" + classeStatus(status);
