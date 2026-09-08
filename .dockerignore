@@ -12,6 +12,13 @@ __pycache__
 *.db-*
 .env
 .env.*
+# Exceção única e deliberada: o arquivo de EXEMPLO é versionado, não tem
+# segredo nenhum e é o que a pessoa copia antes do primeiro `up`. Ele entra no
+# contexto para que `tests/test_configuracao_entregue_sobe.py` possa conferir
+# que a configuração entregue realmente inicia -- foi por não haver essa
+# conferência que o `ict` passou três semanas sem subir com o padrão do
+# repositório. A regra cega acima continua valendo para todo o resto.
+!.env.docker.example
 .certs
 .secrets
 backups

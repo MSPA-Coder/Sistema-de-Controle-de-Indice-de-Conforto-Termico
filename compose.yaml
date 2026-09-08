@@ -134,7 +134,15 @@ services:
       CONFORTO_PORT: "5000"
       CONFORTO_DEBUG: ${CONFORTO_DEBUG:-0}
       CONFORTO_SESSION_COOKIE_NAME: ${CONFORTO_SESSION_COOKIE_NAME:-conforto_session}
-      CONFORTO_COOKIE_SEGURO: ${CONFORTO_COOKIE_SEGURO:-0}
+      # O PADRÃO É `1`, e não `0`, porque aqui não há escolha de host: a linha
+      # `CONFORTO_HOST: 0.0.0.0` logo acima é obrigatória em contêiner --
+      # escutar em loopback tornaria a porta publicada inalcançável. E desde
+      # 02/09/2026 `app_factory._validar_transporte` recusa a inicialização
+      # nessa combinação. Com `0`, portanto, o `ict` simplesmente não subia.
+      #
+      # O `Secure` não atrapalha o acesso local: navegador trata `127.0.0.1`
+      # como origem confiável, então o cookie viaja normalmente em http ali.
+      CONFORTO_COOKIE_SEGURO: ${CONFORTO_COOKIE_SEGURO:-1}
       # Sem esta linha o `ProxyFix` fica inerte em produção. O `--env-file` do
       # Compose serve para INTERPOLAR `${VAR}` neste arquivo; ele não injeta
       # nada dentro do contêiner. Só chega ao processo o que estiver listado
