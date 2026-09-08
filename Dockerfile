@@ -125,6 +125,13 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     python -m pip install ".[dev]"
 COPY --chown=app:app pyproject.toml ./
 COPY --chown=app:app tests ./tests
+# O `compose.yaml` e o exemplo de ambiente entram porque a suíte os LÊ: eles
+# declaram a configuração que o repositório entrega, e
+# `tests/test_configuracao_entregue_sobe.py` confere que ela consegue iniciar.
+# Sem isto o teste não teria o que ler, e o estágio `quality` continuaria
+# aprovando uma configuração que não sobe. Só neste estágio: a imagem servida
+# não leva nem um nem outro.
+COPY --chown=app:app compose.yaml .env.docker.example ./
 ENV RUFF_CACHE_DIR=/tmp/ruff-cache \
     PYTEST_ADDOPTS="-o cache_dir=/tmp/pytest-cache"
 USER app
