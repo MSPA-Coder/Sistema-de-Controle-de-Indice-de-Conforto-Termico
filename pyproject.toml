@@ -14,7 +14,14 @@ name = "conforto-termico"
 version = "2.2.0"
 description = "Coleta, agregacao e analise de indices de conforto termico."
 readme = "README.md"
-requires-python = ">=3.13"
+# Piso elevado a 3.14 em 07/09/2026 (achado L03 do LEVANTAMENTO_2026-09.md).
+# A politica da casa e alargar o teto e preservar o piso, e ela continua
+# valendo -- o motivo aqui e outro: o piso declarava uma compatibilidade que
+# NINGUEM verificava. Todas as imagens rodam `python:3.14-slim` e nenhum job
+# jamais executou a suite em 3.12 ou 3.13. Declarar 3.14 e dizer a verdade
+# sobre o unico ambiente exercitado; voltar atras exige uma matriz na CI que
+# realmente rode nas versoes menores.
+requires-python = ">=3.14"
 dependencies = [
   "Flask>=3.0,<4.0",
   "SQLAlchemy>=2.0,<3.0",
@@ -73,7 +80,7 @@ allow-direct-references = true
 # layout de pacotes. Mantenha o resto em sincronia.
 
 [tool.ruff]
-target-version = "py313"
+target-version = "py314"
 line-length = 100
 extend-exclude = [".venv", "backups", "instance"]
 

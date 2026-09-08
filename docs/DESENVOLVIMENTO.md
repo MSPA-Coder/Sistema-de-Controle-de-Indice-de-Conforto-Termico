@@ -19,10 +19,11 @@ uma instalação existente, não execute o gerador com `--force` sem planejar a
 rotação: a chave de sessão muda e invalida sessões.
 
 O script gera a senha do PostgreSQL, o token interno e a chave de sessão. O
-build também exige `.secrets/github_token.txt` para ler o repositório privado
-SharedAuth. Forneça uma credencial restrita a leitura pelo mecanismo aprovado
-de autenticação do GitHub; não a coloque no ambiente, histórico do shell ou
-documentação.
+build ainda exige `.secrets/github_token.txt`, mas o SharedAuth é público e a
+credencial não é mais necessária para lê-lo: o arquivo sobrevive porque o
+`--mount=type=secret` do `Dockerfile` continua pedindo por ele. Enquanto
+existir, trate-o como segredo -- não o coloque no ambiente, no histórico do
+shell ou na documentação.
 
 Se o host Windows intercepta HTTPS com uma autoridade local, gere o arquivo de
 CA usado no build:
