@@ -1,5 +1,14 @@
 # ConfortoTermico — orientações de trabalho
 
+> **Este projeto segue trilha própria e não faz parte da frota.** A frota é
+> MegaSena, ControleBancario e ControleRendaVariavel; eles compartilham base e
+> servem de referência uns aos outros. Aqui a **arquitetura é livre** — não
+> compare com os irmãos nem proponha unificar por uniformidade. O que continua
+> obrigatório é o **contrato operacional**: VPS, `deploy.sh`, vigia, autocura,
+> alerta, backup, `SharedAuth` e as proteções de repositório. Decisão de
+> 07/09/2026, registrada em
+> [`docs/adr/008-trilha-propria-fora-da-frota.md`](docs/adr/008-trilha-propria-fora-da-frota.md).
+
 ## Escopo e fontes de verdade
 
 Este é um software experimental de pesquisa, mantido e usado por uma pessoa.
