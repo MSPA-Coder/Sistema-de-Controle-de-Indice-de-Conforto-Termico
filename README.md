@@ -47,10 +47,8 @@ docker compose --env-file .env.docker up -d --build --wait
 docker compose --env-file .env.docker exec ict python -m scripts.verificar_postgres
 ```
 
-O build da dependência privada SharedAuth também requer
-`.secrets/github_token.txt`, com credencial somente de leitura fornecida pelo
-mecanismo de autenticação aprovado, e o Compose requer
-`.certs/local-root-ca.crt`. Veja o preparo completo no guia de desenvolvimento.
+O SharedAuth é público e o build não pede credencial nenhuma para lê-lo -- só
+`git` no PATH. O Compose requer `.certs/local-root-ca.crt`. Veja o preparo completo no guia de desenvolvimento.
 
 A interface fica em `http://127.0.0.1:5001`. Crie o primeiro administrador:
 
