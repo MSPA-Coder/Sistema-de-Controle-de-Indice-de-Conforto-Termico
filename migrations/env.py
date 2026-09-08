@@ -9,7 +9,21 @@ from app.nucleo.db_backend import database_url
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # `disable_existing_loggers=False` não é detalhe: o padrão do `fileConfig`
+    # é True, e ele DESLIGA todo logger que já exista no processo -- inclusive
+    # os da aplicação.
+    #
+    # Aqui isso nunca apareceu, porque o job `schema` aplica as migrações como
+    # processo separado, que morre em seguida. Aparece no instante em que
+    # alguém aplicar migração dentro do mesmo processo -- num teste, num script
+    # de manutenção -- e o sintoma é a aplicação parar de registrar log em
+    # silêncio, sem erro nenhum. Foi assim que um teste sem relação nenhuma
+    # reprovou no MegaSena, onde o mesmo padrão existia.
+    #
+    # Manter os loggers existentes é a recomendação da própria documentação do
+    # Alembic para este caso, e não deixa de configurar nada: os loggers
+    # declarados no `alembic.ini` continuam sendo aplicados.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 url = database_url()
 if not url:
