@@ -47,7 +47,6 @@ jobs:
           rm -f /tmp/conforto-ci-local-ca.key
           printf '%s\n' 'ci-placeholder-not-a-real-password' > .secrets/postgres_password.txt
           printf '%s\n' 'ci-placeholder-not-a-real-token' > .secrets/internal_token.txt
-          printf '%s' "${{ secrets.SHAREDAUTH_READ_TOKEN }}" > .secrets/github_token.txt
 
       - name: Validate Compose configuration
         run: docker compose config --quiet
@@ -137,7 +136,6 @@ jobs:
           rm -f /tmp/conforto-ci-local-ca.key
           printf '%s\n' 'ci-placeholder-not-a-real-password' > .secrets/postgres_password.txt
           printf '%s\n' 'ci-placeholder-not-a-real-token' > .secrets/internal_token.txt
-          printf '%s' "${{ secrets.SHAREDAUTH_READ_TOKEN }}" > .secrets/github_token.txt
 
       - name: Validate PostgreSQL Compose contract
         shell: bash

@@ -36,21 +36,27 @@ FROM base AS runtime-dependencies
 COPY pyproject.toml README.md ./
 COPY app ./app
 # `pyproject.toml` inclui `sharedauth` de um repositório Git PÚBLICO
-# -- o token abaixo é herança de quando ele era privado e hoje não é exigido
-# (github.com/MSPA-Coder/SharedAuth) -- o secret `github_token` (BuildKit,
-# nunca vira camada da imagem) autentica só para este RUN; `git config
-# --unset` no fim da mesma instrução remove o token do `.gitconfig` antes de
-# commitar a camada. Mesmo mecanismo do MegaSena e do ControleRendaVariavel.
+# (github.com/MSPA-Coder/SharedAuth), então o `pip install` só precisa de `git`
+# no PATH -- nenhuma credencial.
+#
+# A ENGRENAGEM DE TOKEN QUE EXISTIA AQUI SAIU EM 08/09/2026 (achado L23 do
+# LEVANTAMENTO_2026-09.md). Ela era herança da época em que o repositório era
+# privado: um secret do BuildKit, um `git config --global url...insteadOf` para
+# injetar o PAT e um `--unset` para removê-lo antes de commitar a camada. Nada
+# disso é necessário para ler um repositório público, e cada peça era mais uma
+# coisa que podia expirar, vazar ou faltar num reclone.
+#
+# O efeito que importa é fora daqui: enquanto QUALQUER build da frota exigisse
+# o arquivo, o PAT tinha de existir no VPS. Agora não precisa mais existir em
+# lugar nenhum.
 #
 # As dependências vêm do `pyproject.toml`, fonte única do projeto. Como
 # `pip install .` precisa do código, copiar `app/` aqui faz esta camada ser
 # refeita a cada edição -- daí o `--mount=type=cache` no `pip`: a camada é
 # refeita, mas nada é baixado de novo. O cache é do BuildKit e não vira
 # camada da imagem.
-RUN --mount=type=cache,target=/root/.cache/pip --mount=type=secret,id=github_token \
-    git config --global url."https://x-access-token:$(cat /run/secrets/github_token)@github.com/".insteadOf "https://github.com/" \
-    && python -m pip install . \
-    && git config --global --unset url."https://x-access-token:$(cat /run/secrets/github_token)@github.com/".insteadOf
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python -m pip install .
 
 FROM runtime-dependencies AS runtime
 ARG APP_UID=10001
@@ -115,10 +121,8 @@ USER root
 # nome e nunca vai para produção.
 RUN python -m ensurepip --upgrade \
     && python -m pip --version
-RUN --mount=type=cache,target=/root/.cache/pip --mount=type=secret,id=github_token \
-    git config --global url."https://x-access-token:$(cat /run/secrets/github_token)@github.com/".insteadOf "https://github.com/" \
-    && python -m pip install ".[dev]" \
-    && git config --global --unset url."https://x-access-token:$(cat /run/secrets/github_token)@github.com/".insteadOf
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python -m pip install ".[dev]"
 COPY --chown=app:app pyproject.toml ./
 COPY --chown=app:app tests ./tests
 ENV RUFF_CACHE_DIR=/tmp/ruff-cache \
