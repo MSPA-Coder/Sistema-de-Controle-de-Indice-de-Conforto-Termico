@@ -2,8 +2,9 @@
 
 ## Ambiente reproduzível
 
-Use Docker Compose para aplicação, PostgreSQL, migrações e ferramentas. Não
-instale Python, dependências ou test runners no host para trabalhar no projeto.
+Use Docker Compose para aplicação, PostgreSQL, migrações e ferramentas. No host,
+o único Python do projeto é o venv opcional do laço rápido (ver `AGENTS.md`);
+nada vai para o Python global.
 
 Prepare a instalação local:
 
@@ -19,9 +20,7 @@ uma instalação existente, não execute o gerador com `--force` sem planejar a
 rotação: a chave de sessão muda e invalida sessões.
 
 O script gera a senha do PostgreSQL, o token interno e a chave de sessão. O
-`.secrets/github_token.txt` **deixou de ser exigido** em 08/09/2026: o
-SharedAuth é público, e o `--mount=type=secret` que pedia por ele saiu do
-`Dockerfile`. Se o arquivo ainda existir, pode ser apagado.
+SharedAuth é público: o build não precisa de credencial para instalá-lo.
 
 Se o host Windows intercepta HTTPS com uma autoridade local, gere o arquivo de
 CA usado no build:
@@ -74,12 +73,11 @@ não substituem o exercício do fluxo alterado nem a verificação da pilha.
 
 ## Triagem de alertas externos
 
-O repositório não possui workflow nem configuração local de CodeQL. A CI cobre
-Ruff, pytest, `pip-audit`, Trivy e contratos de runtime; portanto, qualquer
-alerta CodeQL citado por uma ferramenta externa deve ser associado a um arquivo
-e revisão concretos antes de virar mudança ou supressão. Sem essa evidência, o
-item permanece documentado para triagem, sem alterar dependências ou adicionar
-exceções.
+O CodeQL roda pela configuração padrão do GitHub (Actions, JavaScript/TypeScript
+e Python), sem workflow no repositório, e é check obrigatório no `main` ao lado
+de `Qualidade` e `Runtime contracts`. Um alerta citado por ferramenta externa
+deve ser associado a um arquivo e revisão concretos antes de virar mudança ou
+supressão.
 
 Também não há `rpcbind`, `portmap`, NFS ou serviço equivalente no `compose.yaml`.
 Ruído desse tipo pertence ao host/VPS, não a esta composição. Não adicionar,

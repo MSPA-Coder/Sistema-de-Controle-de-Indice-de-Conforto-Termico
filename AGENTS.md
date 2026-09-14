@@ -12,10 +12,11 @@
 ## Escopo e fontes de verdade
 
 Este é um software experimental de pesquisa, mantido e usado por uma pessoa.
-Ele calcula, monitora e simula conforto térmico animal; ainda não está em uso
-operacional e não aciona equipamentos físicos. Não desabilite o modo simulado
-nem conecte hardware como parte de uma tarefa sem autorização explícita e um
-plano de segurança próprio.
+Ele calcula, monitora e simula conforto térmico animal; hoje roda em modo
+simulado e não aciona equipamentos físicos. Conectar hardware é um passo
+previsto da pesquisa, com pré-requisitos: autorização explícita do mantenedor e
+um plano de segurança para animais e equipamentos antes de desligar o modo
+simulado.
 
 As fórmulas, limites e combinações de espécie/índice têm fonte única em
 `app/termico/thermal_indices.py`. Mudanças exigem justificativa, exemplos numéricos e
@@ -50,8 +51,10 @@ migrações Alembic antes de `ict` e `coletor`; a aplicação não cria schema e
 runtime. Mudanças de schema usam nova revisão com `upgrade` e `downgrade`; não
 reescreva revisão aplicada nem use `stamp` para declarar compatibilidade.
 
-`app/nucleo/db_backend.py` é apenas uma camada de compatibilidade de chamadas SQL sobre
-PostgreSQL. Não amplie sua superfície. Ao escrever SQL, evite ambiguidade entre
+`app/nucleo/db_backend.py` é uma camada de compatibilidade de chamadas SQL sobre
+PostgreSQL. A arquitetura é livre (ADR 008): se ela crescer a ponto de
+atrapalhar, trocá-la por um ORM ou pelo driver direto é opção legítima. Ao
+escrever SQL, evite ambiguidade entre
 marcadores `?` e operadores JSONB: prefira `jsonb_exists(coluna, ?)`; considere
 também que `%` literal precisa ser tratado ao adaptar para o estilo do psycopg.
 
@@ -116,13 +119,6 @@ nem base fixada por digest — a fase F3 do levantamento não o cobriu, porque e
 segue trilha própria. Consequência prática: dois builds do mesmo commit ainda
 podem resolver versões diferentes aqui. Se um dia isso incomodar, o caminho já
 está percorrido nos irmãos.
-
-A engrenagem de token que existia aqui — secret do BuildKit, `git config
-url...insteadOf` para injetar um PAT, e `.secrets/github_token.txt` — **saiu em
-08/09/2026** (achado L23 do `LEVANTAMENTO_2026-09.md`). Era herança da época em
-que o repositório era privado, e o efeito que importa é fora deste arquivo:
-enquanto qualquer build da frota exigisse o token, ele tinha de existir no VPS
-também.
 
 Os dois ambientes acham defeitos diferentes, então nenhum substitui o outro.
 O venv é Windows e já pegou travamento de suíte que o contêiner nunca mostrou

@@ -119,22 +119,17 @@ ficar saudável, ele restaura o commit e a imagem anteriores. Esse rollback
 **não reverte migrações**; mudança de schema exige compatibilidade, backup
 central conferido pelo BackupRestore e procedimento explícito de recuperação de dados.
 
-A produção lê `.env.vps` (ver `.env.vps.example`) -- desde 01/09/2026, a mesma
-convenção dos três projetos irmãos. Até ali este era o único dos quatro cujo
-`deploy.sh` lia `.env.docker`, o MESMO nome do arquivo de desenvolvimento local;
-copiar o arquivo errado para o servidor desligava `Secure` do cookie de sessão
-em silêncio. Isso não depende mais só do exemplo versionado estar certo: subir
-com `CONFORTO_COOKIE_SEGURO` desligado e escuta fora de host de loopback agora
+A produção lê `.env.vps` (ver `.env.vps.example`), como os outros aplicativos
+do VPS. Subir com `CONFORTO_COOKIE_SEGURO` desligado e escuta fora do loopback
 recusa a inicialização (`app_factory._validar_transporte`), no mesmo espírito
 de `_validar_debug` e `_validar_testing`.
 
 ## Credencial do servidor SMTP
 
 Host, porta e usuário do SMTP continuam editáveis pela aba Configurações e
-persistidos no banco -- não são segredo. A **senha não é mais gravada em lugar
-nenhum da tabela `configuracoes`** (CT-03: até 01/09/2026 ela ficava lá em
-texto claro, replicada em todo dump que o BackupRestore gera e cataloga). Ela
-vem exclusivamente de `SMTP_PASS` (`app/models.py:_resolver_senha_smtp`), na
+persistidos no banco -- não são segredo. A **senha não é gravada no banco**,
+onde acabaria em todo dump que o BackupRestore gera e cataloga. Ela vem
+exclusivamente de `SMTP_PASS` (`app/models.py:_resolver_senha_smtp`), na
 mesma ordem de precedência de `sharedauth.secrets.resolver_segredo`:
 
 - `SMTP_PASS_FILE` apontando para um arquivo de segredo montado por fora deste
@@ -154,8 +149,3 @@ servidor e suba de novo -- não há reinicialização adicional nem migração
 envolvida, porque a senha nunca fica em disco gerido pela aplicação nem em
 tabela nenhuma. A tela mostra apenas se HÁ senha configurada
 (`smtpSenhaConfigurada`), nunca o valor.
-
-Uma instalação com o defeito antigo (senha gravada antes de 01/09/2026) tem o
-valor removido automaticamente pela migração
-`20260902_0001_remover_smtp_senha` na próxima subida -- sem downgrade de dados
-de propósito: reverter a migração não restaura a senha apagada.
