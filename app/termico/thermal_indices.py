@@ -3,20 +3,25 @@ thermal_indices.py
 ===================
 Nucleo de calculo do Sistema de Controle dos Indices de Conforto Termico.
 
-Implementa fielmente as tres equacoes que a dissertacao define como as
-REALMENTE utilizadas no software (Capitulo III, Tabela 3 - "Algoritmos para
-determinacao dos Indices de Conforto Termico"), e nao as equacoes alternativas
-apenas citadas na revisao bibliografica (Eq. 2, 3 e 4, nao implementadas):
+Implementa as tres equacoes que a dissertacao define como as REALMENTE
+utilizadas no software (Capitulo III, Tabela 3 - "Algoritmos para determinacao
+dos Indices de Conforto Termico"), e nao as equacoes alternativas apenas
+citadas na revisao bibliografica (Eq. 2, 3 e 4, nao implementadas):
 
-    ITU  = 0,72 . (tbs + tbu) + 40,6                  Eq. 1 (KELLY; BOND, 1971)
-    ITUV = (0,85.Tbs + 0,15.Tbu) . V^(-0,058)         Eq. 5 (TAO; XIN, 2003)
-    IGNU = 0,6.Tgn + 0,36.Tpo + 41,5                  Eq. 6 (BUFFINGTON et al., 1981)
+    ITU  = 0,72 . (tbs + tbu) + 40,6            Eq. 1 (forma de THOM, 1959, em graus C;
+                                                a dissertacao cita KELLY; BOND, 1971)
+    ITUV = (0,85.Tbs + 0,15.Tbu) . V^(-0,058)   Eq. 5 (TAO; XIN, 2003)
+    IGNU = Tgn + 0,36.Tpo + 41,5                BUFFINGTON et al., 1981
 
-Todas as tres formulas foram conferidas manualmente contra os exemplos
-numericos do Capitulo IV da propria dissertacao (Tabelas 5, 6 e 7 e secao 4.3)
-e reproduzem os valores publicados (ex.: tbs=27, tbu=19 -> ITU=73,72;
-Tgn=42, Tpo=8 -> IGNU=69,58; tbs=22, tbu=1, V=4 -> ITUV=17,39) -- ver
-test_thermal_indices.py.
+UMA DIVERGENCIA DECLARADA: a Eq. 6 da dissertacao traz 0,6.Tgn no IGNU, e o
+software a seguiu ate 15/09/2026. As transcricoes do indice de Buffington usam
+coeficiente 1 no globo negro, e as faixas da Tabela 4 foram publicadas nessa
+escala -- ver docs/adr/009-ignu-segue-buffington.md.
+
+ITU e ITUV foram conferidas contra os exemplos numericos do Capitulo IV da
+dissertacao (tbs=27, tbu=19 -> ITU=73,72; tbs=22, tbu=1, V=4 -> ITUV=17,39). O
+exemplo do ITUV confere a aritmetica, mas nao e um ponto fisico: a 22 graus C o
+bulbo umido nao desce de ~6,7 graus C. Ver test_thermal_indices.py.
 
 Origem: dissertacao de mestrado "Programa Computacional para o Calculo de
 Indices de Conforto Termico na Producao Industrial de Animais para Carne e
@@ -157,7 +162,9 @@ class EntradaInvalidaError(ValueError):
 # Equacoes (Tabela 3 da dissertacao)
 # ---------------------------------------------------------------------------
 def calcular_itu(tbs: float, tbu: float) -> float:
-    """ITU - Eq. 1 (Kelly & Bond, 1971). Usado para frangos, bovinos e suinos."""
+    """ITU - Eq. 1. Forma usualmente atribuida a Thom (1959), em graus C; a
+    dissertacao a atribui a Kelly & Bond (1971). Usado para frangos, bovinos e
+    suinos."""
     return 0.72 * (tbs + tbu) + 40.6
 
 
@@ -169,8 +176,14 @@ def calcular_ituv(tbs: float, tbu: float, v: float) -> float:
 
 
 def calcular_ignu(tgn: float, tpo: float) -> float:
-    """IGNU - Eq. 6 (Buffington et al., 1981)."""
-    return 0.6 * tgn + 0.36 * tpo + 41.5
+    """IGNU - Buffington et al. (1981): Tgn + 0,36.Tpo + 41,5.
+
+    DIVERGE DA EQ. 6 DA DISSERTACAO, que traz 0,6.Tgn. As transcricoes do indice
+    de Buffington usam coeficiente 1 no globo negro, e as faixas da Tabela 4
+    (Teixeira; Baeta) foram publicadas nessa escala. Com 0,6, um globo negro de
+    42 graus C saia classificado como Conforto. Ver
+    docs/adr/009-ignu-segue-buffington.md."""
+    return tgn + 0.36 * tpo + 41.5
 
 
 def calcular_pressao_atmosferica(altitude_m: float = 0.0) -> float:
@@ -248,6 +261,16 @@ def validar_entradas(indice: str, entradas: dict) -> dict:
         if campo == "v" and valor <= 0:
             raise EntradaInvalidaError("A velocidade do ar deve ser maior que zero.")
         convertidas[campo] = valor
+
+    # Bulbo umido acima do seco nao existe na atmosfera: a evaporacao so resfria.
+    # Cada faixa acima aceita o seu campo sozinho, entao so aqui, com os dois em
+    # maos, da para recusar a combinacao -- que e o sintoma tipico de sensores
+    # trocados. As rotinas psicrometricas ja recusavam; ITU e ITUV aceitavam.
+    if "tbs" in convertidas and "tbu" in convertidas and convertidas["tbu"] > convertidas["tbs"]:
+        raise EntradaInvalidaError(
+            "A temperatura de bulbo úmido não pode ser maior que a de bulbo seco "
+            f"(tbu {convertidas['tbu']} > tbs {convertidas['tbs']})."
+        )
     return convertidas
 
 
@@ -271,7 +294,10 @@ LIMITES = _congelar(
             "suinos": {"conforto": 65, "alerta": 69, "perigo": 73},  # Sales et al., 2006
         },
         "ITUV": {
-            "frangos": {"conforto": 24, "alerta": 34, "perigo": 39},  # Xiao & Xin, 2003
+            # A dissertacao atribui estes limites a "Xiao & Xin, 2003"; a equacao
+            # do ITUV e de Tao & Xin (2003). Provavel grafia trocada, a conferir
+            # na lista de referencias -- nao muda numero nenhum.
+            "frangos": {"conforto": 24, "alerta": 34, "perigo": 39},
         },
         "IGNU": {
             # Teixeira (1983): a tabela original so define "conforto" (<=76) e

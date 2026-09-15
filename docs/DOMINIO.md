@@ -2,11 +2,11 @@
 
 ## Índices implementados
 
-| Índice | Fórmula implementada | Entradas | Espécies configuradas |
-|---|---|---|---|
-| ITU | `0.72 * (tbs + tbu) + 40.6` | bulbo seco e bulbo úmido | frangos, bovinos e suínos |
-| ITUV | `(0.85 * tbs + 0.15 * tbu) * v ** -0.058` | bulbo seco, bulbo úmido e velocidade do ar | frangos |
-| IGNU | `0.6 * tgn + 0.36 * tpo + 41.5` | globo negro e ponto de orvalho | frangos, bovinos e suínos |
+| Índice | Fórmula implementada | Entradas | Espécies configuradas | Fonte |
+|---|---|---|---|---|
+| ITU | `0.72 * (tbs + tbu) + 40.6` | bulbo seco e bulbo úmido | frangos, bovinos e suínos | Eq. 1 da dissertação; forma usualmente atribuída a Thom (1959), em °C, e citada lá como Kelly & Bond (1971) |
+| ITUV | `(0.85 * tbs + 0.15 * tbu) * v ** -0.058` | bulbo seco, bulbo úmido e velocidade do ar | frangos | Eq. 5 da dissertação; Tao & Xin (2003) |
+| IGNU | `tgn + 0.36 * tpo + 41.5` | globo negro e ponto de orvalho | frangos, bovinos e suínos | Buffington et al. (1981) — **diverge da Eq. 6 da dissertação**, ver abaixo |
 
 As fórmulas, faixas aceitas para entradas, combinações de espécie/índice e
 limites de classificação vivem em `app/termico/thermal_indices.py`. O resultado é
@@ -19,11 +19,31 @@ A referência adotada pelo software é a dissertação *Programa Computacional p
 o Cálculo de Índices de Conforto Térmico na Produção Industrial de Animais para
 Carne e Leite* (Mariano Sergio Pacheco de Angelo, UNIP, 2013).
 
+## Divergência da dissertação
+
+A Eq. 6 da dissertação traz `0,6·Tgn` no IGNU, e o software a seguiu até
+15/09/2026. As transcrições do índice de Buffington et al. (1981) usam
+coeficiente 1 no globo negro, e as faixas de limite da Tabela 4 foram publicadas
+nessa escala; com 0,6, um globo negro de 42 °C saía classificado como Conforto.
+O motivo, as fontes consultadas e o que ainda não foi conferido estão em
+[`adr/009-ignu-segue-buffington.md`](adr/009-ignu-segue-buffington.md).
+
+Duas notas menores sobre a dissertação, sem efeito em número nenhum:
+
+- os limites do ITUV são atribuídos a "Xiao & Xin, 2003", enquanto a equação é
+  de Tao & Xin (2003) — provável grafia trocada, a conferir na lista de
+  referências;
+- o exemplo numérico do ITUV (tbs 22 °C, tbu 1 °C, V 4 m/s) confere a
+  aritmética, mas não é um ponto físico: a 22 °C o bulbo úmido não desce de
+  cerca de 6,7 °C.
+
 ## Hipóteses de cálculo
 
 - cada zona escolhe uma espécie e um índice compatível;
 - entradas obrigatórias ausentes, não numéricas ou fora das faixas do código
   são rejeitadas;
+- bulbo úmido acima do bulbo seco é rejeitado, porque não existe na atmosfera e
+  costuma indicar sensores trocados;
 - quando configurado, um campo medido tem precedência sobre o campo derivável;
 - umidade relativa e ponto de orvalho podem ser derivados de temperaturas e
   altitude quando as entradas necessárias existem;
@@ -40,10 +60,11 @@ internet e da disponibilidade do serviço externo.
 
 ## O que foi validado
 
-A suíte automatizada pode conferir fórmulas contra exemplos numéricos da fonte,
-regras de entrada e demais contratos de software. Ruff, testes de segurança,
-testes de persistência e smoke checks medem qualidade da implementação dentro
-do escopo que cada teste cobre.
+A suíte automatizada confere ITU e ITUV contra os exemplos numéricos da
+dissertação, o IGNU contra a forma de Buffington et al. (1981) e a classificação
+de pontos de calor conhecidos, além de regras de entrada e demais contratos de
+software. Ruff, testes de segurança, testes de persistência e smoke checks medem
+qualidade da implementação dentro do escopo que cada teste cobre.
 
 ## O que não foi validado
 

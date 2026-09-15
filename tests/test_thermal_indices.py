@@ -1,8 +1,10 @@
 """Caracterização das equações e dos limites científicos implementados.
 
 Estes testes preservam o comportamento atribuído no código à dissertação de
-Angelo (UNIP, 2013). Eles são uma proteção contra regressões de software; não
-substituem validação acadêmica das fontes nem validação experimental em campo.
+Angelo (UNIP, 2013), com uma divergência declarada: o IGNU segue Buffington et
+al. (1981), e não a Eq. 6 da dissertação (docs/adr/009-ignu-segue-buffington.md).
+Eles são uma proteção contra regressões de software; não substituem validação
+acadêmica das fontes nem validação experimental em campo.
 """
 
 import math
@@ -16,15 +18,46 @@ from app.termico import thermal_indices as ti
     ("calculadora", "argumentos", "publicado"),
     [
         (ti.calcular_itu, (27, 19), 73.72),
-        (ti.calcular_ignu, (42, 8), 69.58),
+        # Confere a aritmética da Eq. 5, mas o ponto não é físico: a 22 °C o
+        # bulbo úmido não desce de ~6,7 °C nem com 5% de umidade relativa, e
+        # `validar_entradas` recusaria tbu acima de tbs.
         (ti.calcular_ituv, (22, 1, 4), 17.39),
     ],
-    ids=("ITU-tabela-5", "IGNU-tabela-6", "ITUV-tabela-7"),
+    ids=("ITU-tabela-5", "ITUV-tabela-7"),
 )
 def test_equacoes_reproduzem_exemplos_numericos_da_dissertacao(
     calculadora, argumentos, publicado
 ):
     assert calculadora(*argumentos) == pytest.approx(publicado, abs=0.01)
+
+
+def test_ignu_segue_buffington_e_nao_a_eq_6_da_dissertacao():
+    """Referência: BGHI = Tgn + 0,36.Tpo + 41,5 (Buffington et al., 1981).
+
+    O exemplo da Tabela 6 da dissertação (Tgn 42, Tpo 8) dava 69,58 com 0,6.Tgn;
+    pela forma publicada, o mesmo ponto dá 86,38. O segundo assert fica para a
+    divergência não voltar por engano -- mudar isto exige citar outra fonte.
+    """
+    assert ti.calcular_ignu(42, 8) == pytest.approx(42 + 0.36 * 8 + 41.5, abs=1e-9)
+    assert ti.calcular_ignu(42, 8) != pytest.approx(69.58, abs=0.01)
+
+
+@pytest.mark.parametrize(
+    ("especie", "tgn", "tpo", "status"),
+    [
+        # Os pontos do laudo de 15/09/2026. Com 0,6.Tgn os três saíam Conforto.
+        ("bovinos", 30, 20, "Perigo"),
+        ("bovinos", 35, 22, "Emergencia"),
+        ("bovinos", 42, 8, "Emergencia"),
+        ("frangos", 30, 20, "Emergencia"),
+        # E o lado de baixo continua em Conforto: a correção não empurra tudo.
+        ("bovinos", 22, 12, "Conforto"),
+    ],
+)
+def test_ignu_classifica_calor_de_globo_negro_como_estresse(especie, tgn, tpo, status):
+    _, obtido = ti.calcular_e_classificar(especie, "IGNU", {"tgn": tgn, "tpo": tpo})
+
+    assert obtido == status
 
 
 @pytest.mark.parametrize(
@@ -132,6 +165,24 @@ def test_validacao_rejeita_texto_nao_numerico():
 def test_validacao_rejeita_valores_nao_finitos_ou_fora_da_faixa(indice, entradas, campo):
     with pytest.raises(ti.EntradaInvalidaError, match=campo):
         ti.validar_entradas(indice, entradas)
+
+
+@pytest.mark.parametrize(
+    ("indice", "entradas"),
+    [
+        ("ITU", {"tbs": 22, "tbu": 25}),
+        ("ITUV", {"tbs": 22, "tbu": "22,1", "v": 1}),
+    ],
+)
+def test_validacao_rejeita_bulbo_umido_acima_do_seco(indice, entradas):
+    """Sensores trocados: cada valor cabe na sua faixa, a combinação não existe."""
+    with pytest.raises(ti.EntradaInvalidaError, match="bulbo úmido"):
+        ti.validar_entradas(indice, entradas)
+
+
+def test_validacao_aceita_bulbo_umido_igual_ao_seco():
+    """Ar saturado: as duas temperaturas coincidem, e isso é físico."""
+    assert ti.validar_entradas("ITU", {"tbs": 22, "tbu": 22}) == {"tbs": 22.0, "tbu": 22.0}
 
 
 @pytest.mark.parametrize("velocidade", (0, -0.01))
