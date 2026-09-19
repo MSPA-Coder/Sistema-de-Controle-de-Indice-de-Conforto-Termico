@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM python:3.14-slim AS base
+FROM python:3.14-slim@sha256:ce40764625a4ff50df3548277632e7f96c4e77fe75fa848aae9885476e7df5a4 AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -14,49 +14,26 @@ RUN --mount=type=secret,id=local_ca,required=false \
         update-ca-certificates; \
     fi
 
-# Correcoes de seguranca da base e das ferramentas de empacotamento.
-#
-# `apt-get upgrade` porque a `python:3.14-slim` publicada carrega pacotes do
-# Debian com CVE ja corrigido a montante; sem isto a correcao so chega quando a
-# imagem oficial for republicada. O `setuptools` que vem na base tambem fica
-# para tras -- o 70.3.0 tinha CVE-2025-47273, travessia de caminho.
-#
-# A varredura Trivy exige que a imagem servida incorpore correcoes de CVE já
-# publicadas para os pacotes do sistema.
+# A base e os pacotes do sistema têm versões deliberadas. Atualizações de
+# segurança entram como uma nova revisão deste arquivo, com nova digest e
+# validação da imagem; um apt-get upgrade sem versão tornaria o mesmo commit
+# produzir imagens diferentes.
 RUN apt-get update \
-    && apt-get upgrade -y --no-install-recommends \
+    && apt-get install --no-install-recommends -y \
+       ca-certificates=20250419 \
+       git=1:2.47.3-0+deb13u1 \
+       postgresql-client=17+278 \
     && rm -rf /var/lib/apt/lists/* \
-    && python -m pip install --no-cache-dir --upgrade pip setuptools
-
-RUN apt-get update \
-    && apt-get install --no-install-recommends -y postgresql-client git \
-    && rm -rf /var/lib/apt/lists/*
+    && python -m pip install --no-cache-dir --upgrade \
+       pip==26.2.1 setuptools==80.9.0
 
 FROM base AS runtime-dependencies
-COPY pyproject.toml README.md ./
+COPY pyproject.toml README.md constraints.txt ./
 COPY app ./app
-# `pyproject.toml` inclui `sharedauth` de um repositório Git PÚBLICO
-# (github.com/MSPA-Coder/SharedAuth), então o `pip install` só precisa de `git`
-# no PATH -- nenhuma credencial.
-#
-# A ENGRENAGEM DE TOKEN QUE EXISTIA AQUI SAIU EM 08/09/2026 (achado L23 do
-# LEVANTAMENTO_2026-09.md). Ela era herança da época em que o repositório era
-# privado: um secret do BuildKit, um `git config --global url...insteadOf` para
-# injetar o PAT e um `--unset` para removê-lo antes de commitar a camada. Nada
-# disso é necessário para ler um repositório público, e cada peça era mais uma
-# coisa que podia expirar, vazar ou faltar num reclone.
-#
-# O efeito que importa é fora daqui: enquanto QUALQUER build da frota exigisse
-# o arquivo, o PAT tinha de existir no VPS. Agora não precisa mais existir em
-# lugar nenhum.
-#
-# As dependências vêm do `pyproject.toml`, fonte única do projeto. Como
-# `pip install .` precisa do código, copiar `app/` aqui faz esta camada ser
-# refeita a cada edição -- daí o `--mount=type=cache` no `pip`: a camada é
-# refeita, mas nada é baixado de novo. O cache é do BuildKit e não vira
-# camada da imagem.
+# `sharedauth` é fixado por commit no pyproject.toml. O arquivo de constraints
+# fixa os demais pacotes transitivos e de qualidade.
 RUN --mount=type=cache,target=/root/.cache/pip \
-    python -m pip install .
+    PIP_CONSTRAINT=/workspace/constraints.txt python -m pip install -c constraints.txt .
 
 FROM runtime-dependencies AS runtime
 ARG APP_UID=10001
@@ -73,23 +50,8 @@ COPY migrations ./migrations
 COPY scripts ./scripts
 
 EXPOSE 5000
-# Tira `pip` e `setuptools` da imagem SERVIDA.
-#
-# Sao ferramenta de build e nao tem uso aqui -- e o mesmo raciocinio que ja
-# mantem `gcc`, `make` e `wget` fora do runtime, o que os testes de contrato
-# deste projeto verificam.
-#
-# Nao e higiene abstrata: a varredura de vulnerabilidade acusa
-# CVE-2025-47273 no `setuptools` e GHSA-6v7p-g79w-8964 no `msgpack` que
-# o `pip` carrega vendorizado em `pip/_vendor/`. Nenhum dos dois chega a ser
-# executado nesta imagem. Remover apaga as duas descobertas E a superficie,
-# em vez de ficar perseguindo versao de pacote que ninguem invoca.
-#
-# Seguro por medicao, nao por suposicao: os quatro conteineres em producao ja
-# rodavam sem `setuptools` antes desta mudanca.
-#
-# A ultima linha e a propria verificacao: se `pip` continuar no PATH, o build
-# falha aqui em vez de entregar uma imagem que so parece limpa.
+# Tira pip e setuptools da imagem SERVIDA. São ferramentas de build e não têm
+# uso no runtime; a verificação falha se qualquer executável continuar no PATH.
 RUN set -eu; \
     python -m pip check; \
     for raiz in /usr/local/lib/python*/site-packages /opt/venv/lib/python*/site-packages; do \
@@ -108,29 +70,16 @@ USER app
 CMD ["python", "run_ict.py"]
 
 # -----------------------------------------------------------------------
-# quality: Ruff e a suite minima de seguranca. Nunca e a imagem servida --
-# `compose.yaml` usa `runtime` para schema, coletor e ict.
+# quality: Ruff e a suíte mínima de segurança. Nunca é a imagem servida.
 # -----------------------------------------------------------------------
 FROM runtime AS quality
 USER root
-# O estágio `runtime` acima remove o `pip` da imagem. Este estágio herda dela e
-# precisa dele de volta para instalar as dependências de teste. `ensurepip` é o
-# mecanismo do próprio Python para isso, não uma gambiarra.
-#
-# A imagem SERVIDA continua sem `pip`: `quality` está atrás do profile do mesmo
-# nome e nunca vai para produção.
 RUN python -m ensurepip --upgrade \
     && python -m pip --version
 RUN --mount=type=cache,target=/root/.cache/pip \
-    python -m pip install ".[dev]"
+    PIP_CONSTRAINT=/workspace/constraints.txt python -m pip install -c constraints.txt ".[dev]"
 COPY --chown=app:app pyproject.toml ./
 COPY --chown=app:app tests ./tests
-# O `compose.yaml` e o exemplo de ambiente entram porque a suíte os LÊ: eles
-# declaram a configuração que o repositório entrega, e
-# `tests/test_configuracao_entregue_sobe.py` confere que ela consegue iniciar.
-# Sem isto o teste não teria o que ler, e o estágio `quality` continuaria
-# aprovando uma configuração que não sobe. Só neste estágio: a imagem servida
-# não leva nem um nem outro.
 COPY --chown=app:app compose.yaml .env.docker.example ./
 ENV RUFF_CACHE_DIR=/tmp/ruff-cache \
     PYTEST_ADDOPTS="-o cache_dir=/tmp/pytest-cache"

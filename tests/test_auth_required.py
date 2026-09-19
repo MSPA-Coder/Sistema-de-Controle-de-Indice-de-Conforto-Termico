@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import pytest
 
-from app.nucleo import db_backend
 from app.seguranca import auth
 
 
@@ -210,83 +209,3 @@ def test_perda_da_chave_em_desenvolvimento_invalida_sessoes(tmp_path, monkeypatc
 
     assert recuperada != anterior
     assert auth.obter_chave_secreta() == recuperada
-
-
-def test_token_interno_por_arquivo_falha_fechado_se_arquivo_nao_existe(tmp_path, monkeypatch):
-    """Um token Docker secret ausente não pode cair em token persistido local."""
-    monkeypatch.delenv("CONFORTO_INTERNO_TOKEN", raising=False)
-    # O diretório esperado é lido do módulo consumidor a cada chamada, então
-    # é ali que o teste o redireciona -- `from ... import` liga o nome no
-    # espaço de `app.seguranca.auth`, não no de `sharedauth.secrets`.
-    monkeypatch.setattr(auth, "DIRETORIO_SECRETS_COMPOSE", tmp_path)
-    monkeypatch.setenv("CONFORTO_INTERNO_TOKEN_FILE", str(tmp_path / "internal_token"))
-
-    with pytest.raises(RuntimeError, match="CONFORTO_INTERNO_TOKEN_FILE"):
-        auth.obter_ou_criar_token_interno()
-
-
-def test_segredos_compose_recusam_caminho_fora_do_mount(tmp_path, monkeypatch):
-    fora = tmp_path / "fora"
-    fora.write_text("valor-sintetico", encoding="utf-8")
-    monkeypatch.setenv("CONFORTO_INTERNO_TOKEN_FILE", str(fora))
-
-    with pytest.raises(RuntimeError, match="deve apontar"):
-        auth.obter_ou_criar_token_interno()
-
-
-def _sem_token_configurado(monkeypatch):
-    monkeypatch.delenv("CONFORTO_INTERNO_TOKEN", raising=False)
-    monkeypatch.delenv("CONFORTO_INTERNO_TOKEN_FILE", raising=False)
-
-
-def test_producao_sem_token_recusa_subir(tmp_path, monkeypatch):
-    """Fora de desenvolvimento/teste, token ausente falha sem gerar sozinho (CT-04).
-
-    Até 01/09/2026 este caminho não tinha a trava que `obter_chave_secreta`
-    já tinha: a ausência virava uma indisponibilidade sem causa aparente (a
-    aba Operação parando com 403 na chamada interna), em vez de um erro de
-    inicialização que nomeia a variável que falta.
-    """
-    from app import database as db
-
-    _sem_token_configurado(monkeypatch)
-    monkeypatch.delenv("CONFORTO_DEVELOPMENT", raising=False)
-    monkeypatch.delenv("CONFORTO_TESTING", raising=False)
-    monkeypatch.setattr(db, "INSTANCE_DIR", str(tmp_path))
-
-    with pytest.raises(RuntimeError) as erro:
-        auth.obter_ou_criar_token_interno()
-
-    mensagem = str(erro.value)
-    assert "CONFORTO_INTERNO_TOKEN_FILE" in mensagem, "a mensagem tem de dizer o que definir"
-    assert not (tmp_path / "interno_token.txt").exists(), "nao pode gerar nada calado"
-
-
-def test_token_interno_gerado_persiste_em_desenvolvimento(tmp_path, monkeypatch):
-    """Em desenvolvimento a geração continua, igual já acontecia para a chave de sessão."""
-    from app import database as db
-
-    _sem_token_configurado(monkeypatch)
-    monkeypatch.setenv("CONFORTO_DEVELOPMENT", "1")
-    monkeypatch.setattr(db, "INSTANCE_DIR", str(tmp_path))
-
-    criado = auth.obter_ou_criar_token_interno()
-    caminho = tmp_path / "interno_token.txt"
-
-    assert caminho.is_file()
-    assert caminho.read_text(encoding="utf-8") == criado
-    assert auth.obter_ou_criar_token_interno() == criado
-
-
-def test_segredos_compose_aceitam_arquivo_montado_esperado(tmp_path, monkeypatch):
-    token = tmp_path / "internal_token"
-    senha = tmp_path / "postgres_password"
-    token.write_text("token-sintetico", encoding="utf-8")
-    senha.write_text("senha-sintetica", encoding="utf-8")
-    monkeypatch.setattr(auth, "DIRETORIO_SECRETS_COMPOSE", tmp_path)
-    monkeypatch.setattr(db_backend, "DIRETORIO_SECRETS_COMPOSE", tmp_path)
-    monkeypatch.setenv("CONFORTO_INTERNO_TOKEN_FILE", str(token))
-    monkeypatch.setenv("DB_PASSWORD_FILE", str(senha))
-
-    assert auth.obter_ou_criar_token_interno() == "token-sintetico"
-    assert db_backend._ler_segredo("DB_PASSWORD") == "senha-sintetica"

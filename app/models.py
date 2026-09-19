@@ -34,6 +34,30 @@ from app.termico import thermal_indices as ti
 _EMAIL_REGEX = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 
+def agora_utc() -> datetime.datetime:
+    """Instante UTC consciente de fuso, sem microssegundos.
+
+    O banco ainda guarda timestamps como texto por compatibilidade. Novas
+    escritas usam sempre o offset explícito; ``parsear_timestamp`` abaixo
+    permite ler as linhas antigas, que eram ``datetime`` ingênuos.
+    """
+    return datetime.datetime.now(datetime.UTC).replace(microsecond=0)
+
+
+def timestamp_utc() -> str:
+    return agora_utc().isoformat(timespec="seconds")
+
+
+def parsear_timestamp(valor: object) -> datetime.datetime:
+    """Lê ISO-8601 novo e legado, normalizando o resultado para UTC."""
+    if not isinstance(valor, str):
+        raise ValueError("timestamp precisa ser texto ISO-8601")
+    momento = datetime.datetime.fromisoformat(valor)
+    if momento.tzinfo is None:
+        momento = momento.replace(tzinfo=datetime.UTC)
+    return momento.astimezone(datetime.UTC)
+
+
 def _email_valido(endereco: object) -> bool:
     return isinstance(endereco, str) and bool(_EMAIL_REGEX.fullmatch(endereco.strip()))
 
@@ -99,9 +123,11 @@ class Temperatura:
 
     def calcular_ict(self, entradas: dict) -> tuple[float, str]:
         """Calcula o Indice de Conforto Termico e devolve (valor, status)."""
+        # A função de conveniência é a fonte única da sequência
+        # validar -> calcular -> arredondar -> classificar. Isso evita que o
+        # fluxo manual e o coletor discordem na fronteira de uma faixa.
         entradas_validas = self.verificar_temperatura(entradas)
-        valor = round(ti.CALCULADORAS[self.indice](**entradas_validas), 2)
-        status = ti.classificar_status(valor, self.especie, self.indice)
+        valor, status = ti.calcular_e_classificar(self.especie, self.indice, entradas_validas)
         self.temperatura = valor
         self.entradas = entradas_validas
         return valor, status

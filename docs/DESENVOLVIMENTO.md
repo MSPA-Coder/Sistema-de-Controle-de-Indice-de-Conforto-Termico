@@ -19,8 +19,9 @@ Os segredos ficam em `.secrets/` e não devem ser impressos ou versionados. Em
 uma instalação existente, não execute o gerador com `--force` sem planejar a
 rotação: a chave de sessão muda e invalida sessões.
 
-O script gera a senha do PostgreSQL, o token interno e a chave de sessão. O
-SharedAuth é público: o build não precisa de credencial para instalá-lo.
+O script gera a senha do PostgreSQL, raízes físicas independentes para os
+tokens internos de leitura e controle e a chave de sessão. O SharedAuth é
+público: o build não precisa de credencial para instalá-lo.
 
 Se o host Windows intercepta HTTPS com uma autoridade local, gere o arquivo de
 CA usado no build:
@@ -98,3 +99,19 @@ dependências; a decisão atual é não modificar a aplicação.
 
 Registre verificações não executadas e o motivo. O projeto valida software; não
 descreva testes automatizados como validação experimental dos índices.
+
+## Integridade e recuperação de dados
+
+As revisões novas são aditivas. O histórico grava `timestamp_utc` e
+`amostra_id` para deduplicação atômica; a leitura de timestamps legados sem
+offset assume UTC. O job de dados de entrada grava medições em staging com uma
+execução `processando`, renova um lease/heartbeat por lote e só publica a
+execução quando ela passa a `concluida`. Leases expirados são recuperados e o
+staging incompleto é descartado. Exports CSV também ignoram execuções não
+concluídas.
+
+Alertas automáticos entram primeiro em `historico.notificacoes_outbox`. A chave
+de deduplicação evita repetição do mesmo evento; o worker aplica retry com
+limite, registra o último erro e recupera itens cujo bloqueio expirou. Uma
+indisponibilidade SMTP não bloqueia o ciclo de leitura nem transforma falha de
+envio em sucesso.

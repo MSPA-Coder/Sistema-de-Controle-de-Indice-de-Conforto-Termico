@@ -59,7 +59,11 @@ ativados neste projeto de pesquisa.
 
 - o navegador não chama o coletor diretamente;
 - o coletor não publica porta no host;
-- autorização é aplicada no ICT antes do encaminhamento;
+- autorização de perfil, ACL persistida do usuário e existência da zona são
+  aplicadas no ICT antes do encaminhamento;
+- a API interna usa tokens derivados por capacidade: `leitura` para teste de
+  conexão e `controle` para cálculo, controle e comando; token de uma
+  capacidade não autentica a outra;
 - o ICT não compartilha estado transitório nem importa o cliente Modbus;
 - falha de um dispositivo é registrada e isolada por zona;
 - a API JSON serve à interface incluída no projeto e não é uma API pública
@@ -69,6 +73,12 @@ Os contêineres de runtime usam usuário não-root, filesystem somente leitura,
 capabilities removidas, limites de recursos, health checks e logs rotacionados.
 Segredos são arquivos montados em `/run/secrets`; somente os serviços que
 precisam deles recebem cada segredo.
+
+O modelo possui a associação `historico.usuario_zonas`. Contas não
+administradoras só acessam zonas concedidas, enquanto administradores têm
+acesso global para manter a operação e administrar os vínculos. A checagem é
+centralizada em `app/seguranca/auth.py` e a gestão fica disponível somente na
+área `usuarios`; não se infere ACL de campos atuais.
 
 ## Instância de demonstração no VPS
 

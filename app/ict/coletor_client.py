@@ -11,12 +11,19 @@ from flask import current_app, jsonify
 
 from app.nucleo.circuit_breaker import CircuitBreakerAbertoError, circuit_breaker_coletor
 from app.seguranca import auth
+from app.seguranca.tokens import CAPACIDADE_CONTROLE
 
 COLETOR_URL_PADRAO = "http://127.0.0.1:5001"
 TIMEOUT_COLETOR_SEGUNDOS = 5
 
 
-def chamar_coletor(caminho: str, *, metodo: str, dados: dict | None = None):
+def chamar_coletor(
+    caminho: str,
+    *,
+    metodo: str,
+    dados: dict | None = None,
+    capacidade: str = CAPACIDADE_CONTROLE,
+):
     """Encaminha uma ação autenticada e preserva JSON/status do coletor."""
 
     if not caminho.startswith("/api/interno/"):
@@ -29,7 +36,7 @@ def chamar_coletor(caminho: str, *, metodo: str, dados: dict | None = None):
         method=metodo,
         data=corpo,
         headers={
-            "X-Interno-Token": auth.obter_ou_criar_token_interno(),
+            "X-Interno-Token": auth.obter_token_interno(capacidade),
             "Content-Type": "application/json",
         },
     )

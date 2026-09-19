@@ -14,6 +14,7 @@ from sharedauth.health import registrar_health
 
 from app.nucleo import notificacoes
 from app.seguranca import auth
+from app.seguranca.tokens import CAPACIDADE_CONTROLE, CAPACIDADE_LEITURA
 from app.termico import thermal_indices as ti
 from app.termico.zona_service import ZonaCalculoError
 
@@ -56,8 +57,21 @@ def _aplicar_notificacoes_zona(resposta: dict, config: dict) -> dict:
     return resposta
 
 
+CAPACIDADE_POR_ENDPOINT = {
+    "coletor.testar_conexao_interno": CAPACIDADE_LEITURA,
+    "coletor.calcular_zona": CAPACIDADE_CONTROLE,
+    "coletor.alterar_controle_zona": CAPACIDADE_CONTROLE,
+    "coletor.comandar_atuador_zona": CAPACIDADE_CONTROLE,
+}
+
+
 def _token_interno_valido() -> bool:
-    esperado = auth.obter_ou_criar_token_interno()
+    capacidade = CAPACIDADE_POR_ENDPOINT.get(request.endpoint)
+    if capacidade is None:
+        # Falha fechada: uma rota interna nova não recebe a capacidade mais
+        # permissiva por acidente. Ela precisa entrar no mapa acima.
+        return False
+    esperado = auth.obter_token_interno(capacidade)
     enviado = request.headers.get("X-Interno-Token", "")
     # comparacao em tempo constante: isto e uma checagem de segredo, nao
     # de identidade de usuario, mas o mesmo cuidado contra timing attack
@@ -70,7 +84,7 @@ def _exigir_token_interno():
     if request.endpoint == "coletor.health":
         return None
     if not _token_interno_valido():
-        return jsonify({"erro": "Token interno inválido ou ausente."}), 403
+        return jsonify({"erro": "Token interno inválido, ausente ou sem capacidade."}), 403
     return None
 
 

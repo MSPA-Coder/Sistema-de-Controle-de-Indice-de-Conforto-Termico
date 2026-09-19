@@ -7,10 +7,12 @@ from __future__ import annotations
 
 import datetime
 import json
+import uuid
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from app.models import timestamp_utc
 from app.nucleo import db_backend
 
 from .cidades import (
@@ -54,11 +56,11 @@ def _conexao(*, escrita: bool = True) -> Iterator:
 
 
 @contextmanager
-def sessao_geracao() -> Iterator[_SessaoGeracao]:
+def sessao_geracao(execucao_id: int | None = None) -> Iterator[_SessaoGeracao]:
     """Reutiliza uma conexão PostgreSQL durante a geração em lotes."""
     conn = db_backend.abrir_conexao_postgres("dados_entrada")
     try:
-        yield _SessaoGeracao(conn)
+        yield _SessaoGeracao(conn, execucao_id)
     finally:
         conn.close()
 
@@ -66,10 +68,11 @@ def sessao_geracao() -> Iterator[_SessaoGeracao]:
 class _SessaoGeracao:
     """Insere cada lote em sua própria transação PostgreSQL."""
 
-    __slots__ = ("_conn",)
+    __slots__ = ("_conn", "_execucao_id")
 
-    def __init__(self, conn) -> None:
+    def __init__(self, conn, execucao_id: int | None = None) -> None:
         self._conn = conn
+        self._execucao_id = execucao_id
 
     def inserir_medicoes(self, medicoes: list[dict]) -> None:
         if not medicoes:
@@ -77,6 +80,9 @@ class _SessaoGeracao:
         try:
             _inserir_medicoes_na_conexao(self._conn, medicoes)
             self._conn.commit()
+            if self._execucao_id is not None:
+                heartbeat_execucao(self._execucao_id, conn=self._conn)
+                self._conn.commit()
         except Exception:
             self._conn.rollback()
             raise
@@ -87,7 +93,7 @@ def iniciar_banco() -> None:
 
 
 def _agora() -> str:
-    return datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+    return timestamp_utc()
 
 
 def sincronizar_zonas(zonas: list[dict]) -> list[dict]:
@@ -342,13 +348,20 @@ def criar_execucao(
     total_zonas: int,
     fonte_clima: str,
 ) -> int:
+    recuperar_execucoes_expiradas()
+    agora = _agora()
+    lease_token = str(uuid.uuid4())
+    lease_until = (
+        datetime.datetime.now(datetime.UTC) + datetime.timedelta(minutes=5)
+    ).isoformat(timespec="seconds")
     with _conexao() as conn:
         cursor = conn.execute(
             """
             INSERT INTO execucoes (
                 data_inicio, data_fim, dias, intervalo_minutos, semente,
-                fonte_clima, total_zonas, status, criado_em
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'processando', ?)
+                fonte_clima, total_zonas, status, criado_em,
+                lease_token, lease_until, heartbeat_em
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'processando', ?, ?, ?, ?)
             """,
             (
                 data_inicio,
@@ -358,10 +371,57 @@ def criar_execucao(
                 semente,
                 fonte_clima,
                 total_zonas,
-                _agora(),
+                agora,
+                lease_token,
+                lease_until,
+                agora,
             ),
         )
         return int(cursor.lastrowid)
+
+
+def heartbeat_execucao(execucao_id: int, *, conn=None) -> bool:
+    """Renova o lease de uma execução ainda em processamento."""
+    agora = _agora()
+    lease_until = (
+        datetime.datetime.now(datetime.UTC) + datetime.timedelta(minutes=5)
+    ).isoformat(timespec="seconds")
+    if conn is not None:
+        cursor = conn.execute(
+            "UPDATE execucoes SET heartbeat_em=?, lease_until=? "
+            "WHERE id=? AND status='processando'",
+            (agora, lease_until, execucao_id),
+        )
+        return int(cursor.rowcount or 0) > 0
+    with _conexao() as propria:
+        cursor = propria.execute(
+            "UPDATE execucoes SET heartbeat_em=?, lease_until=? "
+            "WHERE id=? AND status='processando'",
+            (agora, lease_until, execucao_id),
+        )
+    return int(cursor.rowcount or 0) > 0
+
+
+def recuperar_execucoes_expiradas() -> list[int]:
+    """Fecha execuções abandonadas e remove seu staging não publicado."""
+    agora = _agora()
+    ids: list[int] = []
+    with _conexao() as conn:
+        linhas = conn.execute(
+            "SELECT id FROM execucoes WHERE status='processando' "
+            "AND lease_until IS NOT NULL AND lease_until < ?",
+            (agora,),
+        ).fetchall()
+        for linha in linhas:
+            execucao_id = int(linha["id"])
+            conn.execute("DELETE FROM medicoes WHERE execucao_id=?", (execucao_id,))
+            conn.execute(
+                "UPDATE execucoes SET status='falhou', erro=?, concluido_em=?, "
+                "lease_token=NULL, lease_until=NULL WHERE id=? AND status='processando'",
+                ("Lease da execução expirou; staging descartado.", agora, execucao_id),
+            )
+            ids.append(execucao_id)
+    return ids
 
 
 _COLUNAS_MEDICAO = (
@@ -441,10 +501,13 @@ def inserir_medicoes(medicoes: list[dict]) -> None:
 
 def concluir_execucao(execucao_id: int, total_medicoes: int) -> None:
     with _conexao() as conn:
-        conn.execute(
-            "UPDATE execucoes SET status='concluida', total_medicoes=?, concluido_em=? WHERE id=?",
-            (total_medicoes, _agora(), execucao_id),
+        cursor = conn.execute(
+            "UPDATE execucoes SET status='concluida', total_medicoes=?, concluido_em=?, "
+            "publicado_em=?, lease_token=NULL, lease_until=NULL WHERE id=? AND status='processando'",
+            (total_medicoes, _agora(), _agora(), execucao_id),
         )
+        if int(cursor.rowcount or 0) != 1:
+            raise ConfiguracaoDadosEntradaError("A execução não está mais disponível para publicação.")
 
 
 def falhar_execucao(execucao_id: int, erro: str) -> None:
@@ -496,12 +559,16 @@ def obter_medicoes_csv(execucao_id: int | None = None) -> tuple[list[str], list[
     with _conexao(escrita=False) as conn:
         if execucao_id is None:
             linhas = conn.execute(
-                f"SELECT {','.join(colunas)} FROM medicoes ORDER BY execucao_id,zona_id,timestamp_utc"
+                f"SELECT m.{','.join(colunas)} FROM medicoes m "
+                "JOIN execucoes e ON e.id=m.execucao_id WHERE e.status='concluida' "
+                "ORDER BY m.execucao_id,m.zona_id,m.timestamp_utc"
             ).fetchall()
         else:
             linhas = conn.execute(
-                f"SELECT {','.join(colunas)} FROM medicoes WHERE execucao_id=? "
-                "ORDER BY zona_id,timestamp_utc",
+                f"SELECT m.{','.join(colunas)} FROM medicoes m "
+                "JOIN execucoes e ON e.id=m.execucao_id "
+                "WHERE m.execucao_id=? AND e.status='concluida' "
+                "ORDER BY m.zona_id,m.timestamp_utc",
                 (execucao_id,),
             ).fetchall()
     return colunas, [tuple(linha[coluna] for coluna in colunas) for linha in linhas]
@@ -523,13 +590,16 @@ def iterar_medicoes_csv(
         with _conexao(escrita=False) as conn:
             if execucao_id is None:
                 resultado = conn.execute(
-                    f"SELECT {','.join(colunas)} FROM medicoes "
-                    "ORDER BY execucao_id,zona_id,timestamp_utc"
+                    f"SELECT m.{','.join(colunas)} FROM medicoes m "
+                    "JOIN execucoes e ON e.id=m.execucao_id WHERE e.status='concluida' "
+                    "ORDER BY m.execucao_id,m.zona_id,m.timestamp_utc"
                 )
             else:
                 resultado = conn.execute(
-                    f"SELECT {','.join(colunas)} FROM medicoes WHERE execucao_id=? "
-                    "ORDER BY zona_id,timestamp_utc",
+                    f"SELECT m.{','.join(colunas)} FROM medicoes m "
+                    "JOIN execucoes e ON e.id=m.execucao_id "
+                    "WHERE m.execucao_id=? AND e.status='concluida' "
+                    "ORDER BY m.zona_id,m.timestamp_utc",
                     (execucao_id,),
                 )
             while linhas := resultado.fetchmany(lote):
@@ -568,6 +638,10 @@ def excluir_cache_clima(chave: str) -> None:
 def copiar_medicoes_para_historico(execucao_id: int) -> dict:
     """Copia uma geração concluída ao schema ``historico`` uma única vez."""
     with _conexao() as conn:
+        conn.execute(
+            "SELECT pg_advisory_xact_lock(hashtext(?))",
+            (f"conforto:publicacao:{execucao_id}",),
+        )
         execucao = conn.execute(
             "SELECT status, total_medicoes FROM execucoes WHERE id=?",
             (execucao_id,),
@@ -591,12 +665,15 @@ def copiar_medicoes_para_historico(execucao_id: int) -> dict:
             conn.execute(
                 """
                 INSERT INTO historico.leituras
-                    (especie, indice, valor, status, entradas, criado_em, zona_id)
+                    (especie, indice, valor, status, entradas, criado_em, zona_id,
+                     timestamp_utc, amostra_id)
                 SELECT m.especie, m.indice, m.valor_indice, m.status_termico,
-                       m.entradas_indice, substr(m.timestamp_local, 1, 16), m.zona_id
+                       m.entradas_indice, m.timestamp_utc, m.zona_id,
+                       m.timestamp_utc, m.execucao_id || ':' || m.id::text
                 FROM medicoes m LEFT JOIN historico_exportado he ON he.medicao_id = m.id
                 WHERE m.execucao_id=? AND he.medicao_id IS NULL
                 ORDER BY m.zona_id, m.timestamp_utc
+                ON CONFLICT DO NOTHING
                 """,
                 (execucao_id,),
             )

@@ -43,6 +43,8 @@ wheels/
 .secrets/
 instance/secret_key.txt
 instance/interno_token.txt
+instance/interno_token_leitura.txt
+instance/interno_token_controle.txt
 
 # Ferramentas de agente
 .codex/

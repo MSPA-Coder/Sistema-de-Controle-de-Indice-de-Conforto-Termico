@@ -114,11 +114,12 @@ do projeto no Python global do Windows.
 repositório é **público**: o build precisa só de `git` no PATH, nenhuma
 credencial.
 
-Ao contrário dos três aplicativos da frota, este projeto **não** tem `uv.lock`
-nem base fixada por digest — a fase F3 do levantamento não o cobriu, porque ele
-segue trilha própria. Consequência prática: dois builds do mesmo commit ainda
-podem resolver versões diferentes aqui. Se um dia isso incomodar, o caminho já
-está percorrido nos irmãos.
+Este projeto segue trilha própria de arquitetura, mas isso não é uma exceção à
+reprodutibilidade do build. Dependências devem ser fixadas em `uv.lock` (ou em
+um arquivo de constraints equivalente validado pela CI), a imagem base deve
+ser fixada por digest e o Compose deve reconstruir a partir desses artefatos.
+Escolhas de módulos, bibliotecas e fluxo de pesquisa continuam livres; o
+artefato que chega ao VPS precisa ser determinístico e auditável.
 
 Os dois ambientes acham defeitos diferentes, então nenhum substitui o outro.
 O venv é Windows e já pegou travamento de suíte que o contêiner nunca mostrou

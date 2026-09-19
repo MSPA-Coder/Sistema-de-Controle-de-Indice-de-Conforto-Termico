@@ -66,6 +66,11 @@ senha temporária. `/minha-senha` também está sempre disponível, para qualque
 perfil, sem obrigação. O script acima é a exceção: quem o roda escolheu a
 própria senha e não fica com troca pendente.
 
+Contas não administradoras recebem acesso às zonas por ACL explícita. O
+administrador pode conceder ou revogar vínculos em
+`/usuarios/api/<usuario_id>/zonas/<zona_id>`; a ausência do vínculo bloqueia a
+rota mesmo quando o perfil possui a área correspondente.
+
 Duas garantias vieram junto, compartilhadas com os outros apps Flask do
 mantenedor: o destino pós-login (`?next=`) é validado por
 `sharedauth.access.url_proximo_seguro`, que só aceita caminho interno — sem
@@ -115,11 +120,26 @@ para as bases local (`conforto_termico`) e do VPS
 (`conforto_termico_vps`). Esta aplicação não oferece backup ou restore; use o
 fluxo central do BackupRestore. Veja [Operação, dados e recuperação](docs/RUNBOOK.md).
 
+A retenção de leituras brutas é uma política explícita: sem uma configuração
+de retenção, nenhum dado histórico é apagado automaticamente. Quando a
+política for habilitada, a limpeza deve ser executada pelo job documentado,
+com backup conferido e registro da quantidade removida. Leituras repetidas são
+deduplicadas por zona, origem e instante da amostra; o horário persistido é
+UTC com deslocamento, e a conversão para o fuso da zona acontece apenas na
+apresentação.
+
+O coletor usa credenciais internas separadas por capacidade. O token de
+leitura não autoriza controle de atuadores, alteração de configuração ou
+testes de equipamento. Nunca copie esses segredos para `.env`, documentação
+ou logs; o Compose os monta por Docker secrets.
+
 ## Documentação viva
 
 - [Arquitetura](docs/ARQUITETURA.md): componentes, fronteiras e responsabilidades;
 - [Domínio e validação](docs/DOMINIO.md): fórmulas, hipóteses e limites científicos;
 - [Desenvolvimento e validação](docs/DESENVOLVIMENTO.md): fluxo reproduzível em Docker;
 - [Runbook](docs/RUNBOOK.md): operação local/VPS, dados, backup e recuperação.
+- [Segurança](docs/SEGURANCA.md): fronteiras entre ICT e coletor, tokens internos
+  e autorização por zona.
 
 As diretrizes obrigatórias para agentes e contribuidores estão em [AGENTS.md](AGENTS.md).
