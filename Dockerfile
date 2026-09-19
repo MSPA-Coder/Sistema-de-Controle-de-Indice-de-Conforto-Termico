@@ -1,5 +1,7 @@
 # syntax=docker/dockerfile:1.7
-FROM python:3.14-slim@sha256:ce40764625a4ff50df3548277632e7f96c4e77fe75fa848aae9885476e7df5a4 AS base
+# Digest refreshed on 2026-09-19 after the image scan found patched Debian
+# security packages in the current Python 3.14 slim base.
+FROM python:3.14-slim@sha256:caaf356f40667c496d405780745b9ac25771c189a51dfcc42430d531ea09f8a2 AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
