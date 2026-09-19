@@ -9,12 +9,17 @@ from __future__ import annotations
 
 import datetime
 import json
+import os
 
+from app.models import agora_utc, parsear_timestamp, timestamp_utc
 from app.termico import thermal_indices as ti
 
 from .comum import conexao
 
 INTERVALO_MINIMO_LEITURAS = datetime.timedelta(minutes=1)
+LIMITE_JANELAS_PENDENTES = 500
+LIMITE_LEITURAS_RETENCAO = 2_000_000
+RETENCAO_PADRAO_DIAS = 0
 
 
 def _intervalo_minimo_leituras(intervalo_minutos: float | int | str | None) -> datetime.timedelta:
@@ -38,15 +43,29 @@ def salvar_leitura(
     intervalo_minutos: float | int | str | None = None,
     *,
     zona_id: int,
+    amostra_id: str | None = None,
+    timestamp_utc: str | None = None,
 ) -> bool:
     """Grava uma leitura de zona no histórico.
 
     O intervalo mínimo é verificado por ``(zona_id, indice)`` para que zonas
     com a mesma espécie e índice não se bloqueiem mutuamente.
     """
-    agora = datetime.datetime.now().replace(microsecond=0)
+    agora = agora_utc()
+    momento_amostra = parsear_timestamp(timestamp_utc) if timestamp_utc else agora
+    instante_amostra = momento_amostra.isoformat(timespec="seconds")
+    identidade = str(amostra_id).strip() if amostra_id is not None else ""
+    if not identidade:
+        identidade = f"{zona_id}:{indice}:{instante_amostra}"
     intervalo_minimo = _intervalo_minimo_leituras(intervalo_minutos)
     with conexao() as conn:
+        # A verificação de intervalo e o INSERT precisam ser uma operação
+        # indivisível. O lock é por zona/índice, portanto não serializa zonas
+        # diferentes e elimina a corrida entre dois ciclos concorrentes.
+        conn.execute(
+            "SELECT pg_advisory_xact_lock(hashtext(?))",
+            (f"conforto:leitura:{zona_id}:{indice}",),
+        )
         zona = conn.execute(
             "SELECT especie, indice FROM zonas WHERE id = ?",
             (zona_id,),
@@ -65,18 +84,21 @@ def salvar_leitura(
             )
 
         ultima = conn.execute(
-            "SELECT criado_em FROM leituras WHERE zona_id = ? AND indice = ? "
+            "SELECT COALESCE(timestamp_utc, criado_em) AS instante "
+            "FROM leituras WHERE zona_id = ? AND indice = ? "
             "ORDER BY id DESC LIMIT 1",
             (zona_id, indice),
         ).fetchone()
         if ultima:
-            ultima_data = datetime.datetime.fromisoformat(ultima["criado_em"])
-            if agora - ultima_data < intervalo_minimo:
+            ultima_data = parsear_timestamp(ultima["instante"])
+            if momento_amostra - ultima_data < intervalo_minimo:
                 return False
 
-        conn.execute(
-            "INSERT INTO leituras (especie, indice, valor, status, entradas, criado_em, zona_id) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        cursor = conn.execute(
+            "INSERT INTO leituras "
+            "(especie, indice, valor, status, entradas, criado_em, zona_id, "
+            "timestamp_utc, amostra_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
             (
                 especie,
                 indice,
@@ -85,9 +107,11 @@ def salvar_leitura(
                 json.dumps(entradas),
                 agora.isoformat(timespec="seconds"),
                 zona_id,
+                instante_amostra,
+                identidade,
             ),
         )
-    return True
+    return int(cursor.rowcount or 0) > 0
 
 
 def obter_historico_por_zona(zona_id: int, limite: int = 20) -> list[dict]:
@@ -114,7 +138,7 @@ def salvar_leitura_recente_zona(
     limite: int = 30,
 ) -> None:
     """Mantém uma janela curta para gráficos entre processos separados."""
-    agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+    agora = timestamp_utc()
     limite = max(1, min(200, int(limite)))
     with conexao() as conn:
         conn.execute(
@@ -167,7 +191,17 @@ def obter_historicos_recentes_zonas(limite: int = 30) -> dict[int, list[dict]]:
             linha["id"] for linha in conn.execute("SELECT id FROM zonas ORDER BY id").fetchall()
         ]
         linhas_recentes = conn.execute(
-            "SELECT * FROM leituras_recentes_zona ORDER BY zona_id, id DESC"
+            """
+            SELECT recentes.*
+            FROM zonas z
+            CROSS JOIN LATERAL (
+                SELECT l.* FROM leituras_recentes_zona l
+                WHERE l.zona_id = z.id
+                ORDER BY l.id DESC LIMIT ?
+            ) recentes
+            ORDER BY recentes.zona_id, recentes.id DESC
+            """,
+            (limite,),
         ).fetchall()
 
         historicos: dict[int, list[dict]] = {zona_id: [] for zona_id in zonas}
@@ -364,18 +398,52 @@ def limpar_historico() -> None:
         conn.execute("DELETE FROM resumos_horarios")
 
 
+def aplicar_retencao(dias: int | None = None, *, limite: int = LIMITE_LEITURAS_RETENCAO) -> int:
+    """Apaga leituras antigas somente quando a política for explicitamente ativada.
+
+    ``CONFORTO_RETENCAO_LEITURAS_DIAS`` controla a política operacional; vazio,
+    zero ou ausente significam ``sem expiração``. A função nunca é chamada
+    automaticamente pelo ciclo de coleta e limita cada execução para evitar
+    uma transação de manutenção sem fim. Zonas, configurações e agregados são
+    preservados; a limpeza destrutiva continua sendo uma decisão explícita.
+    """
+    if dias is None:
+        bruto = os.environ.get("CONFORTO_RETENCAO_LEITURAS_DIAS", "0")
+        try:
+            dias = int(bruto)
+        except (TypeError, ValueError):
+            dias = RETENCAO_PADRAO_DIAS
+    if dias <= 0:
+        return 0
+    limite = max(1, min(LIMITE_LEITURAS_RETENCAO, int(limite)))
+    corte = (agora_utc() - datetime.timedelta(days=dias)).isoformat(timespec="seconds")
+    with conexao() as conn:
+        cursor = conn.execute(
+            "DELETE FROM leituras WHERE id IN ("
+            "SELECT id FROM leituras WHERE criado_em::timestamp < ?::timestamp "
+            "ORDER BY id LIMIT ?)",
+            (corte.replace("+00:00", ""), limite),
+        )
+    return int(cursor.rowcount or 0)
+
+
 # A lógica de quando consolidar pertence a ``agregacao.py``; este agregado
 # fornece apenas as consultas e gravações idempotentes.
 def _formatar_janela(momento: datetime.datetime, minutos: int) -> str:
     """Arredonda ``momento`` para o início do bucket de ``minutos``."""
     bucket = (momento.minute // minutos) * minutos
+    if momento.tzinfo is not None:
+        momento = momento.astimezone(datetime.UTC).replace(tzinfo=None)
     return momento.replace(minute=bucket, second=0, microsecond=0).isoformat(timespec="seconds")
 
 
-def janelas_15min_pendentes(zona_id: int, indice: str) -> list[str]:
+def janelas_15min_pendentes(
+    zona_id: int, indice: str, limite: int = LIMITE_JANELAS_PENDENTES
+) -> list[str]:
     """Devolve os inícios de janelas fechadas ainda não consolidadas."""
-    agora = datetime.datetime.now().replace(microsecond=0)
+    agora = agora_utc()
     janela_atual_aberta = _formatar_janela(agora, 15)
+    limite = max(1, min(LIMITE_JANELAS_PENDENTES, int(limite)))
     with conexao(escrita=False) as conn:
         linhas = conn.execute(
             """
@@ -391,7 +459,7 @@ def janelas_15min_pendentes(zona_id: int, indice: str) -> list[str]:
             FROM leituras l
             WHERE l.zona_id = ?
               AND l.indice = ?
-              AND l.criado_em < ?
+              AND l.criado_em::timestamp < ?::timestamp
               AND NOT EXISTS (
                   SELECT 1
                   FROM agregados_15min a
@@ -407,8 +475,9 @@ def janelas_15min_pendentes(zona_id: int, indice: str) -> list[str]:
                     )
               )
             ORDER BY janela_inicio
+            LIMIT ?
             """,
-            (zona_id, indice, janela_atual_aberta),
+            (zona_id, indice, janela_atual_aberta, limite),
         ).fetchall()
     return [linha["janela_inicio"] for linha in linhas]
 
@@ -424,7 +493,9 @@ def agregar_janela_15min(
         linhas = conn.execute(
             """
             SELECT valor, entradas FROM leituras
-            WHERE zona_id = ? AND indice = ? AND criado_em >= ? AND criado_em < ?
+            WHERE zona_id = ? AND indice = ?
+              AND criado_em::timestamp >= ?::timestamp
+              AND criado_em::timestamp < ?::timestamp
             """,
             (zona_id, indice, janela_inicio, janela_fim),
         ).fetchall()
@@ -442,7 +513,7 @@ def agregar_janela_15min(
             for campo, valores_campo in entradas_por_campo.items()
         }
 
-        agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+        agora = timestamp_utc()
         registro = {
             "zona_id": zona_id,
             "especie": especie,
@@ -484,12 +555,15 @@ def agregar_janela_15min(
     return registro
 
 
-def horas_pendentes(zona_id: int, indice: str) -> list[str]:
+def horas_pendentes(
+    zona_id: int, indice: str, limite: int = LIMITE_JANELAS_PENDENTES
+) -> list[str]:
     """Devolve as horas fechadas ainda não resumidas."""
-    agora = datetime.datetime.now().replace(microsecond=0)
+    agora = agora_utc()
     hora_atual_aberta = agora.replace(minute=0, second=0, microsecond=0).isoformat(
         timespec="seconds"
     )
+    limite = max(1, min(LIMITE_JANELAS_PENDENTES, int(limite)))
     with conexao(escrita=False) as conn:
         linhas = conn.execute(
             """
@@ -501,7 +575,7 @@ def horas_pendentes(zona_id: int, indice: str) -> list[str]:
             FROM agregados_15min a
             WHERE a.zona_id = ?
               AND a.indice = ?
-              AND a.janela_inicio < ?
+              AND a.janela_inicio::timestamp < ?::timestamp
               AND NOT EXISTS (
                   SELECT 1
                   FROM resumos_horarios r
@@ -513,8 +587,9 @@ def horas_pendentes(zona_id: int, indice: str) -> list[str]:
                     )
               )
             ORDER BY hora_inicio
+            LIMIT ?
             """,
-            (zona_id, indice, hora_atual_aberta),
+            (zona_id, indice, hora_atual_aberta, limite),
         ).fetchall()
     return [linha["hora_inicio"] for linha in linhas]
 
@@ -530,7 +605,9 @@ def consolidar_resumo_horario(
         linhas = conn.execute(
             """
             SELECT valor, status FROM leituras
-            WHERE zona_id = ? AND indice = ? AND criado_em >= ? AND criado_em < ?
+            WHERE zona_id = ? AND indice = ?
+              AND criado_em::timestamp >= ?::timestamp
+              AND criado_em::timestamp < ?::timestamp
             """,
             (zona_id, indice, hora_inicio, hora_fim),
         ).fetchall()
@@ -549,7 +626,7 @@ def consolidar_resumo_horario(
             status: round((contagem.get(status, 0) / total) * 100, 1) for status in ti.STATUS_ORDEM
         }
 
-        agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+        agora = timestamp_utc()
         conn.execute(
             """
             INSERT INTO resumos_horarios

@@ -52,6 +52,24 @@ Duas notas menores sobre a dissertação, sem efeito em número nenhum:
   obrigatórias;
 - agregados de 15 minutos e resumos horários usam somente janelas fechadas e
   são derivados das leituras brutas.
+- entradas físicas incoerentes (por exemplo, `tbu > tbs`, umidade fora de
+  `0..100%`, velocidade inválida para ITUV ou valores não finitos) são
+  rejeitadas; o sistema não as corrige silenciosamente por *clamp*.
+- cálculos manuais, ciclos de zona e séries geradas usam a mesma sequência
+  canônica de validação, arredondamento e classificação.
+
+Timestamps persistidos por código novo são ISO-8601 com offset UTC (`+00:00`).
+Linhas antigas sem offset são lidas como UTC para compatibilidade. Leituras
+podem receber uma identidade de amostra; a persistência combina essa identidade
+com lock transacional para que retries e ciclos concorrentes não dupliquem a
+mesma amostra.
+
+Retenção é opt-in. A variável `CONFORTO_RETENCAO_LEITURAS_DIAS` permanece em
+zero por padrão e nenhuma rotina de coleta apaga leituras automaticamente.
+Quando uma manutenção explicitamente chama a política com dias positivos, ela
+remove apenas um lote limitado de leituras brutas; zonas, configurações e
+agregados são preservados. Backup e descarte deliberado continuam pertencendo
+ao fluxo operacional documentado no Runbook.
 
 Séries da área Dados de entrada combinam clima histórico obtido do Open-Meteo
 com cálculos e variáveis simuladas. Elas são dados sintéticos para pesquisa,

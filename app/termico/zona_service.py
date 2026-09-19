@@ -24,14 +24,14 @@ agents.md, "Stability Rules").
 
 from __future__ import annotations
 
-import datetime
+import math
 import threading
 from typing import TYPE_CHECKING, cast
 
 from app.modbus import modbus_client
 from app.termico import thermal_indices as ti
 
-from ..models import Resfriamento, Temperatura
+from ..models import Resfriamento, Temperatura, agora_utc
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -51,22 +51,55 @@ def _derivar_campos_calculaveis(entradas: dict, altitude: float) -> dict:
     `thermal_indices.calcular_ponto_orvalho`. A regra por zona e sempre
     automatica: se ha sensor cadastrado para o campo, o valor medido vence;
     senao, deriva de tbs/tbu quando isso for possivel."""
-    preparadas = dict(entradas)
+    preparadas = _validar_entradas_fisicas(entradas)
     if "tbs" in preparadas and "tbu" in preparadas:
+        tbs = float(preparadas["tbs"])
+        tbu = float(preparadas["tbu"])
+        if "ur" not in preparadas:
+            preparadas["ur"] = round(ti.calcular_umidade_relativa(tbs, tbu, altitude), 1)
+        if "tpo" not in preparadas:
+            preparadas["tpo"] = round(ti.calcular_ponto_orvalho(tbs, tbu, altitude), 1)
+    # Campos derivados também passam pela mesma barreira; nenhuma temperatura
+    # fisicamente impossível é salva só porque foi calculada pelo sistema.
+    return _validar_entradas_fisicas(preparadas)
+
+
+def _validar_entradas_fisicas(entradas: dict) -> dict:
+    """Rejeita leituras físicas incoerentes antes do cálculo.
+
+    O código anterior corrigia silenciosamente alguns valores com ``min``/
+    ``max``. Isso podia transformar sensor invertido ou unidade errada em um
+    índice aparentemente válido. Campos desconhecidos continuam preservados
+    para não romper o contrato das entradas, mas os campos físicos conhecidos
+    são convertidos, finitos e sujeitos às faixas do domínio.
+    """
+    faixas = {
+        "tbs": (-10.0, 55.0),
+        "tbu": (-10.0, 55.0),
+        "tgn": (-10.0, 65.0),
+        "tpo": (-20.0, 45.0),
+        "ur": (0.0, 100.0),
+        "v": (0.01, 15.0),
+    }
+    resultado = dict(entradas or {})
+    for campo, (minimo, maximo) in faixas.items():
+        if campo not in resultado or resultado[campo] in (None, ""):
+            continue
         try:
-            tbs = float(preparadas["tbs"])
-            tbu = float(preparadas["tbu"])
-            if "ur" not in preparadas:
-                preparadas["ur"] = round(ti.calcular_umidade_relativa(tbs, tbu, altitude), 1)
-            if "tpo" not in preparadas:
-                preparadas["tpo"] = round(ti.calcular_ponto_orvalho(tbs, tbu, altitude), 1)
-        except (ti.EntradaInvalidaError, TypeError, ValueError):
-            # Deixa a validacao normal do indice (mais abaixo, em
-            # Temperatura.calcular_ict) reclamar do campo que realmente
-            # faltar, com uma mensagem mais especifica do que esta funcao
-            # conseguiria dar aqui.
-            pass
-    return preparadas
+            valor = float(str(resultado[campo]).replace(",", "."))
+        except (TypeError, ValueError) as erro:
+            raise ZonaCalculoError(f"O valor físico de '{campo}' precisa ser numérico.") from erro
+        if not math.isfinite(valor) or not minimo <= valor <= maximo:
+            raise ZonaCalculoError(
+                f"O valor físico de '{campo}' ({valor}) está fora da faixa "
+                f"aceitável ({minimo} a {maximo})."
+            )
+        resultado[campo] = valor
+    if "tbs" in resultado and "tbu" in resultado and resultado["tbu"] > resultado["tbs"]:
+        raise ZonaCalculoError(
+            "A temperatura de bulbo úmido não pode ser maior que a de bulbo seco."
+        )
+    return resultado
 
 
 class ZonaService:
@@ -161,7 +194,7 @@ class ZonaService:
             "zona_id": zona["id"],
             "especie": zona["especie"],
             "indice": zona["indice"],
-            "criado_em": datetime.datetime.now().isoformat(timespec="seconds"),
+            "criado_em": agora_utc().isoformat(timespec="seconds"),
             "valor": valor,
             "status": status,
             "entradas": dict(entradas),
@@ -443,6 +476,7 @@ class ZonaService:
             "ventilador": [],
             "nebulizador": [],
         }
+        tentativas = 0
         for equipamento in equipamentos:
             if equipamento.get("tipo") == "ventilador":
                 ligar = estado["ventilador"]
@@ -451,8 +485,21 @@ class ZonaService:
             else:
                 continue
 
-            sucesso = self._escrever_modbus(equipamento, ligar)
-            confirmado = self._ler_estado_atuador(equipamento) if sucesso else None
+            sucesso = False
+            confirmado = None
+            # Retry curto e determinístico: uma falha transitória não deve
+            # deixar o ciclo inteiro sem intenção registrada, mas também não
+            # fazemos loop indefinido nem repetimos comandos reais sem limite.
+            for _ in range(2):
+                tentativas += 1
+                try:
+                    sucesso = bool(self._escrever_modbus(equipamento, ligar))
+                    confirmado = self._ler_estado_atuador(equipamento) if sucesso else None
+                except Exception:
+                    sucesso = False
+                    confirmado = None
+                if sucesso and confirmado == ligar:
+                    break
             confirmacoes[equipamento["tipo"]].append(confirmado)
             if not sucesso:
                 falhas.append(equipamento["nome"])
@@ -472,6 +519,12 @@ class ZonaService:
         return {
             "falhas": falhas,
             "confirmado": {tipo: _consolidar(valores) for tipo, valores in confirmacoes.items()},
+            "intencao": {
+                "ventilador": bool(estado.get("ventilador")),
+                "nebulizador": bool(estado.get("nebulizador")),
+            },
+            "tentativas": tentativas,
+            "failsafe_ativo": bool(falhas),
         }
 
     def comandar_manual(self, zona_id: int, tipo: str, ligar: bool, logger=None) -> dict:
@@ -516,6 +569,10 @@ class ZonaService:
             "desejado": ligar,
             "confirmado": resultado["confirmado"][tipo],
             "atuadores_com_falha": resultado["falhas"],
+            "intencao": resultado["intencao"],
+            "estado": resultado["confirmado"],
+            "failsafe_ativo": resultado["failsafe_ativo"],
+            "tentativas": resultado["tentativas"],
             "qualidade": "boa" if not resultado["falhas"] else "degradada",
         }
 
@@ -538,5 +595,9 @@ class ZonaService:
             "desejado": estado,
             "confirmado": resultado["confirmado"],
             "atuadores_com_falha": resultado["falhas"],
+            "intencao": resultado["intencao"],
+            "estado": resultado["confirmado"],
+            "failsafe_ativo": resultado["failsafe_ativo"],
+            "tentativas": resultado["tentativas"],
             "qualidade": "boa" if not resultado["falhas"] else "degradada",
         }

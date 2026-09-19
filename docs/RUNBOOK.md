@@ -25,6 +25,23 @@ O serviço `schema` precisa terminar com sucesso antes de `ict` e `coletor`.
 Mantenha `CONFORTO_DEBUG=0` fora de desenvolvimento local. Não imprima nem
 altere segredos durante o diagnóstico.
 
+## Migrações incompatíveis e rollback
+
+O deploy pode restaurar o commit e a imagem anteriores, mas não desfaz uma
+migração do PostgreSQL. Antes de uma mudança de schema, faça backup completo
+conferido pelo BackupRestore e confirme que a nova aplicação é compatível com
+o schema existente. Em mudanças incompatíveis, pare `ict` e `coletor`, preserve
+o banco atual, valide o restore no sandbox e siga o procedimento do
+`RESTAURAR.md` do BackupRestore para voltar código e dados de forma coordenada.
+
+Não use `alembic stamp` para esconder divergência e não execute `downgrade`
+em produção como tentativa improvisada: só use o downgrade da revisão quando
+ele fizer parte do plano aprovado, com backup verificado e janela de retorno.
+Se o job `schema` falhar, mantenha os serviços dependentes parados, capture
+somente logs sem segredos, corrija a compatibilidade e execute o upgrade
+novamente após conferir o backup. `docker compose down` preserva os volumes;
+`down -v` continua sendo destrutivo e exige autorização explícita.
+
 ## Manutenção e auditoria
 
 **Atualizar agregados pendentes**, na aba Sistema, é manutenção segura e

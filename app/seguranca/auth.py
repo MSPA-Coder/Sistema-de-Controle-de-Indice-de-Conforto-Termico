@@ -75,6 +75,7 @@ from sharedauth.secrets import DIRETORIO_SECRETS_COMPOSE, resolver_segredo
 from sharedauth.session import marca_de_sessao, marcas_conferem
 
 from .. import database as db
+from . import tokens as _tokens
 
 if TYPE_CHECKING:
     from flask.typing import ResponseReturnValue
@@ -263,63 +264,9 @@ def obter_chave_secreta() -> str:
     return nova_chave
 
 
-def obter_ou_criar_token_interno() -> str:
-    """Segredo compartilhado entre ICT e coletor para toda a API interna.
-
-    O navegador nunca ve nem envia este token; ele nao e uma credencial
-    de pessoa.
-
-    Mesmo padrao de `obter_chave_secreta` acima, incluindo a
-    precedencia da variavel de ambiente e a mesma trava de geracao (CT-04,
-    fechada em 02/09/2026: ate ali este caminho gerava e persistia um token
-    em silencio fora de desenvolvimento, e a ausencia de configuracao virava
-    uma indisponibilidade sem causa aparente em vez de um erro na
-    inicializacao). Instalacoes em que coletor e "outra parte" rodam em
-    MAQUINAS diferentes (nao compartilham `instance/`) precisam definir
-    `CONFORTO_INTERNO_TOKEN` explicitamente e IGUAL nos dois processos --
-    sem isso, cada lado geraria e persistiria um token diferente e a chamada
-    interna sempre falharia com 403. Essa limitacao acompanha a mesma
-    premissa ja documentada no README para a implantação em contêineres (as
-    duas partes compartilham a mesma origem de segredo)."""
-    variavel_ambiente = os.environ.get("CONFORTO_INTERNO_TOKEN")
-    if variavel_ambiente:
-        return variavel_ambiente
-    token = resolver_segredo(
-        "CONFORTO_INTERNO_TOKEN",
-        aceitar_variavel=False,
-        caminho_esperado=DIRETORIO_SECRETS_COMPOSE / "internal_token",
-    )
-    if token is not None:
-        return token
-
-    if not _ambiente_permite_gerar_chave():
-        raise RuntimeError(
-            "Token interno ausente. Em produção ele é obrigatório e precisa ser "
-            "IGUAL nos dois processos: defina CONFORTO_INTERNO_TOKEN_FILE "
-            "apontando para /run/secrets/internal_token (o Compose já monta "
-            "esse segredo) ou CONFORTO_INTERNO_TOKEN. Gerar um token sozinho "
-            "faria ICT e coletor discordarem, e a API interna recusaria tudo "
-            "com 403 -- uma indisponibilidade sem causa aparente, em vez de "
-            "um erro de inicialização que nomeia a variável que falta."
-        )
-
-    caminho = Path(db.INSTANCE_DIR) / "interno_token.txt"
-    try:
-        token_existente = caminho.read_text(encoding="utf-8").strip()
-        if token_existente:
-            return token_existente
-    except OSError:
-        pass
-
-    novo_token = secrets.token_hex(32)
-    try:
-        caminho.parent.mkdir(parents=True, exist_ok=True)
-        caminho.write_text(novo_token, encoding="utf-8")
-        with contextlib.suppress(OSError):
-            os.chmod(caminho, 0o600)
-    except OSError:
-        pass
-    return novo_token
+def obter_token_interno(capacidade: str) -> str:
+    """Fachada compatível para o token privado derivado por capacidade."""
+    return _tokens.obter_token_interno(capacidade)
 
 
 # ---------------------------------------------------------------------------
@@ -412,6 +359,9 @@ AREA_POR_ENDPOINT: dict[str, str | tuple[str, ...]] = {
     "usuarios.editar_usuario_rota": "usuarios",
     "usuarios.excluir_usuario_rota": "usuarios",
     "usuarios.redefinir_senha_rota": "usuarios",
+    "usuarios.listar_zonas_usuario": "usuarios",
+    "usuarios.conceder_acesso_zona": "usuarios",
+    "usuarios.revogar_acesso_zona": "usuarios",
 }
 
 # Endpoints que respondem a QUALQUER perfil autenticado. Estar aqui e uma
@@ -577,6 +527,28 @@ def registrar_controle_de_area(app: Flask) -> None:
         perfis_extra = PERFIS_EXTRA_POR_ENDPOINT.get(endpoint)
         if perfis_extra is not None and g.usuario["perfil"] not in perfis_extra:
             return _negar_acesso()
+
+        # Toda rota que endereça uma zona precisa respeitar a associação
+        # usuário-zona, além da área do perfil. O check fica centralizado para
+        # não depender de cada handler lembrar de repetir a mesma proteção.
+        zona_id = (request.view_args or {}).get("zona_id")
+        if zona_id is not None:
+            from .zonas import verificar_acesso_zona
+
+            area_da_sessao = next(
+                area for area in areas_aceitas if area_permitida(g.usuario["perfil"], area)
+            )
+            if (
+                verificar_acesso_zona(
+                    int(zona_id),
+                    perfil=g.usuario["perfil"],
+                    area=area_da_sessao,
+                    usuario_id=int(g.usuario["id"]),
+                    obter_zona=db.obter_zona,
+                )
+                != "autorizada"
+            ):
+                return _negar_acesso()
 
         return None
 
@@ -872,3 +844,31 @@ def excluir_usuario_rota(usuario_id: int) -> ResponseReturnValue:
     except db.UltimoAdministradorError as erro:
         flash(str(erro), "erro")
     return redirect(url_for("usuarios.pagina_usuarios"))
+
+
+@usuarios_bp.route("/api/<int:usuario_id>/zonas", methods=["GET"])
+def listar_zonas_usuario(usuario_id: int) -> ResponseReturnValue:
+    """Lista as zonas explicitamente concedidas a uma conta."""
+    if db.obter_usuario(usuario_id) is None:
+        return jsonify({"erro": "Usuário não encontrado."}), 404
+    return jsonify({"zonas": db.listar_zonas_do_usuario(usuario_id)})
+
+
+@usuarios_bp.route("/api/<int:usuario_id>/zonas/<int:zona_id>", methods=["POST"])
+def conceder_acesso_zona(usuario_id: int, zona_id: int) -> ResponseReturnValue:
+    """Concede a uma conta não administradora acesso a uma zona."""
+    if db.obter_usuario(usuario_id) is None:
+        return jsonify({"erro": "Usuário não encontrado."}), 404
+    if db.obter_zona(zona_id) is None:
+        return jsonify({"erro": "Zona não encontrada."}), 404
+    db.conceder_acesso_zona(usuario_id, zona_id)
+    return jsonify({"ok": True, "usuario_id": usuario_id, "zona_id": zona_id})
+
+
+@usuarios_bp.route("/api/<int:usuario_id>/zonas/<int:zona_id>", methods=["DELETE"])
+def revogar_acesso_zona(usuario_id: int, zona_id: int) -> ResponseReturnValue:
+    """Revoga o acesso; administradores continuam globais por perfil."""
+    if db.obter_usuario(usuario_id) is None:
+        return jsonify({"erro": "Usuário não encontrado."}), 404
+    db.revogar_acesso_zona(usuario_id, zona_id)
+    return jsonify({"ok": True, "usuario_id": usuario_id, "zona_id": zona_id})

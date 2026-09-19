@@ -10,6 +10,7 @@ from __future__ import annotations
 from flask import Blueprint, current_app, jsonify, request
 
 from app.seguranca.audit_log import registrar_evento_revisavel
+from app.seguranca.tokens import CAPACIDADE_LEITURA
 from app.termico import agregacao
 
 from .. import database as db
@@ -264,4 +265,5 @@ def testar_conexao_equipamento(zona_id, equipamento_id):
         f"/api/interno/zonas/{zona_id}/equipamentos/{equipamento_id}/testar-conexao",
         metodo="POST",
         dados={},
+        capacidade=CAPACIDADE_LEITURA,
     )

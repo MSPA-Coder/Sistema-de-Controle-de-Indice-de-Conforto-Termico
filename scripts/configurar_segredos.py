@@ -22,10 +22,12 @@ POSTGRES_GID = 0
 
 # Cada segredo é montado em serviços com identidades distintas. A senha do
 # PostgreSQL precisa ser lida tanto pelo processo ``postgres`` quanto pelos
-# processos da aplicação; o token interno é exclusivo destes últimos.
+# processos da aplicação; as capacidades internas têm raízes físicas
+# independentes para que a rotação ou exposição de uma não autorize a outra.
 ARQUIVOS = {
     "postgres_password.txt": (36, POSTGRES_UID, POSTGRES_GID, 0o444),
-    "internal_token.txt": (48, APP_UID, APP_GID, 0o400),
+    "internal_read_token.txt": (48, APP_UID, APP_GID, 0o400),
+    "internal_control_token.txt": (48, APP_UID, APP_GID, 0o400),
     # Chave de assinatura de sessão, montada só no `ict`. CUIDADO ao rodar com
     # `--force` numa instalação existente: trocar esta chave invalida TODAS as
     # sessões abertas e desloga todo mundo de uma vez. É por isso que o script

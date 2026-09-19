@@ -147,7 +147,9 @@ def calcular_ponto_orvalho(tbs: float, ur: float) -> float:
     diretamente; encadear por um tbu que e ele mesmo uma aproximacao (Stull,
     ver `calcular_bulbo_umido`) so acumularia erro sem necessidade.
     """
-    ur_limitada = max(0.1, min(100.0, float(ur)))
+    ur_limitada = float(ur)
+    if not math.isfinite(ur_limitada) or not 0.0 < ur_limitada <= 100.0:
+        raise GeracaoDadosError("A umidade relativa precisa estar entre 0 e 100%.")
     a, b = 17.625, 243.04
     gama = math.log(ur_limitada / 100.0) + a * float(tbs) / (b + float(tbs))
     return b * gama / (a - gama)
@@ -155,7 +157,9 @@ def calcular_ponto_orvalho(tbs: float, ur: float) -> float:
 
 def calcular_bulbo_umido(tbs: float, ur: float) -> float:
     """Aproximacao de Stull (2011), adequada para series ambientais."""
-    rh = max(1.0, min(100.0, float(ur)))
+    rh = float(ur)
+    if not math.isfinite(rh) or not 0.0 < rh <= 100.0:
+        raise GeracaoDadosError("A umidade relativa precisa estar entre 0 e 100%.")
     t = float(tbs)
     resultado = (
         t * math.atan(0.151977 * math.sqrt(rh + 8.313659))
@@ -164,7 +168,11 @@ def calcular_bulbo_umido(tbs: float, ur: float) -> float:
         + 0.00391838 * (rh**1.5) * math.atan(0.023101 * rh)
         - 4.686035
     )
-    return float(min(t, resultado))
+    if resultado > t:
+        raise GeracaoDadosError(
+            "A combinação meteorológica produziu bulbo úmido acima do bulbo seco."
+        )
+    return float(resultado)
 
 
 def estimar_globo_negro(tbs: float, radiacao: float | None, vento: float) -> float:
@@ -173,7 +181,10 @@ def estimar_globo_negro(tbs: float, radiacao: float | None, vento: float) -> flo
     A radiacao eleva a temperatura de globo e o vento reduz esse ganho. O
     resultado e um campo calculado e nunca e rotulado como observacao.
     """
-    radiacao = max(0.0, float(radiacao or 0.0))
+    radiacao = 0.0 if radiacao is None else float(radiacao)
+    vento = float(vento)
+    if not math.isfinite(radiacao) or radiacao < 0 or not math.isfinite(vento) or vento < 0:
+        raise GeracaoDadosError("A fonte meteorológica retornou radiação ou vento inválido.")
     ganho = 0.012 * radiacao / math.sqrt(max(0.1, float(vento)))
     return float(tbs) + min(25.0, ganho)
 
@@ -382,11 +393,25 @@ def _clima_no_instante(
     # passo conserva o volume horario quando sao pedidos pontos sub-horarios.
     if intervalo_minutos < 60:
         valores["precipitacao"] *= intervalo_minutos / 60.0
-    valores["ur"] = max(0.1, min(100.0, valores["ur"]))
-    valores["vento"] = max(0.0, valores["vento"])
-    valores["radiacao"] = max(0.0, valores["radiacao"])
-    valores["precipitacao"] = max(0.0, valores["precipitacao"])
-    valores["nebulosidade"] = max(0.0, min(100.0, valores["nebulosidade"]))
+    faixas = {
+        "ur": (0.0, 100.0),
+        "vento": (0.0, float("inf")),
+        "radiacao": (0.0, float("inf")),
+        "precipitacao": (0.0, float("inf")),
+        "nebulosidade": (0.0, 100.0),
+    }
+    for campo, (minimo, maximo) in faixas.items():
+        valor = _numero_valido(valores.get(campo))
+        if valor is None or not minimo <= valor <= maximo:
+            raise GeracaoDadosError(
+                f"A fonte meteorológica retornou um valor físico inválido para {campo}."
+            )
+        valores[campo] = valor
+    if valores["ur"] <= 0:
+        raise GeracaoDadosError(
+            "A fonte meteorológica retornou umidade relativa zero; "
+            "a amostra foi rejeitada por não permitir calcular o ponto de orvalho."
+        )
     valores["interpolado"] = interpolado
     return valores
 
@@ -536,15 +561,17 @@ def _indice(zona: dict, tbs: float, tbu: float, tpo: float, vento: float, radiac
     indice = zona["indice"]
     if indice == "ITU":
         entradas = {"tbs": tbs, "tbu": tbu}
-        valor = ti.calcular_itu(tbs, tbu)
     elif indice == "ITUV":
-        entradas = {"tbs": tbs, "tbu": tbu, "v": max(0.01, vento)}
-        valor = ti.calcular_ituv(tbs, tbu, max(0.01, vento))
+        if vento <= 0:
+            raise GeracaoDadosError(
+                "A amostra foi rejeitada: ITUV exige velocidade do vento maior que zero."
+            )
+        entradas = {"tbs": tbs, "tbu": tbu, "v": vento}
     else:
         tgn = estimar_globo_negro(tbs, radiacao, vento)
         entradas = {"tgn": tgn, "tpo": tpo}
-        valor = ti.calcular_ignu(tgn, tpo)
-    return valor, ti.classificar_status(valor, zona["especie"], indice), entradas
+    valor, status = ti.calcular_e_classificar(zona["especie"], indice, entradas)
+    return valor, status, entradas
 
 
 def _iterar_instantes(inicio: datetime.datetime, fim: datetime.datetime, minutos: int):
@@ -621,7 +648,7 @@ def gerar(dados: dict, zonas: list[dict]) -> dict:
         # antes: uma falha no meio da geracao ainda e limpa pelo `DELETE` em
         # `falhar_execucao`, e o lock de escrita nao fica preso durante o
         # tempo de rede gasto buscando o clima da proxima zona.
-        with dados_db.sessao_geracao() as sessao:
+        with dados_db.sessao_geracao(execucao_id) as sessao:
             for zona in zonas:
                 config = por_id[zona["id"]]
                 fuso = ZoneInfo(config["fuso_horario"])
@@ -674,8 +701,8 @@ def gerar(dados: dict, zonas: list[dict]) -> dict:
                         "fuso_horario": config["fuso_horario"],
                         "tbs_externa_c": round(tbs, 3),
                         "ur_externa_pct": round(ur, 3),
-                        "ponto_orvalho_c": round(min(tbs, tpo), 3),
-                        "tbu_c": round(min(tbs, tbu), 3),
+                         "ponto_orvalho_c": round(tpo, 3),
+                         "tbu_c": round(tbu, 3),
                         "velocidade_vento_ms": round(clima["vento"], 3),
                         "precipitacao_mm": round(clima["precipitacao"], 5),
                         "pressao_hpa": round(clima["pressao"], 2),

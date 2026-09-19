@@ -21,11 +21,13 @@ configuração, escolhas de biblioteca. A divergência que antes era um débito 
 ser resolvido passa a ser uma consequência esperada de um projeto com outro
 propósito.
 
-Concretamente, e já valendo: este projeto **não** tem `uv.lock` nem base fixada
-por digest, enquanto os três irmãos passaram a ter na fase F3 de 08/09/2026.
-Dois builds do mesmo commit ainda podem resolver versões diferentes aqui. É uma
-consequência aceita, não um esquecimento — se um dia incomodar, o caminho já
-está percorrido nos irmãos e é barato de copiar.
+Concretamente, a liberdade de arquitetura não autoriza builds não
+reprodutíveis. A auditoria de setembro de 2026 identificou que este projeto
+também precisa fixar as dependências e a base de contêiner: o `uv.lock` (ou um
+artefato equivalente validado pela CI) e o digest da imagem base fazem parte do
+contrato de build. A escolha de biblioteca, a estrutura dos módulos e o fluxo
+de pesquisa continuam livres; a entrada que chega à produção precisa ser
+determinística e auditável.
 
 ## O que continua obrigatório
 

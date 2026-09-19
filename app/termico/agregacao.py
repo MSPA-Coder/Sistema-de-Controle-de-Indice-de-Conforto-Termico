@@ -29,6 +29,8 @@ from __future__ import annotations
 
 from .. import database as db
 
+MAX_JANELAS_POR_ZONA = 500
+
 
 def executar_para_zona(zona: dict, logger=None) -> dict:
     """Consolida todas as janelas de 15 min e horas pendentes de uma zona.

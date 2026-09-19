@@ -157,6 +157,15 @@ def entrar(app, client, monkeypatch):
         # carregamento a recusa (ver `registrar_carregamento_usuario`). O hash
         # e substituido junto, para a marca ser calculavel sem banco.
         monkeypatch.setattr(auth.db, "obter_hash_de_senha", lambda _id: "hash-de-teste")
+        # A ACL por zona agora é verificada no hook central. Esta suíte mede
+        # somente o mapa de áreas e não abre PostgreSQL; para esses testes,
+        # modelamos a associação já concedida ao usuário de teste.
+        monkeypatch.setattr(auth.db, "usuario_tem_acesso_zona", lambda *_ids: True)
+        # A rota de gerenciamento de ACL também lista zonas no banco. Esta
+        # suíte valida somente o mapa de áreas e usa o banco deliberadamente
+        # indisponível; mantenha a resposta mínima para não transformar esse
+        # teste de autorização em teste de persistência.
+        monkeypatch.setattr(auth.db, "listar_zonas_do_usuario", lambda *_ids: [])
         with client.session_transaction() as sessao:
             sessao["usuario_id"] = 1
             sessao[auth.CHAVE_MARCA_DE_SENHA] = marca_de_sessao(
