@@ -30,11 +30,19 @@ from sharedauth.secrets import DIRETORIO_SECRETS_COMPOSE, resolver_segredo
 
 
 def _ler_segredo(nome: str) -> str:
-    """Senha do Postgres, exclusivamente pelo Docker secret esperado."""
+    """Senha do Postgres, exclusivamente pelo Docker secret esperado.
+
+    Cada papel tem o seu arquivo: `coletor` e `ict`, com a trava de papel
+    restrito ligada, só leem `postgres_app_password`; o `schema` (Alembic), sem
+    ela, só lê `postgres_password`, do papel administrativo.
+    """
+    from .papel_do_banco import exigido
+
+    arquivo = "postgres_app_password" if exigido() else "postgres_password"
     valor = resolver_segredo(
         nome,
         aceitar_variavel=False,
-        caminho_esperado=DIRETORIO_SECRETS_COMPOSE / "postgres_password",
+        caminho_esperado=DIRETORIO_SECRETS_COMPOSE / arquivo,
     )
     return valor or ""
 
@@ -89,6 +97,9 @@ def _engine(url: str):
         pool_recycle=1800,
         connect_args={"application_name": "conforto_termico"},
     )
+    from .papel_do_banco import instalar as instalar_trava_de_papel
+
+    instalar_trava_de_papel(engine)
     _engines_criados[url] = engine
     return engine
 

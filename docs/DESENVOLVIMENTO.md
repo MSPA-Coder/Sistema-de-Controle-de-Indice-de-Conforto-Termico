@@ -19,8 +19,18 @@ Os segredos ficam em `.secrets/` e não devem ser impressos ou versionados. Em
 uma instalação existente, não execute o gerador com `--force` sem planejar a
 rotação: a chave de sessão muda e invalida sessões.
 
-O script gera a senha do PostgreSQL, raízes físicas independentes para os
-tokens internos de leitura e controle e a chave de sessão. O SharedAuth é
+O script gera as duas senhas do PostgreSQL, raízes físicas independentes para
+os tokens internos de leitura e controle e a chave de sessão.
+
+São dois papéis no banco. `postgres_password` é do papel administrativo
+(`POSTGRES_USER`, superusuário, dono das tabelas), que só o `postgres`, o
+`db-provision` e o `schema` (Alembic) recebem. `postgres_app_password` é do
+papel restrito `conforto_app`, com que `coletor` e `ict` conectam: o
+`db-provision` (`scripts/provision-db-runtime.sh`) o cria ou atualiza a cada
+subida com DML e sequências nos esquemas `public`, `historico` e
+`dados_entrada`, sem DDL. Com `DB_EXIGIR_PAPEL_RESTRITO=1`, o processo só lê o
+segredo do papel restrito e recusa conexão superusuária
+(`app/nucleo/papel_do_banco.py`). O SharedAuth é
 público: o build não precisa de credencial para instalá-lo.
 
 Se o host Windows intercepta HTTPS com uma autoridade local, gere o arquivo de
