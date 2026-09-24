@@ -26,6 +26,9 @@ POSTGRES_GID = 0
 # independentes para que a rotação ou exposição de uma não autorize a outra.
 ARQUIVOS = {
     "postgres_password.txt": (36, POSTGRES_UID, POSTGRES_GID, 0o444),
+    # Papel restrito de `coletor` e `ict`; o `db-provision` aplica esta senha ao
+    # papel a cada subida, então ela não exige rotação coordenada.
+    "postgres_app_password.txt": (36, POSTGRES_UID, POSTGRES_GID, 0o444),
     "internal_read_token.txt": (48, APP_UID, APP_GID, 0o400),
     "internal_control_token.txt": (48, APP_UID, APP_GID, 0o400),
     # Chave de assinatura de sessão, montada só no `ict`. CUIDADO ao rodar com
@@ -50,7 +53,9 @@ def _gravar(
     temporario = caminho.with_name(f".{caminho.name}.{secrets.token_hex(8)}.tmp")
     try:
         temporario.write_text(secrets.token_urlsafe(quantidade_bytes), encoding="utf-8")
-        with contextlib.suppress(OSError):
+        # No Windows `os.chown` nem existe (AttributeError); lá o Docker Desktop
+        # entrega todo segredo legível, e dono/modo só importam no VPS.
+        with contextlib.suppress(OSError, AttributeError):
             os.chown(temporario, uid, gid)
             os.chmod(temporario, modo)
         os.replace(temporario, caminho)
