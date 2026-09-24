@@ -23,6 +23,7 @@ import os
 import re
 import smtplib
 from email.mime.text import MIMEText
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sharedauth.secrets import DIRETORIO_SECRETS_COMPOSE, resolver_segredo
 
@@ -56,6 +57,57 @@ def parsear_timestamp(valor: object) -> datetime.datetime:
     if momento.tzinfo is None:
         momento = momento.replace(tzinfo=datetime.UTC)
     return momento.astimezone(datetime.UTC)
+
+
+def como_utc_iso(valor: object) -> object:
+    """O instante com o offset explícito (`+00:00`), para o navegador ler certo.
+
+    Janelas e horas agregadas são gravadas em UTC SEM offset, e `new Date()` no
+    navegador lê texto sem offset como hora LOCAL: os gráficos mostravam cada
+    janela 3 h fora do lugar. Valor que não é texto ISO passa como está.
+    """
+    if not isinstance(valor, str) or not valor:
+        return valor
+    try:
+        return parsear_timestamp(valor).isoformat(timespec="seconds")
+    except ValueError:
+        return valor
+
+
+def fuso_local() -> ZoneInfo:
+    """O fuso em que o usuário lê as datas: o `TZ` do contêiner."""
+    try:
+        return ZoneInfo(os.environ.get("TZ") or "America/Sao_Paulo")
+    except (ZoneInfoNotFoundError, ValueError):
+        return ZoneInfo("America/Sao_Paulo")
+
+
+def limites_utc_do_periodo(
+    data_inicio: str | None, data_fim: str | None
+) -> tuple[str | None, str | None]:
+    """Dias LOCAIS de/até viram o intervalo UTC semiaberto [início, fim).
+
+    Os filtros da tela mandam datas do calendário do usuário; o banco guarda
+    instantes UTC em texto ISO. Comparar `2026-09-24 00:00:00` direto com esse
+    texto recortava o dia em UTC -- das 21h do dia anterior às 21h do dia, no
+    horário de Brasília. Os limites saem sem offset, no mesmo formato
+    `AAAA-MM-DDTHH:MM:SS` do texto gravado, para a comparação de texto (e os
+    índices sobre ela) continuar valendo tanto para linhas com `+00:00` quanto
+    para janelas gravadas sem offset.
+    """
+    fuso = fuso_local()
+
+    def _utc(dia: datetime.date) -> str:
+        meia_noite = datetime.datetime.combine(dia, datetime.time(0), tzinfo=fuso)
+        return meia_noite.astimezone(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S")
+
+    inicio = _utc(datetime.date.fromisoformat(data_inicio)) if data_inicio else None
+    fim = (
+        _utc(datetime.date.fromisoformat(data_fim) + datetime.timedelta(days=1))
+        if data_fim
+        else None
+    )
+    return inicio, fim
 
 
 def _email_valido(endereco: object) -> bool:
