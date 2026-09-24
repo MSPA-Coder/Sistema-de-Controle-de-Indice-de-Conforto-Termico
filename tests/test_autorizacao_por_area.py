@@ -398,6 +398,30 @@ def leituras_da_aplicacao(monkeypatch):
     )
 
 
+def _endpoints_do_mapa_que_aceitam_get() -> list[str]:
+    """Os endpoints do mapa que respondem GET, lidos da app de verdade.
+
+    Os que só aceitam POST ficavam na coleta e eram pulados um a um: 138
+    pulos por execução, entre os quais um pulo de verdade -- a camada `banco`
+    sem `TESTE_DATABASE_URL`, por exemplo -- passaria sem ser visto. Endpoint
+    do mapa sem rota registrada continua na lista, para o teste reprovar com o
+    nome dele.
+    """
+    from _stub_banco import recusar_conexao_com_banco
+    from conftest import _config
+
+    from app.app_factory import criar_app_ict
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("CONFORTO_TESTING", "1")
+        mp.setenv("CONFORTO_SECRET_KEY", "chave-de-teste-nao-usada-em-execucao-real")
+        mp.setenv("DATABASE_URL", "postgresql+psycopg://test:test@localhost:5999/test")
+        recusar_conexao_com_banco(mp)
+        aplicacao = criar_app_ict(_config())
+    metodos = {regra.endpoint: regra.methods for regra in aplicacao.url_map.iter_rules()}
+    return sorted(e for e in auth.AREA_POR_ENDPOINT if "GET" in metodos.get(e, {"GET"}))
+
+
 def _chaves_recursivas(valor) -> set[str]:
     """Todas as chaves de dict encontradas em `valor`, em qualquer profundidade."""
     chaves: set[str] = set()
@@ -412,7 +436,7 @@ def _chaves_recursivas(valor) -> set[str]:
 
 
 @pytest.mark.parametrize("perfil", sorted(auth.AREAS_POR_PERFIL))
-@pytest.mark.parametrize("endpoint", sorted(auth.AREA_POR_ENDPOINT))
+@pytest.mark.parametrize("endpoint", _endpoints_do_mapa_que_aceitam_get())
 def test_leitura_do_mapa_nao_vaza_campo_de_outra_area(
     app, entrar, leituras_da_aplicacao, endpoint, perfil
 ):
@@ -425,9 +449,6 @@ def test_leitura_do_mapa_nao_vaza_campo_de_outra_area(
     """
     regra = next((r for r in app.url_map.iter_rules() if r.endpoint == endpoint), None)
     assert regra is not None, f"{endpoint} esta em AREA_POR_ENDPOINT mas nao tem rota registrada"
-    if "GET" not in regra.methods:
-        pytest.skip(f"{endpoint} nao aceita GET; fica para uma rede de mutacoes, se um dia existir")
-
     valores = dict.fromkeys(regra.arguments, 1)
     with app.test_request_context():
         url = url_for(endpoint, **valores)

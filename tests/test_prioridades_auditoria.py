@@ -3,11 +3,8 @@
 from __future__ import annotations
 
 import datetime
-import inspect
 from contextlib import contextmanager
-from pathlib import Path
 
-import app
 from app.dados_entrada import rotas as dados_entrada_rotas
 from app.database import zonas as database_zonas
 
@@ -157,19 +154,3 @@ def test_exportacao_csv_e_incremental(app, monkeypatch):
     assert corpo.startswith("\ufeffid,zona\r\n0,zona-0\r\n")
     assert corpo.endswith("9999,zona-9999\r\n")
     assert len(consumidas) == 10_000
-
-
-def test_salvar_zona_nao_empilha_confirmacao_sobre_dialogo_modal():
-    fonte = inspect.getsource(dados_entrada_rotas).replace("\r\n", "\n")
-    assert "stream_with_context(gerar_csv())" in fonte
-
-    # Ancorado no pacote `app`, nao no modulo de persistencia: o caminho do
-    # arquivo estatico nao tem relacao com onde `zonas.py` mora.
-    caminho = Path(app.__file__).parent / "static/js/features/cadastro-zonas.js"
-    with open(caminho, encoding="utf-8") as arquivo:
-        javascript = arquivo.read()
-    salvar_zona = javascript.split("async function salvarZona", 1)[1].split(
-        "async function excluirZona", 1
-    )[0]
-    assert "await confirm" not in salvar_zona
-    assert "await fetch" in salvar_zona

@@ -319,47 +319,72 @@ def test_senha_curta_nao_grava(app, entrar, monkeypatch):
     assert gravado == {}
 
 
-# --- persistencia: o que o SQL declara -----------------------------------
+# --- persistencia: o que fica gravado --------------------------------------
+#
+# Estes tres conferiam o texto do codigo (`'exigir_troca=False' in fonte`, o
+# SQL do UPDATE) -- o mesmo tipo de teste que deixou seis rotas sem controle
+# de area (ver `test_autorizacao_por_area.py`). Agora gravam no PostgreSQL da
+# camada `banco` e leem a marca gravada.
 
 
+def _login_unico(prefixo: str) -> str:
+    from uuid import uuid4
+
+    return f"{prefixo}-{uuid4().hex[:8]}"
+
+
+def _marca_gravada(login: str) -> bool:
+    from app.database import usuarios as database_usuarios
+
+    return bool(database_usuarios.obter_usuario_por_login(login)["trocar_senha"])
+
+
+@pytest.mark.usefixtures("banco")
 def test_criar_usuario_liga_a_marca_por_padrao():
     # Conta nova tem senha que quem administra escolheu e conhece: e o mesmo
     # caso da redefinicao. O padrao e ligar, para que a tela -- e qualquer
     # caminho novo -- nasca protegida.
-    import inspect
-
     from app.database import usuarios as database_usuarios
 
-    assinatura = inspect.signature(database_usuarios.criar_usuario)
+    login = _login_unico("nova")
+    database_usuarios.criar_usuario(
+        {"nome": "Conta nova", "login": login, "perfil": "administrador", "senha_hash": "hash"}
+    )
 
-    assert assinatura.parameters["exigir_troca"].default is True
-    assert "trocar_senha" in inspect.getsource(database_usuarios.criar_usuario)
+    assert _marca_gravada(login) is True
 
 
-def test_bootstrap_por_cli_nao_liga_a_marca():
+@pytest.mark.usefixtures("banco")
+def test_bootstrap_por_cli_nao_liga_a_marca(monkeypatch):
     # Quem roda o script tem shell no conteiner e escolheu a propria senha:
     # nao existe o terceiro que a criacao pela tela pressupoe. Obrigar a
     # trocar ali deixaria o primeiro acesso com um passo a mais sem ganho.
-    import inspect
+    import sys
 
     from scripts import criar_usuario_admin
 
-    fonte = inspect.getsource(criar_usuario_admin.main)
+    login = _login_unico("admin")
+    monkeypatch.setattr(sys, "argv", ["criar_usuario_admin", "--nome", "Admin", "--login", login, "--sim"])
+    monkeypatch.setattr(criar_usuario_admin, "_ler_senha", lambda: "senha-escolhida-no-shell-1")
 
-    assert "exigir_troca=False" in fonte
+    assert criar_usuario_admin.main() == 0
+    assert _marca_gravada(login) is False
 
 
+@pytest.mark.usefixtures("banco")
 def test_edicao_de_usuario_com_senha_tambem_liga_a_marca():
     # A tela nao expoe mais esse campo, mas a funcao continua aceitando-o: um
     # caminho que deixasse a senha alheia valendo para sempre seria uma porta
     # dos fundos silenciosa.
-    import inspect
-
     from app.database import usuarios as database_usuarios
 
-    fonte = inspect.getsource(database_usuarios.atualizar_usuario)
+    login = _login_unico("editada")
+    dados = {"nome": "Editada", "login": login, "perfil": "administrador", "senha_hash": "hash"}
+    usuario = database_usuarios.criar_usuario(dados, exigir_troca=False)
 
-    assert "senha_hash = ?, trocar_senha = 1" in fonte
+    database_usuarios.atualizar_usuario(usuario["id"], {**dados, "senha_hash": "outro-hash"})
+
+    assert _marca_gravada(login) is True
 
 
 # --- a sessao deixa de valer quando a senha muda -------------------------
