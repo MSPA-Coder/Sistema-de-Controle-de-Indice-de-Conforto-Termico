@@ -78,6 +78,12 @@ O estágio `quality` instala as dependências de desenvolvimento e executa
 `ruff check . && pytest`. Não documente uma contagem fixa de testes: a suíte
 muda com o código.
 
+O que merece teste, em que camada e em que forma está em `docs/TESTES.md`,
+comum aos repositórios; leia antes de escrever ou remover um teste. Diante de
+vermelho, decida de quem é o defeito antes de mexer: teste que mede texto
+literal reprova mudança legítima, e nesse caso quem se corrige é a asserção.
+Nunca escreva código para o teste passar.
+
 A suíte tem duas camadas. A maior não abre conexão nenhuma (ver o docstring de
 `tests/conftest.py`). A camada `banco` roda contra o `postgres-teste`, efêmero
 e sem porta, que o `quality` sobe junto, com o schema criado pela cadeia
