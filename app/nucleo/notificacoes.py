@@ -240,15 +240,20 @@ class FilaNotificacoes:
         while True:
             try:
                 item = self._fila.get(timeout=1.0)
+                retirado = True
             except queue.Empty:
                 item = 0  # acorda periodicamente para recuperar itens persistidos
+                retirado = False
             try:
                 if item is None:
                     break
                 for pendente in _reivindicar_outbox():
                     self._enviar(pendente)
             finally:
-                if item is not None:
+                # `task_done` só para o que saiu da fila. Chamá-lo depois de um
+                # `Empty` levantava ValueError e matava a thread no primeiro
+                # segundo ocioso -- e o e-mail parava sem aviso.
+                if retirado and item is not None:
                     self._fila.task_done()
 
     def _enviar(self, item: dict) -> None:
