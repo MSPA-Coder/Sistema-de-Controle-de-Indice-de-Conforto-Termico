@@ -11,7 +11,13 @@ import datetime
 import json
 import os
 
-from app.models import agora_utc, parsear_timestamp, timestamp_utc
+from app.models import (
+    agora_utc,
+    como_utc_iso,
+    limites_utc_do_periodo,
+    parsear_timestamp,
+    timestamp_utc,
+)
 from app.termico import thermal_indices as ti
 
 from .comum import conexao
@@ -266,15 +272,13 @@ def obter_historico_leituras(
     if status:
         filtros.append("l.status = ?")
         parametros.append(status)
-    if data_inicio:
+    inicio_utc, fim_utc = limites_utc_do_periodo(data_inicio, data_fim)
+    if inicio_utc:
         filtros.append("l.criado_em >= ?")
-        parametros.append(f"{data_inicio} 00:00:00")
-    if data_fim:
-        fim_exclusivo = (
-            datetime.date.fromisoformat(data_fim) + datetime.timedelta(days=1)
-        ).isoformat()
+        parametros.append(inicio_utc)
+    if fim_utc:
         filtros.append("l.criado_em < ?")
-        parametros.append(f"{fim_exclusivo} 00:00:00")
+        parametros.append(fim_utc)
 
     with conexao(escrita=False) as conn:
         valores_encontrados: list[float] = []
@@ -372,6 +376,7 @@ def obter_historico_leituras(
     leituras = [dict(linha) for linha in linhas]
     for item in leituras:
         item["entradas"] = json.loads(item["entradas"])
+        item["criado_em"] = como_utc_iso(item["criado_em"])
     return {
         "leituras": leituras,
         "total": total,
@@ -688,6 +693,7 @@ def obter_agregados_15min(zona_id: int, limite: int = 96) -> list[dict]:
     dados = [dict(linha) for linha in reversed(linhas)]
     for item in dados:
         item["entradas_medias"] = json.loads(item["entradas_medias"])
+        item["janela_inicio"] = como_utc_iso(item["janela_inicio"])
     return dados
 
 
@@ -701,22 +707,23 @@ def obter_resumos_horarios(
     limite = max(1, min(5000, int(limite)))
     filtros = ["zona_id = ?"]
     parametros: list = [zona_id]
-    if data_inicio:
+    inicio_utc, fim_utc = limites_utc_do_periodo(data_inicio, data_fim)
+    if inicio_utc:
         filtros.append("hora_inicio >= ?")
-        parametros.append(f"{data_inicio} 00:00:00")
-    if data_fim:
-        fim_exclusivo = (
-            datetime.date.fromisoformat(data_fim) + datetime.timedelta(days=1)
-        ).isoformat()
+        parametros.append(inicio_utc)
+    if fim_utc:
         filtros.append("hora_inicio < ?")
-        parametros.append(f"{fim_exclusivo} 00:00:00")
+        parametros.append(fim_utc)
     where = "WHERE " + " AND ".join(filtros)
     with conexao(escrita=False) as conn:
         linhas = conn.execute(
             f"SELECT * FROM resumos_horarios {where} ORDER BY hora_inicio DESC LIMIT ?",
             [*parametros, limite],
         ).fetchall()
-    return [dict(linha) for linha in reversed(linhas)]
+    resumos = [dict(linha) for linha in reversed(linhas)]
+    for item in resumos:
+        item["hora_inicio"] = como_utc_iso(item["hora_inicio"])
+    return resumos
 
 
 def contar_leituras() -> int:

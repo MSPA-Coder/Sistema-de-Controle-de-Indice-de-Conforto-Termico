@@ -78,6 +78,15 @@ O estágio `quality` instala as dependências de desenvolvimento e executa
 `ruff check . && pytest`. Não documente uma contagem fixa de testes: a suíte
 muda com o código.
 
+A suíte tem duas camadas. A maior não abre conexão nenhuma (ver o docstring de
+`tests/conftest.py`). A camada `banco` roda contra o `postgres-teste`, efêmero
+e sem porta, que o `quality` sobe junto, com o schema criado pela cadeia
+Alembic inteira. Ela serve ao que **só o PostgreSQL prova** -- comparação de
+texto ISO como instante, `date_bin`/`date_trunc`, fuso, agregação por janela --
+e não substitui os testes de domínio sem banco. Um teste nela é válido quando
+um dublê não detectaria o defeito. No venv do host, sem `TESTE_DATABASE_URL`,
+essa camada é pulada.
+
 A CI também valida a configuração Compose, executa `pip-audit`, varre a imagem
 servida com Trivy e confere contratos de segurança do runtime. Esses controles
 não substituem o exercício do fluxo alterado nem a verificação da pilha.

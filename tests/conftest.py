@@ -64,3 +64,47 @@ def app(monkeypatch):
 @pytest.fixture
 def client(app):
     return app.test_client()
+
+
+# --- Camada com banco --------------------------------------------------------
+#
+# O resto da suíte não abre conexão, de propósito (ver o docstring no topo).
+# Esta camada existe para o que só o PostgreSQL mostra: texto ISO comparado
+# como instante, `date_bin`/`date_trunc` sobre `::timestamp`, fuso. Foi assim
+# que o filtro "de/até" do histórico passou anos recortando o dia em UTC.
+#
+# Roda contra o `postgres-teste` do Compose (perfil `quality`), efêmero e sem
+# porta publicada, a partir de `TESTE_DATABASE_URL`. Sem a variável (o venv do
+# host), os testes marcados `banco` são pulados -- nunca apontam para outro
+# banco. O schema nasce pela cadeia Alembic inteira, como em produção.
+
+
+@pytest.fixture(scope="session")
+def banco_de_teste():
+    import os
+
+    url = os.environ.get("TESTE_DATABASE_URL", "").strip()
+    if not url:
+        pytest.skip("sem TESTE_DATABASE_URL: a camada com banco roda no `quality` do Compose")
+    from alembic import command
+    from alembic.config import Config
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("DATABASE_URL", url)
+        mp.delenv("DB_EXIGIR_PAPEL_RESTRITO", raising=False)
+        command.upgrade(Config("alembic.ini"), "head")
+        yield url
+
+
+@pytest.fixture
+def banco(banco_de_teste, monkeypatch):
+    """Banco migrado e com o histórico vazio a cada teste."""
+    from app.database.comum import conexao
+
+    monkeypatch.setenv("DATABASE_URL", banco_de_teste)
+    with conexao() as conn:
+        conn.execute(
+            "TRUNCATE leituras, leituras_recentes_zona, agregados_15min, "
+            "resumos_horarios, zonas RESTART IDENTITY CASCADE"
+        )
+    yield conexao

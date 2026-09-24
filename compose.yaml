@@ -259,6 +259,47 @@ services:
       secrets:
         - local_ca
     profiles: ["quality"]
+    # Só a camada `banco` usa (ver `tests/conftest.py`); o resto da suíte
+    # continua sem conexão nenhuma.
+    environment:
+      TESTE_DATABASE_URL: postgresql+psycopg://conforto_teste:efemero-sem-porta@postgres-teste:5432/conforto_teste
+    depends_on:
+      postgres-teste:
+        condition: service_healthy
+
+  # Banco EFÊMERO da suíte: dados em tmpfs, sem volume e sem porta publicada,
+  # então nunca alcança os dados do `postgres`. A senha fica escrita aqui porque
+  # não protege nada -- o contêiner só existe durante o `quality`.
+  #
+  # `uid=70,gid=70,mode=0700` no tmpfs de dados: ele nasce do root, e o
+  # `initdb` roda como `postgres` com `cap_drop: ALL`, sem CAP_CHOWN.
+  postgres-teste:
+    image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+    profiles: ["quality"]
+    user: postgres
+    read_only: true
+    cpus: 1.0
+    mem_limit: 512m
+    pids_limit: 256
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,mode=1777,size=64m
+      - /var/run/postgresql:rw,nosuid,nodev,noexec,mode=1777,size=16m
+      - /var/lib/postgresql/data:rw,nosuid,nodev,mode=0700,uid=70,gid=70,size=256m
+    environment:
+      POSTGRES_DB: conforto_teste
+      POSTGRES_USER: conforto_teste
+      POSTGRES_PASSWORD: efemero-sem-porta
+      TZ: America/Sao_Paulo
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U conforto_teste -d conforto_teste"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
 
 volumes:
   postgres_data:
