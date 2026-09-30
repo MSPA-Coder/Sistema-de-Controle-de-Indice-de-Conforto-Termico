@@ -20,11 +20,21 @@ RUN --mount=type=secret,id=local_ca,required=false \
 # segurança entram como uma nova revisão deste arquivo, com nova digest e
 # validação da imagem; um apt-get upgrade sem versão tornaria o mesmo commit
 # produzir imagens diferentes.
+#
+# OpenSSL (os tres ultimos pacotes): a base traz 3.5.7-1~deb13u2, que o Trivy
+# reprova desde 30/09/2026 (6 HIGH: CVE-2026-75804, DoS por controle de fluxo
+# QUIC, e CVE-2026-84782, vazamento por retransmissao DTLS; este app nao usa
+# nenhum dos dois). O Debian ja publicou a deb13u3 e nenhum digest de
+# `python:3.14-slim` a traz ainda. REMOVER estas tres linhas quando o digest da
+# base trouxer a correcao; a CI acusa se a versao fixada sumir do indice.
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
        ca-certificates=20250419 \
        git=1:2.47.3-0+deb13u1 \
        postgresql-client=17+278 \
+       openssl=3.5.7-1~deb13u3 \
+       libssl3t64=3.5.7-1~deb13u3 \
+       openssl-provider-legacy=3.5.7-1~deb13u3 \
     && rm -rf /var/lib/apt/lists/* \
     && python -m pip install --no-cache-dir --upgrade \
        pip==26.2.1 setuptools==80.9.0
