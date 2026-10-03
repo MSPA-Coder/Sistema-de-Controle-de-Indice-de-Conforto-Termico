@@ -27,6 +27,10 @@ RUN --mount=type=secret,id=local_ca,required=false \
 # nenhum dos dois). O Debian ja publicou a deb13u3 e nenhum digest de
 # `python:3.14-slim` a traz ainda. REMOVER estas tres linhas quando o digest da
 # base trouxer a correcao; a CI acusa se a versao fixada sumir do indice.
+#
+# libpcre2-8-0 (ultimo pacote): a base traz 10.46-1~deb13u2, que o Trivy reprova
+# desde 03/10/2026 (HIGH, CVE-2026-103111, escrita fora dos limites com
+# expressao regular malformada). Mesma regra: REMOVER quando o digest da base trouxer a deb13u3.
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
        ca-certificates=20250419 \
@@ -35,6 +39,7 @@ RUN apt-get update \
        openssl=3.5.7-1~deb13u3 \
        libssl3t64=3.5.7-1~deb13u3 \
        openssl-provider-legacy=3.5.7-1~deb13u3 \
+       libpcre2-8-0=10.46-1~deb13u3 \
     && rm -rf /var/lib/apt/lists/* \
     && python -m pip install --no-cache-dir --upgrade \
        pip==26.2.1 setuptools==80.9.0
