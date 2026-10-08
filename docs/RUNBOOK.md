@@ -125,14 +125,18 @@ O deploy oficial vem de `_manutencao/vps/deploy.sh` e está instalado como
 `~/deploy.sh`:
 
 ```bash
-~/deploy.sh conforto --check
 ~/deploy.sh conforto
-~/deploy.sh --status
 ```
 
-Não edite nem commite no VPS. O script exige checkout limpo, avança a partir do
-`main`, reconstrói a imagem e valida o endereço público. Se a nova versão não
-ficar saudável, ele restaura o commit e a imagem anteriores. Esse rollback
+Publique por branch, pull request com checks obrigatórios verdes e squash merge;
+só então o `main` remoto é elegível para o deploy. Não faça push direto ao
+`main` nem aguarde uma segunda rodada de CI manualmente: o script confere o
+commit que vai aplicar.
+
+Não edite nem commite no VPS. O script exige checkout limpo, confere o commit
+elegível, avança a partir do `main`, reconstrói a imagem e valida o endereço
+público. `~/deploy.sh --status` é apenas diagnóstico transversal. Se a nova
+versão não ficar saudável, ele restaura o commit e a imagem anteriores. Esse rollback
 **não reverte migrações**; mudança de schema exige compatibilidade, backup
 central conferido pelo BackupRestore e procedimento explícito de recuperação de dados.
 
