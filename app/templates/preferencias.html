@@ -1,0 +1,34 @@
+{% extends "_layout_auth.html" %}
+{% block titulo %}Preferências · Conforto Térmico{% endblock %}
+{% block conteudo %}
+<div class="auth-pagina">
+  <div class="auth-cartao painel">
+    <h1 class="auth-titulo">Preferências</h1>
+    <p class="auth-subtitulo">
+      Como datas e valores aparecem e são digitados. Não altera o que está
+      gravado, nem os cálculos.
+    </p>
+
+    {% if salvo %}
+    <p class="auth-subtitulo" role="status">Preferências salvas.</p>
+    {% endif %}
+
+    <form method="post" action="{{ url_for('auth.preferencias') }}" class="auth-form">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <fieldset class="campo-config">
+        <legend>Formato de datas e números</legend>
+        {% for valor, rotulo, exemplo in opcoes %}
+        <label>
+          <input type="radio" name="formato_regional" value="{{ valor }}"
+                 aria-label="Formato {{ rotulo }}" {% if formato_atual == valor %}checked{% endif %}>
+          <strong>{{ rotulo }}</strong> · {{ exemplo }}
+        </label>
+        {% endfor %}
+      </fieldset>
+      <button type="submit" class="botao botao--primario auth-botao">Salvar</button>
+    </form>
+
+    <p class="auth-sair-form"><a href="{{ url_for('comum.index') }}" class="botao botao--texto">Voltar</a></p>
+  </div>
+</div>
+{% endblock %}

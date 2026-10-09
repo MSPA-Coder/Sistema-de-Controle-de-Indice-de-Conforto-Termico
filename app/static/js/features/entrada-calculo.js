@@ -133,7 +133,7 @@ export function criarEntradaCalculo({
       valor.textContent =
         dados[campo] === undefined || dados[campo] === null
           ? "--"
-          : String(dados[campo]).replace(".", ",");
+          : window.regional.formatPlain(dados[campo]);
 
       wrap.append(label, valor);
       container.appendChild(wrap);

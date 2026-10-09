@@ -155,7 +155,7 @@ export function criarDadosEntrada({
       option.value = cidade.codigo_ibge;
       option.textContent =
         indice + 1 + "º · " + cidade.nome + "/" + cidade.uf + " · " +
-        Number(cidade.efetivo_2024).toLocaleString("pt-BR") + " animais";
+        window.regional.formatNumber(Number(cidade.efetivo_2024), 0) + " animais";
       option.selected = cidade.codigo_ibge === config.cidade_codigo_ibge;
       select.appendChild(option);
     });
@@ -369,11 +369,11 @@ export function criarDadosEntrada({
       0
     );
     resumo.textContent =
-      totalGerado.toLocaleString("pt-BR") +
+      window.regional.formatNumber(totalGerado, 0) +
       " medições geradas em " +
       (payload.destino || "PostgreSQL (schema dados_entrada)") +
       "; " +
-      totalCopiado.toLocaleString("pt-BR") +
+      window.regional.formatNumber(totalCopiado, 0) +
       " já copiadas para o histórico.";
     execucoes.forEach((execucao) => {
       const tr = documento.createElement("tr");

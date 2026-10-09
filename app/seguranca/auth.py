@@ -75,6 +75,7 @@ from sharedauth.secrets import DIRETORIO_SECRETS_COMPOSE, resolver_segredo
 from sharedauth.session import marca_de_sessao, marcas_conferem
 
 from .. import database as db
+from ..nucleo import regional
 from . import tokens as _tokens
 
 if TYPE_CHECKING:
@@ -386,6 +387,11 @@ ENDPOINTS_ABERTOS_A_QUALQUER_PERFIL: dict[str, str] = {
         "deixaria todo perfil que nao a tem preso na trava de senha "
         "temporaria, sem a tela que a resolve."
     ),
+    "auth.preferencias": (
+        "o formato de datas e numeros e uma preferencia da propria conta, de "
+        "quem esta logado, e vale para qualquer perfil; nao administra conta "
+        "alheia. So muda como a tela mostra e recebe valores."
+    ),
     "sharedauth_ui.static": (
         "CSS e JS do componente comum de aviso, pedidos por `index.html`. "
         "Sao dois estaticos da biblioteca, sem dado do app."
@@ -483,6 +489,34 @@ def registrar_carregamento_usuario(app: Flask) -> None:
             return None
         g.usuario = usuario
         return None
+
+    @app.before_request
+    def _ativar_formato_regional() -> None:
+        """Formato de datas e números do usuário, só para a apresentação.
+
+        Depois de `_carregar_usuario_da_sessao`: `g.usuario` já traz a coluna
+        `formato_regional` (a consulta é `SELECT *`), então não custa consulta
+        nenhuma. Sem login (tela de entrada) vale o padrão Brasil.
+        """
+        usuario = getattr(g, "usuario", None)
+        g.token_formato_regional = regional.ativar(
+            usuario.get("formato_regional") if usuario else None
+        )
+
+    @app.teardown_request
+    def _desativar_formato_regional(_exc: BaseException | None) -> None:
+        token = g.pop("token_formato_regional", None)
+        if token is not None:
+            try:
+                regional.desativar(token)
+            except ValueError:
+                # Contexto diferente do que ativou (teste com `with client`):
+                # volta ao padrão em vez de deixar o formato vazar.
+                regional.ativar(regional.DEFAULT_REGIONAL_FORMAT)
+
+    @app.context_processor
+    def _contexto_regional() -> dict[str, str]:
+        return {"regional_format": regional.formato_ativo()}
 
 
 def registrar_controle_de_area(app: Flask) -> None:
@@ -678,6 +712,33 @@ def trocar_senha() -> ResponseReturnValue:
         obrigatoria=obrigatoria,
         erro=erro,
         senha_tamanho_minimo=SENHA_TAMANHO_MINIMO,
+    )
+
+
+@auth_bp.route("/preferencias", methods=["GET", "POST"])
+def preferencias() -> ResponseReturnValue:
+    """Formato de datas e números da própria conta (Brasil ou EUA).
+
+    Só apresentação: o que é gravado, importado e calculado não muda. Fica no
+    `auth_bp` pelo mesmo motivo de `trocar_senha`: é a conta de quem está
+    logado, e vale para qualquer perfil.
+    """
+    salvo = request.args.get("salvo") == "1"
+    if request.method == "POST":
+        escolhido = db.atualizar_formato_regional(
+            g.usuario["id"], request.form.get("formato_regional")
+        )
+        g.usuario["formato_regional"] = escolhido
+        return redirect(url_for("auth.preferencias", salvo=1))
+
+    return render_template(
+        "preferencias.html",
+        formato_atual=regional.normalize_regional_format(g.usuario.get("formato_regional")),
+        opcoes=[
+            (valor, rotulo, regional.REGIONAL_FORMAT_EXAMPLES[valor])
+            for valor, rotulo in regional.REGIONAL_FORMAT_LABELS.items()
+        ],
+        salvo=salvo,
     )
 
 

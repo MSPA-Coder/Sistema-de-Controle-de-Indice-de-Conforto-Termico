@@ -66,6 +66,7 @@ from .operacao import salvar_status_coletor as salvar_status_coletor
 from .usuarios import UltimoAdministradorError as UltimoAdministradorError
 from .usuarios import UsuarioInvalidoError as UsuarioInvalidoError
 from .usuarios import UsuarioNaoEncontradoError as UsuarioNaoEncontradoError
+from .usuarios import atualizar_formato_regional as atualizar_formato_regional
 from .usuarios import atualizar_usuario as atualizar_usuario
 from .usuarios import (
     contar_usuarios_ativos_por_perfil as contar_usuarios_ativos_por_perfil,

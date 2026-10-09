@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-BR" data-regional="{{ regional_format }}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -30,6 +30,7 @@
       {% if "usuarios" in areas_permitidas %}
       <a href="{{ url_for('usuarios.pagina_usuarios') }}" class="botao botao--texto">Gerenciar usuários</a>
       {% endif %}
+      <a href="{{ url_for('auth.preferencias') }}" class="botao botao--texto">Preferências</a>
       <form method="post" action="{{ url_for('auth.logout') }}" class="app-topo-sessao-logout">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <button type="submit" class="botao botao--texto">Sair</button>
@@ -709,6 +710,7 @@
    documento, entao isto torna a dependencia explicita em vez de depender de
    "app.js so usa isso dentro de um callback que corre depois". #}
 <script src="{{ url_for('sharedauth_ui.static', filename='sharedauth-ui.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/core/regional.js') }}"></script>
 <script type="module" src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

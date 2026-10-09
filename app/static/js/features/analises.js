@@ -120,7 +120,7 @@ function construirCartaoExecutivoZona(zona) {
   const indiceValor = document.createElement("div");
   indiceValor.className = "executivo-indice-valor";
   indiceValor.textContent =
-    zona.indice + (zona.valor_atual !== null ? ": " + String(zona.valor_atual).replace(".", ",") : "");
+    zona.indice + (zona.valor_atual !== null ? ": " + window.regional.formatPlain(zona.valor_atual) : "");
   cabecalho.appendChild(indiceValor);
 
   cartao.appendChild(cabecalho);
@@ -144,7 +144,7 @@ function construirCartaoExecutivoZona(zona) {
       valorEl.textContent =
         zona.percentual_conforto_24h === null
           ? "Sem leituras no período"
-          : String(zona.percentual_conforto_24h).replace(".", ",") + "%";
+          : window.regional.formatPlain(zona.percentual_conforto_24h) + "%";
     })
   );
 
@@ -309,7 +309,7 @@ function renderizarAnalisePercentuais(estatisticas) {
       td.dataset.status = status;
       td.title = "Ver histórico de " + zona.nome + " com status " + rotuloStatus(status);
       if (zona.percentuais) {
-        td.textContent = zona.percentuais[status].toFixed(1).replace(".", ",") + "%";
+        td.textContent = window.regional.formatFixed(zona.percentuais[status], 1) + "%";
         td.className = "status-" + classeStatus(status);
       } else {
         td.textContent = "—";
@@ -329,7 +329,7 @@ function renderizarAnaliseIndices(estatisticas) {
   corpo.textContent = "";
   vazio.classList.toggle("oculto", estatisticas.length > 0);
 
-  const formatarIndice = (valor) => (valor === null ? "—" : valor.toFixed(2).replace(".", ","));
+  const formatarIndice = (valor) => (valor === null ? "—" : window.regional.formatFixed(valor, 2));
 
   const configurarFiltroValor = (celula, zona, tipo, valor) => {
     if (valor === null) return;

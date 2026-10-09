@@ -116,7 +116,7 @@ export function criarOperacao({
       ).length;
       const valorFormatado = valor === undefined || valor === null || valor === ""
         ? "--"
-        : String(valor).replace(".", ",") + (meta.unidade ? " " + meta.unidade : "");
+        : window.regional.formatPlain(valor) + (meta.unidade ? " " + meta.unidade : "");
       adicionarDadoEquipamentoOperacao(cartao, "Campo", meta.label);
       adicionarDadoEquipamentoOperacao(
         cartao,

@@ -161,7 +161,7 @@ export function criarDashboardZonas({
 
     const readoutValor = elementoLinhaZonaPrincipal(zona.id, "readout-valor");
     if (readoutValor) {
-      readoutValor.textContent = Number(ultima.valor).toFixed(2).replace(".", ",");
+      readoutValor.textContent = window.regional.formatFixed(Number(ultima.valor), 2);
       readoutValor.className = desatualizada ? "readout-valor" : "readout-valor cor-" + classe;
     }
     const readoutIndice = elementoLinhaZonaPrincipal(zona.id, "readout-indice");
@@ -215,7 +215,7 @@ export function criarDashboardZonas({
     //    entao sempre devem atualizar mesmo se algo mais adiante falhar.
     const readoutValor = elementoLinhaZonaPrincipal(zona.id, "readout-valor");
     if (readoutValor) {
-      readoutValor.textContent = selecionado.valor.toFixed(2).replace(".", ",");
+      readoutValor.textContent = window.regional.formatFixed(selecionado.valor, 2);
       readoutValor.className = "readout-valor cor-" + classe;
     }
     const readoutIndice = elementoLinhaZonaPrincipal(zona.id, "readout-indice");
@@ -248,7 +248,7 @@ export function criarDashboardZonas({
     } catch (erro) {
       console.error("Erro ao desenhar os graficos:", erro);
       mostrarErro(
-        "O valor foi calculado normalmente (" + selecionado.valor.toFixed(2).replace(".", ",") +
+        "O valor foi calculado normalmente (" + window.regional.formatFixed(selecionado.valor, 2) +
         ", " + rotuloStatus(selecionado.status) + "), mas os gráficos não puderam ser desenhados. " +
         "Detalhes no console do navegador (F12 → Console)."
       );
