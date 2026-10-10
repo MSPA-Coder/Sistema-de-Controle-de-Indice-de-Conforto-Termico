@@ -108,8 +108,3 @@ def obter_token_interno(capacidade: str) -> str:
     raiz = _obter_raiz(capacidade).encode("utf-8")
     rotulo = f"conforto-termico/api-interna/{capacidade}/v1".encode("ascii")
     return hmac.new(raiz, rotulo, hashlib.sha256).hexdigest()
-
-
-def tokens_de_capacidade_diferentes() -> bool:
-    """Confere a propriedade estrutural usada pelos testes de segurança."""
-    return obter_token_interno(CAPACIDADE_LEITURA) != obter_token_interno(CAPACIDADE_CONTROLE)
