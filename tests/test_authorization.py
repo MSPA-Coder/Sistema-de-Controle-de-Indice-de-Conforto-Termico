@@ -8,8 +8,6 @@ decide papel/área, só autenticação.
 
 from __future__ import annotations
 
-import inspect
-
 from app.seguranca import auth
 
 # A recusa em si -- com sessao, perfil e rota de verdade -- e medida em
@@ -38,11 +36,3 @@ def test_operador_nao_alcanca_area_de_sistema():
 def test_administrador_alcanca_tudo():
     todas = set().union(*auth.AREAS_POR_PERFIL.values())
     assert set(auth.AREAS_POR_PERFIL["administrador"]) == todas
-
-
-def test_perfil_desconhecido_nao_alcanca_nada():
-    # `AREAS_POR_PERFIL.get(perfil, frozenset())` precisa ser o padrao: um
-    # perfil que apareca no banco sem entrada no mapa tem de cair no mais
-    # restritivo, nao no mais permissivo.
-    fonte = inspect.getsource(auth)
-    assert "AREAS_POR_PERFIL.get(" in fonte

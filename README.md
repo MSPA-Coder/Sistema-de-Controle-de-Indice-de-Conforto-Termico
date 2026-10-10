@@ -120,10 +120,8 @@ para as bases local (`conforto_termico`) e do VPS
 (`conforto_termico_vps`). Esta aplicação não oferece backup ou restore; use o
 fluxo central do BackupRestore. Veja [Operação, dados e recuperação](docs/RUNBOOK.md).
 
-A retenção de leituras brutas é uma política explícita: sem uma configuração
-de retenção, nenhum dado histórico é apagado automaticamente. Quando a
-política for habilitada, a limpeza deve ser executada pelo job documentado,
-com backup conferido e registro da quantidade removida. Leituras repetidas são
+A aplicação não apaga leituras brutas: não há rotina de retenção. Qualquer
+descarte é decisão operacional, com backup conferido. Leituras repetidas são
 deduplicadas por zona, origem e instante da amostra; o horário persistido é
 UTC com deslocamento, e a conversão para o fuso da zona acontece apenas na
 apresentação.

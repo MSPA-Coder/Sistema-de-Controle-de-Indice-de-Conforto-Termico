@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import datetime
 import json
-import os
 
 from app.models import (
     agora_utc,
@@ -24,8 +23,6 @@ from .comum import conexao
 
 INTERVALO_MINIMO_LEITURAS = datetime.timedelta(minutes=1)
 LIMITE_JANELAS_PENDENTES = 500
-LIMITE_LEITURAS_RETENCAO = 2_000_000
-RETENCAO_PADRAO_DIAS = 0
 
 
 def _intervalo_minimo_leituras(intervalo_minutos: float | int | str | None) -> datetime.timedelta:
@@ -401,35 +398,6 @@ def limpar_historico() -> None:
         conn.execute("DELETE FROM leituras_recentes_zona")
         conn.execute("DELETE FROM agregados_15min")
         conn.execute("DELETE FROM resumos_horarios")
-
-
-def aplicar_retencao(dias: int | None = None, *, limite: int = LIMITE_LEITURAS_RETENCAO) -> int:
-    """Apaga leituras antigas somente quando a política for explicitamente ativada.
-
-    ``CONFORTO_RETENCAO_LEITURAS_DIAS`` controla a política operacional; vazio,
-    zero ou ausente significam ``sem expiração``. A função nunca é chamada
-    automaticamente pelo ciclo de coleta e limita cada execução para evitar
-    uma transação de manutenção sem fim. Zonas, configurações e agregados são
-    preservados; a limpeza destrutiva continua sendo uma decisão explícita.
-    """
-    if dias is None:
-        bruto = os.environ.get("CONFORTO_RETENCAO_LEITURAS_DIAS", "0")
-        try:
-            dias = int(bruto)
-        except (TypeError, ValueError):
-            dias = RETENCAO_PADRAO_DIAS
-    if dias <= 0:
-        return 0
-    limite = max(1, min(LIMITE_LEITURAS_RETENCAO, int(limite)))
-    corte = (agora_utc() - datetime.timedelta(days=dias)).isoformat(timespec="seconds")
-    with conexao() as conn:
-        cursor = conn.execute(
-            "DELETE FROM leituras WHERE id IN ("
-            "SELECT id FROM leituras WHERE criado_em::timestamp < ?::timestamp "
-            "ORDER BY id LIMIT ?)",
-            (corte.replace("+00:00", ""), limite),
-        )
-    return int(cursor.rowcount or 0)
 
 
 # A lógica de quando consolidar pertence a ``agregacao.py``; este agregado
