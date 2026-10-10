@@ -554,26 +554,6 @@ def excluir_medicoes(execucao_id: int | None = None) -> int:
     return int(total)
 
 
-def obter_medicoes_csv(execucao_id: int | None = None) -> tuple[list[str], list[tuple]]:
-    colunas = [coluna for coluna in _COLUNAS_MEDICAO if coluna != "execucao_id"]
-    with _conexao(escrita=False) as conn:
-        if execucao_id is None:
-            linhas = conn.execute(
-                f"SELECT m.{','.join(colunas)} FROM medicoes m "
-                "JOIN execucoes e ON e.id=m.execucao_id WHERE e.status='concluida' "
-                "ORDER BY m.execucao_id,m.zona_id,m.timestamp_utc"
-            ).fetchall()
-        else:
-            linhas = conn.execute(
-                f"SELECT m.{','.join(colunas)} FROM medicoes m "
-                "JOIN execucoes e ON e.id=m.execucao_id "
-                "WHERE m.execucao_id=? AND e.status='concluida' "
-                "ORDER BY m.zona_id,m.timestamp_utc",
-                (execucao_id,),
-            ).fetchall()
-    return colunas, [tuple(linha[coluna] for coluna in colunas) for linha in linhas]
-
-
 def iterar_medicoes_csv(
     execucao_id: int | None = None, *, tamanho_lote: int = 500
 ) -> tuple[list[str], Iterator[tuple]]:

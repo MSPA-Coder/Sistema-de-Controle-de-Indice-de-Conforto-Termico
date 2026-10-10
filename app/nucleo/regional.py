@@ -65,12 +65,6 @@ def formatar_data(valor: date | datetime | None, *, ausente: str = "") -> str:
     return valor.strftime(_PADRAO_DATA[_formato.get()])
 
 
-def formatar_data_curta(valor: date | datetime | None, *, ausente: str = "") -> str:
-    if not valor:
-        return ausente
-    return valor.strftime(_PADRAO_DATA_CURTA[_formato.get()])
-
-
 def formatar_data_hora(valor: datetime | None, *, segundos: bool = False, ausente: str = "") -> str:
     if not valor:
         return ausente
@@ -82,12 +76,6 @@ def formatar_dia_mes(valor: date | datetime | None, *, ausente: str = "") -> str
     if not valor:
         return ausente
     return valor.strftime(_PADRAO_DIA_MES[_formato.get()])
-
-
-def formatar_dia_mes_ano2(valor: date | datetime | None, *, ausente: str = "") -> str:
-    if not valor:
-        return ausente
-    return valor.strftime(_PADRAO_DIA_MES_ANO2[_formato.get()])
 
 
 def adaptar_numero(texto: str) -> str:
