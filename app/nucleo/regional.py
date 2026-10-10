@@ -30,12 +30,9 @@ REGIONAL_FORMAT_EXAMPLES: Final = {
 
 _formato: ContextVar[str] = ContextVar("formato_regional", default=DEFAULT_REGIONAL_FORMAT)
 
-# Padrões no vocabulário do ``strftime``. O curto (``dd-Mmm-aa``) tem o mês por
-# extenso abreviado, então só a ordem muda.
+# Padrões de data de cada formato, no vocabulário do ``strftime``.
 _PADRAO_DATA = {REGIONAL_FORMAT_BR: "%d/%m/%Y", REGIONAL_FORMAT_US: "%m/%d/%Y"}
-_PADRAO_DATA_CURTA = {REGIONAL_FORMAT_BR: "%d-%b-%y", REGIONAL_FORMAT_US: "%b-%d-%y"}
 _PADRAO_DIA_MES = {REGIONAL_FORMAT_BR: "%d/%m", REGIONAL_FORMAT_US: "%m/%d"}
-_PADRAO_DIA_MES_ANO2 = {REGIONAL_FORMAT_BR: "%d/%m/%y", REGIONAL_FORMAT_US: "%m/%d/%y"}
 
 
 def normalize_regional_format(value: str | None) -> str:
