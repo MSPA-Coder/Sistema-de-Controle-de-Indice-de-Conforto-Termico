@@ -80,6 +80,23 @@ acesso global para manter a operação e administrar os vínculos. A checagem é
 centralizada em `app/seguranca/auth.py` e a gestão fica disponível somente na
 área `usuarios`; não se infere ACL de campos atuais.
 
+## Formato regional (Brasil/EUA)
+
+Cada usuário escolhe em Preferências (`/preferencias`) como datas e números
+aparecem e são digitados (`usuarios.formato_regional`, padrão `br`). É só UX:
+banco, cálculos, coletor, importação e API seguem em ISO e decimal com ponto.
+
+- `app/nucleo/regional.py` guarda o formato da requisição numa `ContextVar`,
+  preenchida em `before_request` a partir de `g.usuario` (sem consulta extra) e
+  devolvida em `teardown_request`. Fora de requisição (coletor, CLI) vale Brasil.
+- O JS formata números por `window.regional` (`formatFixed`, `formatPlain`,
+  `formatNumber`) e datas pelo idioma dele; vírgula fixa em JS é recusada por teste.
+- `app/static/js/core/regional.js` troca `input[type=date|month]` e os decimais
+  (`step` fracionário) por um campo de texto no formato escolhido. O original fica
+  escondido, com o mesmo `id`, `name` e valor, e repassa `.value`, `.min`, `.max`,
+  `.required` e `.disabled`. Texto gravado (erros de execução, auditoria) fica com
+  data fixa.
+
 ## Instância de demonstração no VPS
 
 Há uma instância de pesquisa e demonstração no VPS, sem equipamentos físicos.

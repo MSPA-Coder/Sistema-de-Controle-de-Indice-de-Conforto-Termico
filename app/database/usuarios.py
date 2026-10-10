@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 
+from ..nucleo.regional import normalize_regional_format
 from .comum import PERFIS_VALIDOS, coagir_booleano, conexao
 
 
@@ -261,6 +262,25 @@ def trocar_senha_propria(usuario_id: int, senha_hash: str) -> dict:
         )
         linha = conn.execute("SELECT * FROM usuarios WHERE id = ?", (usuario_id,)).fetchone()
     return _linha_usuario_publica(linha)
+
+
+def atualizar_formato_regional(usuario_id: int, formato: str | None) -> str:
+    """Grava o formato de datas e números do próprio usuário (só apresentação).
+
+    Valor desconhecido cai no padrão Brasil, como em ``normalize_regional_format``:
+    a tela oferece duas opções e o banco recusa qualquer outra por CHECK.
+    """
+    normalizado = normalize_regional_format(formato)
+    agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+    with conexao() as conn:
+        atual = conn.execute("SELECT 1 FROM usuarios WHERE id = ?", (usuario_id,)).fetchone()
+        if atual is None:
+            raise UsuarioNaoEncontradoError(f"Usuário {usuario_id} não encontrado.")
+        conn.execute(
+            "UPDATE usuarios SET formato_regional = ?, atualizado_em = ? WHERE id = ?",
+            (normalizado, agora, usuario_id),
+        )
+    return normalizado
 
 
 def registrar_login_usuario(usuario_id: int) -> None:

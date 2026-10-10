@@ -182,13 +182,13 @@ function formatarHora(isoString) {
 
 function formatarDataHoraCurta(isoString) {
   const data = new Date(isoString);
-  return data.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) +
+  return data.toLocaleDateString(window.regional.locale, { day: "2-digit", month: "2-digit" }) +
     " " +
     data.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
 function formatarDataCurta(isoString) {
-  return new Date(isoString).toLocaleDateString("pt-BR", {
+  return new Date(isoString).toLocaleDateString(window.regional.locale, {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",

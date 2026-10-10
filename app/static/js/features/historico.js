@@ -508,7 +508,7 @@ export function criarHistorico({
   }
 
   function formatarValorFiltroHistorico(valor) {
-    return Number(valor).toFixed(2).replace(".", ",");
+    return window.regional.formatFixed(Number(valor), 2);
   }
 
   function criarFiltroPeriodoHistorico(prefixo, rotulo) {
@@ -616,7 +616,7 @@ export function criarHistorico({
       const tdEntradas = document.createElement("td");
       tdEntradas.textContent = entradasTexto;
       const tdValor = document.createElement("td");
-      tdValor.textContent = h.valor.toFixed(2).replace(".", ",");
+      tdValor.textContent = window.regional.formatFixed(h.valor, 2);
       const tdStatus = document.createElement("td");
       tdStatus.textContent = rotuloStatus(h.status);
       tdStatus.className = classe;
