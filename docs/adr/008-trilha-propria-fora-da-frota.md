@@ -21,13 +21,12 @@ configuração, escolhas de biblioteca. A divergência que antes era um débito 
 ser resolvido passa a ser uma consequência esperada de um projeto com outro
 propósito.
 
-Concretamente, a liberdade de arquitetura não autoriza builds não
-reprodutíveis. A auditoria de setembro de 2026 identificou que este projeto
-também precisa fixar as dependências e a base de contêiner: o `uv.lock` (ou um
-artefato equivalente validado pela CI) e o digest da imagem base fazem parte do
-contrato de build. A escolha de biblioteca, a estrutura dos módulos e o fluxo
-de pesquisa continuam livres; a entrada que chega à produção precisa ser
-determinística e auditável.
+Concretamente, a liberdade de arquitetura não autoriza atualizações sem teste.
+As dependências Python continuam travadas em `uv.lock`; a tag móvel da imagem
+base, as atualizações do Debian e as ferramentas de segurança são buscadas pela
+CI semanal, que testa e varre a imagem. O Dependabot mantém tags e Actions em
+atualização. A escolha de biblioteca, a estrutura dos módulos e o fluxo de
+pesquisa continuam livres.
 
 ## O que continua obrigatório
 
