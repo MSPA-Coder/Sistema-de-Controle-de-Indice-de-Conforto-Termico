@@ -37,7 +37,11 @@ repetidas, sem alterar a resposta pública nem armazenar segredos.
 
 ## Build e operação
 
-`Dockerfile` fixa a digest da base e versões de pacotes do sistema. O
 `constraints.txt` fixa as dependências Python; `SharedAuth` é fixado por commit.
-O PostgreSQL do Compose também usa digest. Atualizações devem alterar essas
-referências deliberadamente e passar pela qualidade no Docker.
+O `Dockerfile` busca a tag móvel de Python 3.15, atualiza os pacotes Debian e
+as ferramentas de build a cada reconstrução. O Compose busca sempre
+`postgres:17-alpine`. A CI semanal reconstrói essas imagens, roda a qualidade,
+audita dependências Python e varre CVEs corrigíveis na imagem. O Dependabot
+propõe atualizações de dependências, tags e Actions; elas só entram depois dos
+checks passarem. A série principal do PostgreSQL continua em 17 para proteger
+o formato dos volumes existentes.
