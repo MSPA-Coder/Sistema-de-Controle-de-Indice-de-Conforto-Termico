@@ -1,7 +1,5 @@
 # syntax=docker/dockerfile:1.7
-# Digest refreshed on 2026-09-19 after the image scan found patched Debian
-# security packages in the current Python 3.14 slim base.
-FROM python:3.14-slim@sha256:caaf356f40667c496d405780745b9ac25771c189a51dfcc42430d531ea09f8a2 AS base
+FROM python:3.15-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -16,33 +14,16 @@ RUN --mount=type=secret,id=local_ca,required=false \
         update-ca-certificates; \
     fi
 
-# A base e os pacotes do sistema têm versões deliberadas. Atualizações de
-# segurança entram como uma nova revisão deste arquivo, com nova digest e
-# validação da imagem; um apt-get upgrade sem versão tornaria o mesmo commit
-# produzir imagens diferentes.
-#
-# OpenSSL (os tres ultimos pacotes): a base traz 3.5.7-1~deb13u2, que o Trivy
-# reprova desde 30/09/2026 (6 HIGH: CVE-2026-75804, DoS por controle de fluxo
-# QUIC, e CVE-2026-84782, vazamento por retransmissao DTLS; este app nao usa
-# nenhum dos dois). O Debian ja publicou a deb13u3 e nenhum digest de
-# `python:3.14-slim` a traz ainda. REMOVER estas tres linhas quando o digest da
-# base trouxer a correcao; a CI acusa se a versao fixada sumir do indice.
-#
-# libpcre2-8-0 (ultimo pacote): a base traz 10.46-1~deb13u2, que o Trivy reprova
-# desde 03/10/2026 (HIGH, CVE-2026-103111, escrita fora dos limites com
-# expressao regular malformada). Mesma regra: REMOVER quando o digest da base trouxer a deb13u3.
+# Cada build instala os pacotes Debian corrigidos disponíveis no momento. A CI
+# semanal reconstrói com `--pull`, roda a suíte e bloqueia CVEs HIGH/CRITICAL
+# corrigíveis antes que a imagem seja adotada.
 RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
     && apt-get install --no-install-recommends -y \
-       ca-certificates=20250419 \
-       git=1:2.47.3-0+deb13u1 \
-       postgresql-client=17+278 \
-       openssl=3.5.7-1~deb13u3 \
-       libssl3t64=3.5.7-1~deb13u3 \
-       openssl-provider-legacy=3.5.7-1~deb13u3 \
-       libpcre2-8-0=10.46-1~deb13u3 \
+       ca-certificates git postgresql-client openssl openssl-provider-legacy libpcre2-8-0 \
     && rm -rf /var/lib/apt/lists/* \
     && python -m pip install --no-cache-dir --upgrade \
-       pip==26.2.1 setuptools==80.9.0
+       pip setuptools
 
 FROM base AS runtime-dependencies
 COPY pyproject.toml README.md constraints.txt ./
