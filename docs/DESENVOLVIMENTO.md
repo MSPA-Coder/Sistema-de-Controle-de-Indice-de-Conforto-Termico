@@ -10,7 +10,7 @@ Prepare a instalação local:
 
 ```powershell
 Copy-Item .env.docker.example .env.docker
-docker run --rm -v "${PWD}:/workspace" -w /workspace python:3.14-slim `
+docker run --rm -v "${PWD}:/workspace" -w /workspace python:3.15-slim `
   python scripts/configurar_segredos.py
 docker compose --env-file .env.docker config --quiet
 ```
@@ -67,12 +67,9 @@ docker compose --env-file .env.docker --profile quality run --build --rm quality
 
 **`--build` não é opcional.** O serviço `quality` não monta o código do
 host: o que ele executa é o que foi copiado para a imagem. `docker compose
-run` reconstrói apenas quando a imagem não existe — se ela já existe, o
-comando roda a versão anterior do código e passa em verde sem ter visto
-nenhuma das suas alterações. É uma falha silenciosa na direção pior: dá
-confiança sem dar evidência. A CI não corre esse risco porque reconstrói
-sem cache antes de executar; o comando local precisa do `--build` para ter
-o mesmo significado.
+run` reconstrói sem cache a partir das tags base atuais antes de executar os
+testes. A CI semanal repete build, testes e auditorias para conferir as
+atualizações automáticas do sistema e das dependências.
 
 O estágio `quality` instala as dependências de desenvolvimento e executa
 `ruff check . && pytest`. Não documente uma contagem fixa de testes: a suíte

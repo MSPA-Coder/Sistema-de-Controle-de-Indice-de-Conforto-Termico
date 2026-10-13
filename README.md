@@ -40,7 +40,7 @@ PostgreSQL e ferramentas de qualidade não precisam ser instalados no host.
 
 ```powershell
 Copy-Item .env.docker.example .env.docker
-docker run --rm -v "${PWD}:/workspace" -w /workspace python:3.14-slim `
+docker run --rm -v "${PWD}:/workspace" -w /workspace python:3.15-slim `
   python scripts/configurar_segredos.py
 docker compose --env-file .env.docker config --quiet
 docker compose --env-file .env.docker up -d --build --wait
@@ -94,9 +94,9 @@ Não use `down -v` sem decidir descartar os dados persistidos.
 docker compose --env-file .env.docker --profile quality run --build --rm quality
 ```
 
-`--build` faz parte do comando: o serviço `quality` não monta o código do
-host e `docker compose run` só reconstrói quando a imagem não existe. Sem
-ele, a validação roda a versão anterior do código e passa em verde.
+`--build` mantém a validação explícita e reproduzível: o serviço `quality` não
+monta o código do host, e Compose reconstrói sem cache com as tags base atuais
+antes de executar os testes.
 
 O estágio executa `ruff check . && pytest`. Mudanças de persistência,
 migrações, dependências ou contêineres também exigem a pilha completa e

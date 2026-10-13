@@ -89,43 +89,31 @@ docker compose --env-file .env.docker exec ict python -m scripts.verificar_postg
 docker compose --env-file .env.docker --profile quality run --build --rm quality
 ```
 
-`--build` faz parte do comando: o serviço `quality` não monta o código do
-host e `docker compose run` só reconstrói quando a imagem não existe. Sem
-ele, a validação roda a versão anterior do código e passa em verde.
+`--build` mantém a validação explícita e reproduzível: o serviço `quality` não
+monta o código do host, e Compose reconstrói sem cache com a tag base atual
+antes de executar os testes.
 
-### Loop rápido no host
+### Ambiente Python local
 
-O portão `quality` custa dezenas de segundos por rodada -- caro demais para o
-ciclo de edição. Para isso existe um venv por projeto:
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
-.\.venv\Scripts\python.exe -m pytest -q
-.\.venv\Scripts\python.exe -m ruff check .
-```
-
-O `.venv/` é uma pasta do projeto, já ignorada pelo Git: não altera o Python
-do sistema nem o PATH, e apagar a pasta desfaz a instalação por inteiro. A
-proibição que vale é outra, e continua de pé -- nada de instalar dependências
-do projeto no Python global do Windows.
+O `.venv` padronizado em Python 3.15 é isolado e não faz parte do PATH. Para
+lint, testes, migrações e runtime, use os serviços Compose acima; o host não
+precisa de dependências de desenvolvimento.
 
 `sharedauth` é instalado direto do GitHub, na tag que `pyproject.toml` fixa. O
 repositório é **público**: o build precisa só de `git` no PATH, nenhuma
 credencial.
 
 Este projeto segue trilha própria de arquitetura, mas isso não é uma exceção à
-reprodutibilidade do build. Dependências devem ser fixadas em `uv.lock` (ou em
-um arquivo de constraints equivalente validado pela CI), a imagem base deve
-ser fixada por digest e o Compose deve reconstruir a partir desses artefatos.
-Escolhas de módulos, bibliotecas e fluxo de pesquisa continuam livres; o
-artefato que chega ao VPS precisa ser determinístico e auditável.
+política de atualização testada. As dependências ficam travadas em `uv.lock`;
+a imagem usa a tag móvel Python 3.15 e recebe atualizações Debian e de ferramentas
+em cada build. A CI semanal reconstrói, testa, audita dependências Python e
+varre CVEs corrigíveis da imagem. O Dependabot propõe atualizações de
+dependências, tags e Actions; elas só entram depois dos checks passarem. O
+Compose reconstrói `mspa-postgres:17-alpine` a partir da tag móvel oficial,
+mantendo a série principal 17 para preservar o formato dos volumes existentes.
 
-Os dois ambientes acham defeitos diferentes, então nenhum substitui o outro.
-O venv é Windows e já pegou travamento de suíte que o contêiner nunca mostrou
-(ver o docstring de `tests/conftest.py`); o contêiner é Linux e é o único
-lugar com `ruff` e `pip-audit` na versão que a CI usa. Itere no venv e passe
-pelo `quality` antes de commitar.
+O Compose usa `mspa-postgres:17-alpine` e reconstrói os serviços sem cache a
+cada subida, mantendo a série principal 17 para preservar os volumes existentes.
 
 Valide proporcionalmente ao risco e percorra manualmente o fluxo alterado.
 Mudanças de persistência, migrações, dependências ou contêineres exigem a pilha
