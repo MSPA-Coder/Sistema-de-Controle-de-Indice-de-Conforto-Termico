@@ -33,16 +33,20 @@ segredo do papel restrito e recusa conexão superusuária
 (`app/nucleo/papel_do_banco.py`). O SharedAuth é
 público: o build não precisa de credencial para instalá-lo.
 
-Se o host Windows intercepta HTTPS com uma autoridade local, gere o arquivo de
-CA usado no build:
+Só se o host Windows intercepta HTTPS por antivírus ou proxy, e a autoridade
+raiz correspondente está instalada no Windows, exporte a CA local usada pelo
+build:
 
 ```powershell
 .\scripts\exportar_ca_local.ps1
 ```
 
-O Compose exige que `.certs/local-root-ca.crt` exista. Quando não houver CA
-local a incorporar, crie um arquivo vazio nesse caminho; ele é uma entrada do
-build e nunca faz parte da imagem final.
+O arquivo `.certs/local-root-ca.crt` só é necessário nesse caso de inspeção
+HTTPS, para que o build valide a cadeia apresentada pelo interceptador. O
+secret BuildKit está marcado `required=false`, portanto o Compose e o build
+funcionam sem o certificado em hosts sem inspeção TLS; não crie um arquivo
+vazio. `docker compose --env-file .env.docker config --quiet` também funciona
+sem esse arquivo.
 
 ## Pilha operacional
 

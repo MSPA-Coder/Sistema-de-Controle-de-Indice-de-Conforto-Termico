@@ -48,7 +48,9 @@ docker compose --env-file .env.docker exec ict python -m scripts.verificar_postg
 ```
 
 O SharedAuth é público e o build não pede credencial nenhuma para lê-lo -- só
-`git` no PATH. O Compose requer `.certs/local-root-ca.crt`. Veja o preparo completo no guia de desenvolvimento.
+`git` no PATH. A CA em `.certs/local-root-ca.crt` é opcional e só é usada se o
+host intercepta HTTPS; sem inspeção TLS, `docker compose config` e o build
+funcionam sem esse arquivo. Veja [Desenvolvimento e validação](docs/DESENVOLVIMENTO.md).
 
 A interface fica em `http://127.0.0.1:5001`. Crie o primeiro administrador:
 
