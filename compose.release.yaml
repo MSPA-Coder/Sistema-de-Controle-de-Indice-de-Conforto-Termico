@@ -1,0 +1,17 @@
+# Exclusivo de deploy.sh: referências conferidas antes de alterar serviços.
+services:
+  ict:
+    image: ${APP_IMAGE:?deploy.sh deve fornecer APP_IMAGE por digest}
+    pull_policy: never
+  coletor:
+    image: ${APP_IMAGE:?deploy.sh deve fornecer APP_IMAGE por digest}
+    pull_policy: never
+  schema:
+    image: ${APP_IMAGE:?deploy.sh deve fornecer APP_IMAGE por digest}
+    pull_policy: never
+  postgres:
+    image: ${POSTGRES_IMAGE:?deploy.sh deve fornecer POSTGRES_IMAGE por digest}
+    pull_policy: never
+  db-provision:
+    image: ${POSTGRES_IMAGE:?deploy.sh deve fornecer POSTGRES_IMAGE por digest}
+    pull_policy: never

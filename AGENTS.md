@@ -11,6 +11,12 @@
 
 ## Escopo e fontes de verdade
 
+Produção usa `compose.release.yaml` por digest validado de main (ARM64), não
+rebuild no VPS. `~/deploy.sh conforto` confere revisão/run, arquitetura e IDs
+anteriores recuperáveis de ICT/coletor/banco antes de substituir serviços.
+O CI passa os mesmos candidatos por qualidade, Chromium, scanners e Runtime
+contracts. Ver ADR 010 e docs/RUNBOOK.md; o Compose base mantém o build local.
+
 Este é um software experimental de pesquisa, mantido e usado por uma pessoa.
 Ele calcula, monitora e simula conforto térmico animal; hoje roda em modo
 simulado e não aciona equipamentos físicos. Conectar hardware é um passo
