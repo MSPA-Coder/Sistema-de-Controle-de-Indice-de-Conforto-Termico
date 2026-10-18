@@ -99,12 +99,14 @@ O `.venv` padronizado em Python 3.15 é isolado e não faz parte do PATH. Para
 lint, testes, migrações e runtime, use os serviços Compose acima; o host não
 precisa de dependências de desenvolvimento.
 
-`sharedauth` é instalado direto do GitHub, na tag que `pyproject.toml` fixa. O
+`sharedauth` é instalado direto do GitHub, no commit que `pyproject.toml` fixa. O
 repositório é **público**: o build precisa só de `git` no PATH, nenhuma
 credencial.
 
 Este projeto segue trilha própria de arquitetura, mas isso não é uma exceção à
-política de atualização testada. As dependências ficam travadas em `uv.lock`;
+política de atualização testada. As dependências PyPI ficam fixadas em
+`constraints.txt`, aplicado ao runtime, às ferramentas e ao isolamento de build;
+SharedAuth usa referência Git imutável no `pyproject.toml`. Não há `uv.lock`;
 a imagem usa a tag móvel Python 3.15 e recebe atualizações Debian e de ferramentas
 em cada build. A CI semanal reconstrói, testa, audita dependências Python e
 varre CVEs corrigíveis da imagem. O Dependabot propõe atualizações de

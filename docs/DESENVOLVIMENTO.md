@@ -1,5 +1,14 @@
 # Desenvolvimento e validação
 
+## Gate de tipos incremental
+
+O estágio `quality` executa Ruff, `mypy` estrito e pytest. O conjunto pequeno
+de fronteiras está em `tool.mypy.files` no `pyproject.toml`; imports mantêm
+seus tipos (`follow_imports=silent`), sem esconder erros dos arquivos
+selecionados. Amplie por fronteira, com contratos concretos, sem `Any` ou
+ignores generalizados. As anotações não substituem validação de payloads,
+restrições do PostgreSQL ou os testes de navegador.
+
 ## Piloto de navegador isolado
 
 Construa com `docker compose -p conforto-browser-tests -f compose.browser.yaml build`.

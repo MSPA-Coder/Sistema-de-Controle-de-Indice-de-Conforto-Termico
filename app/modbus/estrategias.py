@@ -53,7 +53,7 @@ class EstrategiaResfriamento:
         self,
         fator_resfriamento: float = 0.95,
         fator_ventilacao: float = 1.05,
-    ):
+    ) -> None:
         self._fator_resfriamento = fator_resfriamento
         self._fator_ventilacao = fator_ventilacao
 
@@ -96,7 +96,7 @@ class SensorSimuladoService:
         self,
         gerador_aleatorio: GeradorLeituraAleatoria | None = None,
         estrategia_resfriamento: EstrategiaResfriamento | None = None,
-    ):
+    ) -> None:
         self._gerador_aleatorio = gerador_aleatorio or GeradorLeituraAleatoria()
         self._estrategia_resfriamento = estrategia_resfriamento or EstrategiaResfriamento()
         self._estados: dict[tuple[str, str], EstadoSensor] = {}
@@ -106,7 +106,7 @@ class SensorSimuladoService:
         self,
         especie: str,
         indice: str,
-        entradas: dict,
+        entradas: dict[str, float],
         valor: float,
         status: str,
     ) -> None:

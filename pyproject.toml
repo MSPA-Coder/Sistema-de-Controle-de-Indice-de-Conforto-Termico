@@ -34,13 +34,13 @@ dependencies = [
   # Rate limiting para protecao contra brute-force e DoS.
   "Flask-Limiter>=3.0,<5",
   # Sessao, CSRF, rate-limit no login, controle de acesso e hash de senha
-  # compartilhados com os outros apps Flask do mantenedor. A tag e fixada
-  # manualmente e nunca aponta para branch.
+  # compartilhados com os outros apps Flask do mantenedor. Resolução da
+  # v0.14.0 fixada por SHA; não depende de uma tag Git permanecer imóvel.
   #
   # O extra `[flask]` e obrigatorio a partir da v0.2.0: o nucleo do pacote
   # deixou de depender de Flask (para o ControleBancario, que e Django, poder
   # instalar so a parte de Python puro) e sem o extra o Flask nao vem junto.
-  "sharedauth[flask] @ git+https://github.com/MSPA-Coder/SharedAuth.git@v0.14.0",
+  "sharedauth[flask] @ git+https://github.com/MSPA-Coder/SharedAuth.git@5f6320b013a6a8be213f49a276b5ec8b7f2656a1",
   # CSRF do sharedauth usa Flask-WTF -- substitui a protecao propria em HMAC
   # que este projeto escrevia a mao.
   "Flask-WTF>=1.2.2,<2",
@@ -54,6 +54,7 @@ dependencies = [
 # constantes, sem instanciar a fabrica nem usar app.test_client(). Ver o risco
 # registrado no AGENTS.md sobre o que essa suite nao cobre.
 dev = [
+  "mypy>=2.4,<3",
   "ruff>=0.12,<1",
   "pytest>=8.3,<10",
   # Auditoria de CVE das dependencias instaladas. Piso na minor atual, teto na
@@ -68,6 +69,13 @@ packages = ["app"]
 # Hatchling recusa isso por padrao e exige este opt-in explicito.
 [tool.hatch.metadata]
 allow-direct-references = true
+
+[tool.mypy]
+python_version = "3.15"
+files = ["app/termico/thermal_indices.py", "app/modbus/estrategias.py", "app/nucleo/circuit_breaker.py", "app/ict/coletor_client.py", "app/ict/contracts.py"]
+strict = true
+follow_imports = "silent"
+cache_dir = "/tmp/mypy-cache"
 
 # A secao [tool.ruff] e comum aos projetos irmaos; so `target-version` e
 # `known-first-party` variam, porque dependem da versao de Python da imagem e do

@@ -15,6 +15,8 @@ from app.nucleo.circuit_breaker import CircuitBreaker
 from app.seguranca import auth
 from app.seguranca.tokens import CAPACIDADE_CONTROLE
 
+from .contracts import JSONObject
+
 COLETOR_URL_PADRAO = "http://127.0.0.1:5001"
 TIMEOUT_COLETOR_SEGUNDOS = 5
 MAX_RESPOSTA_BYTES = 1024 * 1024
@@ -25,7 +27,7 @@ class ColetorIndisponivelError(OSError):
     """Falha de transporte, servidor transitório ou protocolo da dependência."""
 
 
-def _ler_json(resposta: BinaryIO) -> dict:
+def _ler_json(resposta: BinaryIO) -> JSONObject:
     bruto = resposta.read(MAX_RESPOSTA_BYTES + 1)
     if len(bruto) > MAX_RESPOSTA_BYTES:
         raise ColetorIndisponivelError("Resposta interna excedeu o limite.")
@@ -35,19 +37,25 @@ def _ler_json(resposta: BinaryIO) -> dict:
         raise ColetorIndisponivelError("Resposta interna inválida.") from erro
     if not isinstance(payload, dict):
         raise ColetorIndisponivelError("Resposta interna precisa ser um objeto JSON.")
-    return payload
+    # json.loads só produz valores JSON; após a guarda, a raiz é objeto.
+    return cast("JSONObject", payload)
 
 
 def _circuito() -> CircuitBreaker:
     # Um circuito por aplicação/dependência, não um estado por URL de zona.
-    return current_app.extensions.setdefault("conforto_circuit_breaker", CircuitBreaker("coletor"))
+    circuito = current_app.extensions.setdefault(
+        "conforto_circuit_breaker", CircuitBreaker("coletor")
+    )
+    if not isinstance(circuito, CircuitBreaker):
+        raise TypeError("Extensão de circuito inválida.")
+    return circuito
 
 
 def chamar_coletor(
     caminho: str,
     *,
     metodo: str,
-    dados: dict | None = None,
+    dados: JSONObject | None = None,
     capacidade: str = CAPACIDADE_CONTROLE,
 ) -> ResponseReturnValue:
     if not caminho.startswith("/api/interno/"):
