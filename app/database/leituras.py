@@ -76,11 +76,11 @@ def salvar_leitura(
         if zona is None:
             # As exceções de zona permanecem expostas pela fachada. O import
             # tardio evita que a extração forme um ciclo na inicialização.
-            from .database import ZonaNaoEncontradaError
+            from .zonas import ZonaNaoEncontradaError
 
             raise ZonaNaoEncontradaError(f"Zona {zona_id} nao encontrada.")
         if zona["especie"] != especie or zona["indice"] != indice:
-            from .database import ZonaInvalidaError
+            from .zonas import ZonaInvalidaError
 
             raise ZonaInvalidaError(
                 "A espécie e o índice da leitura devem corresponder ao cadastro da zona."

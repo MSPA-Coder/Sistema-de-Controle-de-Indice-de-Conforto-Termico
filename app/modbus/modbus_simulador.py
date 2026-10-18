@@ -23,7 +23,7 @@ import threading
 import time
 from typing import TYPE_CHECKING
 
-from app.modbus.estrategias import SensorSimuladoService
+from app.modbus.estrategias import FonteAleatoria, GeradorLeituraAleatoria, SensorSimuladoService
 from app.termico import thermal_indices as ti
 
 if TYPE_CHECKING:
@@ -39,10 +39,16 @@ class SimuladorModbusZonas:
         obter_zona: Callable[[int], dict | None],
         obter_resfriamento_ativo: Callable[[int], bool],
         ttl_cache_segundos: float = 2.0,
+        *,
+        rng_por_zona: Callable[[int], FonteAleatoria] | None = None,
+        relogio: Callable[[], float] = time.monotonic,
     ):
         self._obter_zona = obter_zona
         self._obter_resfriamento_ativo = obter_resfriamento_ativo
         self._ttl = ttl_cache_segundos
+        self._rng_por_zona = rng_por_zona or (lambda _zona_id: random.Random())
+        self._relogio = relogio
+        self._rngs: dict[int, FonteAleatoria] = {}
         # Um SensorSimuladoService por zona: cada zona tem seu proprio
         # estado de "ultima leitura" para o resfriamento gradual (5% por
         # ciclo ate voltar ao Conforto) funcionar de forma independente.
@@ -54,7 +60,11 @@ class SimuladorModbusZonas:
     def _gerador_da_zona(self, zona_id: int) -> SensorSimuladoService:
         with self._lock:
             if zona_id not in self._geradores:
-                self._geradores[zona_id] = SensorSimuladoService()
+                rng = self._rng_por_zona(zona_id)
+                self._rngs[zona_id] = rng
+                self._geradores[zona_id] = SensorSimuladoService(
+                    gerador_aleatorio=GeradorLeituraAleatoria(rng)
+                )
             return self._geradores[zona_id]
 
     def registrar_calculo(
@@ -72,7 +82,7 @@ class SimuladorModbusZonas:
 
     def _entradas_da_zona(self, zona: dict) -> dict[str, float]:
         zona_id = zona["id"]
-        agora = time.monotonic()
+        agora = self._relogio()
         with self._lock:
             em_cache = self._cache_leitura.get(zona_id)
         if em_cache is not None and (agora - em_cache[0]) < self._ttl:
@@ -104,7 +114,8 @@ class SimuladorModbusZonas:
         # que tornaria a MEDIA entre sensores um teste trivial (todos os
         # valores identicos). O jitter imita a variacao natural entre
         # sensores fisicos reais medindo o mesmo ambiente.
-        valor = valor_base + random.uniform(-0.4, 0.4)
+        with self._lock:
+            valor = valor_base + self._rngs[zona_id].uniform(-0.4, 0.4)
         if campo in ti.RANGE_VALIDACAO:
             minimo, maximo = ti.RANGE_VALIDACAO[campo]
             valor = min(maximo, max(minimo, valor))

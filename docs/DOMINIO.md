@@ -65,6 +65,15 @@ com lock transacional para que retries e ciclos concorrentes não dupliquem a
 mesma amostra.
 
 Não há rotina de retenção: nenhuma parte da aplicação apaga leituras brutas.
+
+O simulador de sensores gera TBS/TBU conjuntamente, com depressão sintética de
+1 a 6 °C, e mantém margem para jitter de até 0,4 °C por sensor. Resfriamento
+simulado preserva essa coerência e os pisos ambientais do cenário (TBS/TGN
+18 °C, TBU 12 °C, TPO 5 °C, vento 0,5 m/s), em vez de aproximar temperaturas
+indefinidamente de zero; a validação de sensores reais não é relaxada.
+RNG independente por zona pode ser injetado com semente para repetição de
+testes. Essas distribuições são cenários de software, não dados observados nem
+modelos de campo validados.
 Backup e descarte deliberado pertencem ao fluxo operacional documentado no
 Runbook.
 
