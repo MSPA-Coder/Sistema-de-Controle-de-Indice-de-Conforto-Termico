@@ -85,3 +85,6 @@ Thumbs.db
 
 # Artefato historico local, nao versionado.
 /docs/ANALISE_DE_DADOS.pdf
+
+# Evidências sintéticas do piloto Chromium.
+.browser-results/

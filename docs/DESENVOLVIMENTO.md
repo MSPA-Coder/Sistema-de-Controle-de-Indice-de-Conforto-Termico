@@ -1,5 +1,24 @@
 # Desenvolvimento e validação
 
+## Piloto de navegador isolado
+
+Construa com `docker compose -p conforto-browser-tests -f compose.browser.yaml build`.
+Com os mesmos `-p` e `-f`, suba `up -d --no-build --wait browser-coletor`, execute
+`run --rm browser-tests` e finalize com `down`. Somente PostgreSQL tmpfs do
+piloto é descartado; não há volumes operacionais. `BROWSER_APP_IMAGE` e
+`BROWSER_POSTGRES_IMAGE` aceitam candidatos já construídos, sem rebuild.
+Fixtures montadas externamente não entram no runtime. Sem portas no host,
+contas reais ou dependências externas reais. Falhas deixam PNG em
+`.browser-results` (ignorado pelo Git).
+
+O piloto Chromium cobre decimal BR/EUA no ciclo manual, dado antigo, 400 de
+domínio versus 502 de transporte, ACL server-side e série pequena de 48
+medições. Um provedor meteorológico HTTP controlado mantém 24 linhas em
+staging por uma barreira: CSV/cópia não as publicam. Depois de concluir,
+exportação/cópia funcionam e replay não duplica histórico. Não valida hardware
+ou ciência. ICT e API do coletor usam a mesma imagem candidata.
+
+
 ## Ambiente reproduzível
 
 Use Docker Compose para aplicação, PostgreSQL, migrações e ferramentas. No host,
