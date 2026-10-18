@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import math
 import unicodedata
+from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Any, cast
 
@@ -238,7 +239,7 @@ CALCULADORAS = _congelar(
 )
 
 
-def validar_entradas(indice: str, entradas: dict) -> dict:
+def validar_entradas(indice: str, entradas: Mapping[str, object]) -> dict[str, float]:
     """Confere se todos os campos exigidos estao presentes e dentro da faixa
     aceitavel, lancando EntradaInvalidaError com mensagem em portugues caso
     contrario. Retorna o dicionario de entradas ja convertido para float."""
@@ -320,9 +321,7 @@ STATUS_ORDEM = ("Conforto", "Alerta", "Perigo", "Emergencia")
 
 ROTULOS_STATUS = _congelar({"Emergencia": "Emergência"})
 
-_STATUS_POR_CHAVE = _congelar(
-    {normalizar_chave_texto(_s).lower(): _s for _s in STATUS_ORDEM}
-)
+_STATUS_POR_CHAVE = _congelar({normalizar_chave_texto(_s).lower(): _s for _s in STATUS_ORDEM})
 
 
 def rotulo_do_status(status: str) -> str:
@@ -336,7 +335,7 @@ def canonizar_status(valor: str) -> str | None:
     de status -- com ou sem acento, em qualquer caixa --, ou `None` se nao
     corresponde a nenhum nivel. Mantem URLs/clientes antigos que ainda
     mandam "Emergência" funcionando depois da troca do token."""
-    return _STATUS_POR_CHAVE.get(normalizar_chave_texto(valor).lower())
+    return cast("str | None", _STATUS_POR_CHAVE.get(normalizar_chave_texto(valor).lower()))
 
 
 STATUS_PESO = _congelar(
@@ -427,7 +426,9 @@ def classificar_status(valor: float, especie: str, indice: str) -> str:
     return "Emergencia"
 
 
-def calcular_e_classificar(especie: str, indice: str, entradas: dict) -> tuple[float, str]:
+def calcular_e_classificar(
+    especie: str, indice: str, entradas: Mapping[str, object]
+) -> tuple[float, str]:
     """Funcao de conveniencia: valida, calcula e classifica em um so passo."""
     if not indice_disponivel(especie, indice):
         raise EntradaInvalidaError(f"O índice {indice} não é aplicável à espécie '{especie}'.")

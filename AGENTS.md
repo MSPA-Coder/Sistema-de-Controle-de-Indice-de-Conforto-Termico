@@ -11,6 +11,12 @@
 
 ## Escopo e fontes de verdade
 
+Produção usa `compose.release.yaml` por digest validado de main (ARM64), não
+rebuild no VPS. `~/deploy.sh conforto` confere revisão/run, arquitetura e IDs
+anteriores recuperáveis de ICT/coletor/banco antes de substituir serviços.
+O CI passa os mesmos candidatos por qualidade, Chromium, scanners e Runtime
+contracts. Ver ADR 010 e docs/RUNBOOK.md; o Compose base mantém o build local.
+
 Este é um software experimental de pesquisa, mantido e usado por uma pessoa.
 Ele calcula, monitora e simula conforto térmico animal; hoje roda em modo
 simulado e não aciona equipamentos físicos. Conectar hardware é um passo
@@ -99,12 +105,14 @@ O `.venv` padronizado em Python 3.15 é isolado e não faz parte do PATH. Para
 lint, testes, migrações e runtime, use os serviços Compose acima; o host não
 precisa de dependências de desenvolvimento.
 
-`sharedauth` é instalado direto do GitHub, na tag que `pyproject.toml` fixa. O
+`sharedauth` é instalado direto do GitHub, no commit que `pyproject.toml` fixa. O
 repositório é **público**: o build precisa só de `git` no PATH, nenhuma
 credencial.
 
 Este projeto segue trilha própria de arquitetura, mas isso não é uma exceção à
-política de atualização testada. As dependências ficam travadas em `uv.lock`;
+política de atualização testada. As dependências PyPI ficam fixadas em
+`constraints.txt`, aplicado ao runtime, às ferramentas e ao isolamento de build;
+SharedAuth usa referência Git imutável no `pyproject.toml`. Não há `uv.lock`;
 a imagem usa a tag móvel Python 3.15 e recebe atualizações Debian e de ferramentas
 em cada build. A CI semanal reconstrói, testa, audita dependências Python e
 varre CVEs corrigíveis da imagem. O Dependabot propõe atualizações de

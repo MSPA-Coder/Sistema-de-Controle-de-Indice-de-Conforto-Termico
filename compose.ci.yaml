@@ -1,0 +1,25 @@
+# CI isolada: sem volumes/portas de uso nem rebuild implícito.
+services:
+  postgres:
+    pull_policy: never
+    ports: !reset []
+    volumes: !reset []
+    tmpfs:
+      - /var/lib/postgresql/data:uid=70,gid=70,mode=0700,size=512m
+  db-provision:
+    pull_policy: never
+  ict:
+    pull_policy: never
+    ports: !reset []
+    volumes: !reset []
+  coletor:
+    pull_policy: never
+    ports: !reset []
+  schema:
+    pull_policy: never
+    ports: !reset []
+  postgres-teste:
+    pull_policy: never
+  quality:
+    image: conforto-termico-quality:ci
+    pull_policy: never

@@ -1,0 +1,15 @@
+# syntax=docker/dockerfile:1.7
+# Estende o candidato exato; esta imagem de ferramentas nunca é publicada.
+ARG RUNTIME_IMAGE
+FROM ${RUNTIME_IMAGE}
+USER root
+RUN python -c 'import json; from importlib.metadata import distributions; from pathlib import Path; Path("/runtime-dependencies.json").write_text(json.dumps({d.metadata["Name"]:d.version for d in distributions()}))'
+RUN python -m ensurepip --upgrade
+RUN --mount=type=cache,target=/root/.cache/pip PIP_CONSTRAINT=/workspace/constraints.txt python -m pip install -c constraints.txt ".[dev]"
+COPY tests ./tests
+COPY compose.yaml ./
+COPY .env.docker.example ./
+ENV RUFF_CACHE_DIR=/tmp/ruff-cache PYTEST_ADDOPTS="-o cache_dir=/tmp/pytest-cache"
+USER app
+ENTRYPOINT []
+CMD ["sh", "-c", "ruff check . && mypy && pytest"]

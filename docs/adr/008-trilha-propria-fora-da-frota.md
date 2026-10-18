@@ -22,7 +22,8 @@ ser resolvido passa a ser uma consequência esperada de um projeto com outro
 propósito.
 
 Concretamente, a liberdade de arquitetura não autoriza atualizações sem teste.
-As dependências Python continuam travadas em `uv.lock`; a tag móvel da imagem
+As dependências PyPI ficam fixadas em `constraints.txt` e a referência Git do
+SharedAuth em `pyproject.toml` (não há `uv.lock` neste projeto); a tag móvel da imagem
 base, as atualizações do Debian e as ferramentas de segurança são buscadas pela
 CI semanal, que testa e varre a imagem. O Dependabot mantém tags e Actions em
 atualização. A escolha de biblioteca, a estrutura dos módulos e o fluxo de

@@ -34,6 +34,11 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     PIP_CONSTRAINT=/workspace/constraints.txt python -m pip install -c constraints.txt .
 
 FROM runtime-dependencies AS runtime
+ARG ARTIFACT_REVISION=local
+ARG ARTIFACT_RUN=local
+LABEL org.opencontainers.image.source="https://github.com/MSPA-Coder/Sistema-de-Controle-de-Indice-de-Conforto-Termico" \
+      org.opencontainers.image.revision="${ARTIFACT_REVISION}" \
+      br.com.mspa.ci-run="${ARTIFACT_RUN}"
 ARG APP_UID=10001
 ARG APP_GID=10001
 RUN groupadd --gid "${APP_GID}" app \
@@ -82,4 +87,4 @@ COPY --chown=app:app compose.yaml .env.docker.example ./
 ENV RUFF_CACHE_DIR=/tmp/ruff-cache \
     PYTEST_ADDOPTS="-o cache_dir=/tmp/pytest-cache"
 USER app
-CMD ["sh", "-c", "ruff check . && pytest"]
+CMD ["sh", "-c", "ruff check . && mypy && pytest"]

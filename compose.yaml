@@ -41,6 +41,8 @@ x-logging: &default-logging
 services:
   postgres:
     image: mspa-postgres:17-alpine
+    labels:
+      mspa.backup.postgres: "true"
     build:
       context: .
       dockerfile: docker/sandbox-postgres/Dockerfile

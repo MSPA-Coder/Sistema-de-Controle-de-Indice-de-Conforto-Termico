@@ -1,5 +1,10 @@
 # Resolver reproducível para a imagem runtime e para o estágio quality.
 # Atualize deliberadamente, valide no Docker e revise o conjunto inteiro.
+mypy==2.4.0
+mypy_extensions==1.1.0
+pathspec==1.1.1
+librt==0.16.0
+ast-serialize==0.13.1
 alembic==1.20.0
 blinker==1.9.0
 boolean.py==5.0

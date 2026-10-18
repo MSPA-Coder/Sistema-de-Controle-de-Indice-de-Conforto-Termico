@@ -9,7 +9,7 @@ from __future__ import annotations
 import random
 import threading
 from dataclasses import dataclass
-from typing import cast
+from typing import Protocol, cast
 
 from app.termico import thermal_indices as ti
 
@@ -21,26 +21,28 @@ class EstadoSensor:
     status: str
 
 
+class FonteAleatoria(Protocol):
+    def uniform(self, a: float, b: float) -> float: ...
+
+
 class GeradorLeituraAleatoria:
-    """Estrategia de geracao aleatoria para o sensor simulado."""
+    """Estado sintético conjunto; não representa uma distribuição de campo."""
+
+    def __init__(self, rng: FonteAleatoria | None = None) -> None:
+        self._rng = rng if rng is not None else random.Random()
 
     def gerar(self, indice: str) -> dict[str, float]:
-        if indice == "ITU":
-            return {
-                "tbs": round(random.uniform(18, 40), 1),
-                "tbu": round(random.uniform(12, 30), 1),
-            }
-        if indice == "ITUV":
-            return {
-                "tbs": round(random.uniform(18, 40), 1),
-                "tbu": round(random.uniform(12, 30), 1),
-                "v": round(random.uniform(0.1, 5.0), 2),
-            }
+        if indice in ("ITU", "ITUV"):
+            tbs = round(self._rng.uniform(18, 40), 1)
+            # Depressão limitada evita vapor derivado inválido. A margem de
+            # 1 °C também acomoda jitter oposto de até 0,4 °C por sensor.
+            entradas = {"tbs": tbs, "tbu": round(tbs - self._rng.uniform(1, 6), 1)}
+            if indice == "ITUV":
+                entradas["v"] = round(self._rng.uniform(0.5, 5.0), 2)
+            return entradas
         if indice == "IGNU":
-            return {
-                "tgn": round(random.uniform(18, 45), 1),
-                "tpo": round(random.uniform(5, 30), 1),
-            }
+            tgn = round(self._rng.uniform(18, 45), 1)
+            return {"tgn": tgn, "tpo": round(self._rng.uniform(5, min(30, tgn - 1)), 1)}
         raise ti.EntradaInvalidaError("Índice inválido.")
 
 
@@ -51,7 +53,7 @@ class EstrategiaResfriamento:
         self,
         fator_resfriamento: float = 0.95,
         fator_ventilacao: float = 1.05,
-    ):
+    ) -> None:
         self._fator_resfriamento = fator_resfriamento
         self._fator_ventilacao = fator_ventilacao
 
@@ -61,11 +63,19 @@ class EstrategiaResfriamento:
             campo: round(self._valor_ajustado(campo, entradas[campo]), 2 if campo == "v" else 1)
             for campo in ti.CAMPOS_POR_INDICE[indice]
         }
+        if "tbs" in ajustadas and "tbu" in ajustadas:
+            # Somente a estratégia SIMULADA: a validação de sensores reais
+            # não é corrigida nem relaxada. Conserva margem para o jitter.
+            ajustadas["tbu"] = min(ajustadas["tbu"], round(ajustadas["tbs"] - 1, 1))
         valor, status = ti.calcular_e_classificar(especie, indice, ajustadas)
         return EstadoSensor(entradas=ajustadas, valor=valor, status=status)
 
     def _valor_ajustado(self, campo: str, valor: float) -> float:
         minimo, maximo = ti.RANGE_VALIDACAO[campo]
+        # Cenário ambiental do simulador: o resfriamento não pode empurrar
+        # indefinidamente a amostra para temperaturas próximas de zero e
+        # tornar inválido o ponto de orvalho derivado após o jitter.
+        minimo = max(minimo, {"tbs": 18.0, "tbu": 12.0, "tgn": 18.0, "tpo": 5.0, "v": 0.5}[campo])
         if campo == "v":
             ajustado = valor * self._fator_ventilacao
         elif valor >= 0:
@@ -86,7 +96,7 @@ class SensorSimuladoService:
         self,
         gerador_aleatorio: GeradorLeituraAleatoria | None = None,
         estrategia_resfriamento: EstrategiaResfriamento | None = None,
-    ):
+    ) -> None:
         self._gerador_aleatorio = gerador_aleatorio or GeradorLeituraAleatoria()
         self._estrategia_resfriamento = estrategia_resfriamento or EstrategiaResfriamento()
         self._estados: dict[tuple[str, str], EstadoSensor] = {}
@@ -96,7 +106,7 @@ class SensorSimuladoService:
         self,
         especie: str,
         indice: str,
-        entradas: dict,
+        entradas: dict[str, float],
         valor: float,
         status: str,
     ) -> None:

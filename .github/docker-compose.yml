@@ -1,6 +1,19 @@
 name: security-scanner
 
 services:
+  workflow-lint:
+    image: rhysd/actionlint:1.7.12
+    entrypoint: [actionlint]
+    command: [ci.yml]
+    working_dir: /workflows
+    read_only: true
+    network_mode: none
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp]
+    volumes:
+      - ./workflows:/workflows:ro
+
   trivy:
     image: aquasec/trivy:0.75.0
     pull_policy: always

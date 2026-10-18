@@ -3,15 +3,6 @@ name: CI
 on:
   push:
     branches: [main]
-  # Sem filtro de `branches`, de proposito: assim a verificacao roda em PR para
-  # QUALQUER base, e nao so para `main`.
-  #
-  # Com o filtro, um PR empilhado sobre outro branch nao disparava check
-  # nenhum -- e o sintoma e a ausencia de sinal, nao um vermelho: a pagina do
-  # PR fica limpa e parece aprovada. Aconteceu na fase F1.
-  #
-  # O `push` acima continua restrito a `main`: o que interessa la e o estado
-  # do branch que a producao espelha.
   pull_request:
   workflow_dispatch:
   schedule:
@@ -24,195 +15,68 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  ARTIFACT_REVISION: ${{ github.sha }}
+  ARTIFACT_RUN: ${{ github.run_id }}-${{ github.run_attempt }}
+  EXPECTED_PLATFORM: linux/arm64
+
 jobs:
   quality:
     name: Qualidade
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 35
     steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Prepare ephemeral Compose inputs
-        shell: bash
-        run: |
-          set -euo pipefail
-          umask 077
-          mkdir -p .certs .secrets
-          openssl req -x509 -newkey rsa:2048 -sha256 -nodes \
-            -keyout /tmp/conforto-ci-local-ca.key \
-            -out .certs/local-root-ca.crt \
-            -subj "/CN=ConfortoTermico CI ephemeral CA" \
-            -days 1
-          rm -f /tmp/conforto-ci-local-ca.key
-          printf '%s\n' 'ci-placeholder-not-a-real-password' > .secrets/postgres_password.txt
-          printf '%s\n' 'ci-placeholder-not-a-real-app-password' > .secrets/postgres_app_password.txt
-          printf '%s\n' 'ci-placeholder-not-a-real-read-token' > .secrets/internal_read_token.txt
-          printf '%s\n' 'ci-placeholder-not-a-real-control-token' > .secrets/internal_control_token.txt
-
-      - name: Validate Compose configuration
-        run: docker compose config --quiet
-
-      - name: Build quality image
-        run: docker compose build --pull --no-cache quality
-
-      - name: Run quality checks
-        run: docker compose --profile quality run --rm quality
-
-      # O Dependabot abre PR quando sai versao nova. Nao e a mesma pergunta que
-      # "a versao que esta instalada AGORA tem CVE conhecido?" -- e essa segunda
-      # ninguem fazia em nenhum dos seis repositorios.
-      #
-      # Roda dentro da propria imagem `quality`, que ja instala exatamente o que
-      # a imagem servida instala, mais as ferramentas de teste. Auditar o
-      # ambiente instalado responde a pergunta certa; auditar o arquivo de
-      # requisitos responderia sobre o que esta ESCRITO, nao sobre o que esta
-      # rodando.
-      #
-      # Reprova em qualquer achado, de proposito. Vulnerabilidade sem correcao
-      # publicada sai por `--ignore-vuln ID` com um comentario dizendo por que:
-      # cada excecao vira uma decisao explicita e datada, em vez de um vermelho
-      # permanente que se aprende a ignorar.
-      # `--cache-dir` em /tmp porque HOME e /app na imagem e /app/.cache nao
-      # existe: sem isto o pip-audit morre tentando criar o proprio cache,
-      # antes de auditar coisa alguma. Mesmo motivo de RUFF_CACHE_DIR e
-      # PYTEST_ADDOPTS ja apontarem para /tmp no Dockerfile.
-      - name: Auditar dependencias instaladas (CVE conhecido)
-        run: docker compose --profile quality run --rm quality pip-audit --progress-spinner=off --cache-dir /tmp/pip-audit-cache
-
-      - name: Construir a imagem servida
-        run: docker compose build --pull schema
-
-      # O `pip-audit` acima cobre as dependencias Python. Esta varredura cobre o
-      # que ele nao ve: os pacotes do sistema operacional da imagem base.
-      #
-      # RODA COMO CONTEINER, NAO COMO ACTION. A politica de Actions deste
-      # repositorio e `selected` com apenas `github_owned_allowed` -- action de
-      # terceiro e barrada antes de o workflow rodar, e o sintoma e
-      # `startup_failure` sem log. Conformar-se a politica e melhor que
-      # afrouxa-la para caber uma ferramenta.
-      #
-      # `docker save` + `--input` em vez de montar /var/run/docker.sock: montar
-      # o socket do Docker e dar root na pratica, que foi exatamente o motivo
-      # de o `autoheal` ter sido recusado no VPS. Nao vale reabrir aqui.
-      #
-      # Imagem fixada por digest do indice multi-arquitetura, pelo mesmo motivo
-      # que as actions sao fixadas por SHA.
-      #
-      # `--ignore-unfixed` de proposito: CVE de pacote de sistema sem correcao
-      # publicada nao e acionavel. Reprovar por ele travaria PR sem relacao
-      # nenhuma com o assunto e ensinaria a ignorar o vermelho.
-      - name: Construir a imagem PostgreSQL derivada atualizada
-        run: docker compose build --pull --no-cache postgres
-      - name: Varredura de CVEs corrigíveis na imagem PostgreSQL
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/trivy-cache"
-          chmod 777 "$RUNNER_TEMP/trivy-cache"
-          docker save mspa-postgres:17-alpine -o "$RUNNER_TEMP/postgres.tar"
-          chmod 644 "$RUNNER_TEMP/postgres.tar"
-          docker compose -f .github/docker-compose.yml run --rm trivy \
-            --cache-dir /tmp/trivy-cache \
-            image --input /varredura/postgres.tar \
-                  --scanners vuln \
-                  --severity HIGH,CRITICAL \
-                  --ignore-unfixed \
-                  --exit-code 1 \
-                  --format table
-
-      - name: Varredura de vulnerabilidade da imagem servida
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/trivy-cache"
-          chmod 777 "$RUNNER_TEMP/trivy-cache"
-          docker save conforto-termico:local -o "$RUNNER_TEMP/imagem.tar"
-          chmod 644 "$RUNNER_TEMP/imagem.tar"
-          docker compose -f .github/docker-compose.yml run --rm trivy \
-            --cache-dir /tmp/trivy-cache \
-            image --input /varredura/imagem.tar \
-                  --scanners vuln \
-                  --severity HIGH,CRITICAL \
-                  --ignore-unfixed \
-                  --exit-code 1 \
-                  --format table
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: bash scripts/prepare-ci-inputs.sh
+      - name: Validar workflow
+        run: docker compose -f .github/docker-compose.yml run --rm --no-deps workflow-lint
+      - name: Construir e validar candidata única
+        run: bash scripts/ci-delivery.sh
+      - name: Transferir candidatas sem reconstruir
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: validated-candidates
+          path: |
+            ${{ runner.temp }}/imagem.tar
+            ${{ runner.temp }}/postgres.tar
+            ${{ runner.temp }}/candidate.env
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 1
 
   runtime-contracts:
     name: Runtime contracts
-    runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    needs: quality
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
     steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: validated-candidates
+          path: ${{ runner.temp }}
+      - run: bash scripts/prepare-ci-inputs.sh
+      - run: bash scripts/load-candidate.sh
+      - name: Contratos e smoke das mesmas imagens
+        run: bash scripts/runtime-contracts.sh
 
-      - name: Prepare ephemeral Compose inputs
-        shell: bash
-        run: |
-          set -euo pipefail
-          umask 077
-          mkdir -p .certs .secrets
-          openssl req -x509 -newkey rsa:2048 -sha256 -nodes \
-            -keyout /tmp/conforto-ci-local-ca.key \
-            -out .certs/local-root-ca.crt \
-            -subj "/CN=ConfortoTermico CI ephemeral CA" \
-            -days 1
-          rm -f /tmp/conforto-ci-local-ca.key
-          printf '%s\n' 'ci-placeholder-not-a-real-password' > .secrets/postgres_password.txt
-          printf '%s\n' 'ci-placeholder-not-a-real-app-password' > .secrets/postgres_app_password.txt
-          printf '%s\n' 'ci-placeholder-not-a-real-read-token' > .secrets/internal_read_token.txt
-          printf '%s\n' 'ci-placeholder-not-a-real-control-token' > .secrets/internal_control_token.txt
-
-      - name: Validate PostgreSQL Compose contract
-        shell: bash
-        run: |
-          set -euo pipefail
-          docker compose config --format json > /tmp/compose.json
-          python3 - <<'PY'
-          import json
-
-          db = json.load(open("/tmp/compose.json", encoding="utf-8"))["services"]["postgres"]
-          assert db["user"] == "postgres"
-          assert db["read_only"] is True
-          assert db["cap_drop"] == ["ALL"]
-          assert db["security_opt"] == ["no-new-privileges:true"]
-          assert db["pids_limit"] == 256
-          assert "/tmp:rw,nosuid,nodev,noexec,mode=1777,size=64m" in db["tmpfs"]
-          assert "/var/run/postgresql:rw,nosuid,nodev,noexec,mode=1777,size=16m" in db["tmpfs"]
-          PY
-
-      - name: Build and inspect immutable runtime
-        shell: bash
-        run: |
-          set -euo pipefail
-          docker compose build --pull --no-cache schema
-          image_id="$(docker image inspect --format '{{.Id}}' conforto-termico:local)"
-          test -n "$image_id"
-          docker run --rm --entrypoint sh "$image_id" -ec '
-            test "$(id -u)" != 0
-            test ! -w /workspace
-            test ! -w /workspace/app
-            test ! -w /workspace/config
-            test ! -w /workspace/migrations
-            test ! -w /workspace/scripts
-            for path in /workspace/.secrets /workspace/.certs /workspace/.env; do
-              test ! -e "$path"
-            done
-            for tool in gcc make wget ruff pytest pip-audit; do
-              ! command -v "$tool" >/dev/null 2>&1
-            done
-          '
-
-      - name: Smoke com o papel restrito
-        # Sobe banco, provisionamento, schema e coletor como no VPS. O coletor só
-        # fica saudável se conectar sem ser superusuário (app/nucleo/papel_do_banco.py),
-        # e a consulta confere o outro lado no próprio servidor. Os segredos
-        # sintéticos precisam ser legíveis pelo uid do contêiner da aplicação.
-        shell: bash
-        run: |
-          set -euo pipefail
-          chmod 0644 .secrets/*
-          trap 'docker compose down --remove-orphans' EXIT
-          docker compose up --detach --wait --wait-timeout 180 coletor
-          papel="$(docker compose exec -T postgres psql -U conforto -d conforto_termico -tAc \
-            "select string_agg(distinct a.usename || ':' || r.rolsuper, ',') from pg_stat_activity a join pg_roles r on r.rolname = a.usename where a.datname = current_database() and a.application_name <> 'psql'")"
-          echo "conexões da aplicação: $papel"
-          test "$papel" = "conforto_app:false"
+  publish:
+    name: Publicar artefatos
+    needs: [quality, runtime-contracts]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: validated-candidates
+          path: ${{ runner.temp }}
+      - run: bash scripts/load-candidate.sh
+      - name: Publicar por identidade, sem build
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/publish-delivery.sh
