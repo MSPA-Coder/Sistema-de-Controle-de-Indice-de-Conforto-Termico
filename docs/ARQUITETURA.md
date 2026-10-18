@@ -66,6 +66,10 @@ ativados neste projeto de pesquisa.
   capacidade não autentica a outra;
 - o ICT não compartilha estado transitório nem importa o cliente Modbus;
 - falha de um dispositivo é registrada e isolada por zona;
+- o cliente ICT→coletor preserva recusas HTTP de negócio, inclusive 4xx, sem
+  abrir circuito. Transporte, resposta inválida e HTTP 500/502/503/504 alimentam
+  um Circuit Breaker local por dependência, com recuperação monotônica e
+  admissão limitada de sondas concorrentes. Comandos não têm retry automático;
 - a API JSON serve à interface incluída no projeto e não é uma API pública
   versionada.
 
