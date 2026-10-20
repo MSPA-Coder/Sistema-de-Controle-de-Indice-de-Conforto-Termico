@@ -8,9 +8,9 @@ código do `main`, sem esperar a CI nem baixar nada do GHCR; confere a saúde e
 volta sozinho para o código e a imagem anteriores se falhar, nunca para
 dados/schema. Só o serviço PostgreSQL recebe `mspa.backup.postgres=true`, o
 que preserva a descoberta do backup. `~/deploy.sh --status` compara VPS ×
-GitHub. Na quarta-feira, o `reconstruir-bases.timer` reconstrói só a versão
-que já está no ar, para pegar correções de segurança das imagens-base, sem
-trazer commits novos.
+GitHub. Nada muda em produção sem o usuário mandar. As correções de
+segurança das imagens-base (Debian/Python) entram só quando ele pedir: testa
+localmente com as bases novas e depois roda `~/deploy.sh conforto --refresh`.
 
 O ambiente suportado é Docker Compose com PostgreSQL. O uso é individual,
 experimental e simulado, tanto localmente quanto na instância de demonstração
