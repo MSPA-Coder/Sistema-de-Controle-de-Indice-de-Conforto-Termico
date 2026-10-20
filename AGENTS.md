@@ -23,13 +23,17 @@ em relação ao `main`; não faça merge do `main` nela só para o PR entrar. O
 auto-merge está ligado: depois de `gh pr create`, rode
 `gh pr merge <n> --auto --squash`, e o PR entra sozinho quando os checks
 passarem. Nunca `--admin`, nunca push forçado, nunca rebase em branch
-publicada. A combinação de PRs é verificada pela CI do `main` depois do merge,
-e o VPS implanta sozinho: o `atualizar-stacks.timer` roda a cada 5 minutos,
-espera a CI do `main`, faz backup verificado e roda `~/deploy.sh conforto`.
-Ele alerta uma vez se a CI reprovar ou o deploy for revertido, e não repete
-aquele commit até o `main` andar de novo. `~/deploy.sh conforto` à mão serve
-para adiantar ou repetir um deploy, e `~/deploy.sh --status` mostra VPS ×
-GitHub.
+publicada.
+
+Depois do merge, a CI do `main` verifica a combinação de PRs e publica a imagem
+que o deploy usa. O deploy de commits novos é só à mão, com autorização do
+usuário: quando a mudança estiver pronta e só faltar o deploy, avise o usuário
+e rode `~/deploy.sh conforto` somente com o sim dele. Ninguém precisa vigiar a
+CI do `main`: o `deploy.sh` recusa sozinho enquanto ela não estiver verde; se
+ainda estiver rodando, tente de novo minutos depois. O `reconstruir-bases.timer`
+(quartas, 12:00 UTC) continua reconstruindo as imagens-base e, se o `main`
+tiver avançado, aplica também os commits ainda não implantados.
+`~/deploy.sh --status` mostra VPS × GitHub.
 
 Este é um software experimental de pesquisa, mantido e usado por uma pessoa.
 Ele calcula, monitora e simula conforto térmico animal; hoje roda em modo

@@ -158,13 +158,15 @@ O deploy oficial vem de `_manutencao/vps/deploy.sh` e está instalado como
 
 Publique por branch, pull request com checks obrigatórios verdes e squash merge
 (com auto-merge: `gh pr merge <n> --auto --squash`); só então o `main` remoto é
-elegível para o deploy. Não faça push direto ao `main`. O deploy é automático:
-o `atualizar-stacks.timer` roda a cada 5 minutos e, quando o `main` avança,
-espera em silêncio a CI do `main`, faz backup verificado e roda
-`~/deploy.sh conforto`. Ele alerta uma vez se a CI reprovar ou o deploy for
-revertido, e não repete aquele commit até o `main` andar de novo. Não é preciso
-aguardar a CI do `main` nem rodar o deploy à mão depois do merge; o comando
-acima serve para adiantar ou repetir um deploy.
+elegível para o deploy. Não faça push direto ao `main`. Depois do merge, a CI
+do `main` roda e publica a imagem que o deploy usa. O deploy de commits novos é
+só à mão, com autorização do usuário: quando a mudança estiver pronta e só
+faltar o deploy, o agente avisa o usuário e roda o comando acima somente com o
+sim dele. Ninguém precisa vigiar a CI do `main`: o script recusa sozinho
+enquanto ela não estiver verde; se ainda estiver rodando, tenta-se de novo
+minutos depois. O `reconstruir-bases.timer` (quartas, 12:00 UTC) continua
+reconstruindo as imagens-base e, se o `main` tiver avançado, aplica também os
+commits ainda não implantados.
 
 Não edite nem commite no VPS. O script exige checkout limpo, confere o commit
 elegível, avança a partir do `main`, reconstrói a imagem e valida o endereço
