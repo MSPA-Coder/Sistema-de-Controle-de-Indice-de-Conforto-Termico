@@ -107,6 +107,11 @@ O estágio `quality` instala as dependências de desenvolvimento e executa
 `ruff check . && pytest`. Não documente uma contagem fixa de testes: a suíte
 muda com o código.
 
+Esse comando completo não roda mais na máquina antes do PR: a CI do PR executa
+exatamente o mesmo contêiner. Durante o desenvolvimento, rode só os testes
+focados no que mudou, e o comando completo apenas para reproduzir uma falha da
+CI.
+
 O que merece teste, em que camada e em que forma está em `docs/TESTES.md`,
 comum aos repositórios; leia antes de escrever ou remover um teste. Diante de
 vermelho, decida de quem é o defeito antes de mexer: teste que mede texto
@@ -143,10 +148,11 @@ dependências; a decisão atual é não modificar a aplicação.
 
 - documentação: `git diff --check`, links locais e busca por afirmações
   obsoletas;
-- autenticação, autorização, sessão, CSRF e contratos cobertos: `quality` e
-  exercício manual do fluxo afetado;
-- persistência, dependências ou contêineres: `quality`, rebuild da pilha e
-  `scripts.verificar_postgres`;
+- autenticação, autorização, sessão, CSRF e contratos cobertos: testes
+  focados e exercício manual do fluxo afetado (o `quality` completo roda na
+  CI do PR);
+- persistência, dependências ou contêineres: testes focados, rebuild da pilha
+  e `scripts.verificar_postgres`;
 - schema: nova revisão Alembic, `upgrade` e `downgrade` coerentes, bootstrap em
   PostgreSQL vazio e backup conferido antes de tocar dados existentes;
 - integração externa: teste controlado de falha, timeout e indisponibilidade.

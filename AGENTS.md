@@ -17,6 +17,20 @@ anteriores recuperáveis de ICT/coletor/banco antes de substituir serviços.
 O CI passa os mesmos candidatos por qualidade, Chromium, scanners e Runtime
 contracts. Ver ADR 010 e docs/RUNBOOK.md; o Compose base mantém o build local.
 
+O `main` é protegido: toda mudança entra por PR com squash merge, histórico
+linear e os checks obrigatórios verdes. A branch não precisa estar atualizada
+em relação ao `main`; não faça merge do `main` nela só para o PR entrar. O
+auto-merge está ligado: depois de `gh pr create`, rode
+`gh pr merge <n> --auto --squash`, e o PR entra sozinho quando os checks
+passarem. Nunca `--admin`, nunca push forçado, nunca rebase em branch
+publicada. A combinação de PRs é verificada pela CI do `main` depois do merge,
+e o VPS implanta sozinho: o `atualizar-stacks.timer` roda a cada 5 minutos,
+espera a CI do `main`, faz backup verificado e roda `~/deploy.sh conforto`.
+Ele alerta uma vez se a CI reprovar ou o deploy for revertido, e não repete
+aquele commit até o `main` andar de novo. `~/deploy.sh conforto` à mão serve
+para adiantar ou repetir um deploy, e `~/deploy.sh --status` mostra VPS ×
+GitHub.
+
 Este é um software experimental de pesquisa, mantido e usado por uma pessoa.
 Ele calcula, monitora e simula conforto térmico animal; hoje roda em modo
 simulado e não aciona equipamentos físicos. Conectar hardware é um passo
@@ -98,6 +112,10 @@ docker compose --env-file .env.docker --profile quality run --build --rm quality
 `--build` mantém a validação explícita e reproduzível: o serviço `quality` não
 monta o código do host, e Compose reconstrói sem cache com a tag base atual
 antes de executar os testes.
+
+O `quality` completo não roda mais na máquina antes do PR: a CI do PR executa
+exatamente o mesmo contêiner. Localmente, rode só os testes focados no que
+mudou, e o `quality` completo apenas para reproduzir uma falha da CI.
 
 ### Ambiente Python local
 

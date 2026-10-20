@@ -100,7 +100,10 @@ docker compose --env-file .env.docker --profile quality run --build --rm quality
 monta o código do host, e Compose reconstrói sem cache com as tags base atuais
 antes de executar os testes.
 
-O estágio executa `ruff check . && pytest`. Mudanças de persistência,
+O estágio executa `ruff check . && pytest`. A CI do PR roda exatamente esse
+contêiner, então ele não roda mais na máquina antes do PR: localmente, rode só
+os testes focados no que mudou, e o completo apenas para reproduzir uma falha
+da CI. Mudanças de persistência,
 migrações, dependências ou contêineres também exigem a pilha completa e
 `scripts.verificar_postgres`. Veja [Desenvolvimento e validação](docs/DESENVOLVIMENTO.md).
 

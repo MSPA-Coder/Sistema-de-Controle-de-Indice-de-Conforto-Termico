@@ -156,10 +156,15 @@ O deploy oficial vem de `_manutencao/vps/deploy.sh` e está instalado como
 ~/deploy.sh conforto
 ```
 
-Publique por branch, pull request com checks obrigatórios verdes e squash merge;
-só então o `main` remoto é elegível para o deploy. Não faça push direto ao
-`main` nem aguarde uma segunda rodada de CI manualmente: o script confere o
-commit que vai aplicar.
+Publique por branch, pull request com checks obrigatórios verdes e squash merge
+(com auto-merge: `gh pr merge <n> --auto --squash`); só então o `main` remoto é
+elegível para o deploy. Não faça push direto ao `main`. O deploy é automático:
+o `atualizar-stacks.timer` roda a cada 5 minutos e, quando o `main` avança,
+espera em silêncio a CI do `main`, faz backup verificado e roda
+`~/deploy.sh conforto`. Ele alerta uma vez se a CI reprovar ou o deploy for
+revertido, e não repete aquele commit até o `main` andar de novo. Não é preciso
+aguardar a CI do `main` nem rodar o deploy à mão depois do merge; o comando
+acima serve para adiantar ou repetir um deploy.
 
 Não edite nem commite no VPS. O script exige checkout limpo, confere o commit
 elegível, avança a partir do `main`, reconstrói a imagem e valida o endereço
