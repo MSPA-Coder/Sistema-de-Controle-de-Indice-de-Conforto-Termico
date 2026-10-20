@@ -11,11 +11,20 @@
 
 ## Escopo e fontes de verdade
 
-Produção usa `compose.release.yaml` por digest validado de main (ARM64), não
-rebuild no VPS. `~/deploy.sh conforto` confere revisão/run, arquitetura e IDs
-anteriores recuperáveis de ICT/coletor/banco antes de substituir serviços.
-O CI passa os mesmos candidatos por qualidade, Chromium, scanners e Runtime
-contracts. Ver ADR 010 e docs/RUNBOOK.md; o Compose base mantém o build local.
+Depois da verificação completa na máquina (o `quality`), faça commit direto no
+`main` e `git push`, sem PR e sem esperar nada. A regra do `main` continua
+impedindo apagá-lo ou reescrever o histórico: nada de push forçado nem de
+rebase do `main`. A CI do GitHub roda depois de cada push só como aviso e não
+bloqueia nada; se falhar, investigue. O Dependabot continua por PR, com os
+checks obrigatórios e auto-merge.
+
+O deploy (`~/deploy.sh conforto`) só roda quando o usuário mandar. O servidor
+monta a imagem a partir do código do `main`, sem esperar nem baixar nada da
+CI, confere a saúde e volta sozinho para a versão anterior se falhar.
+`~/deploy.sh --status` compara VPS × GitHub. Na quarta-feira, o
+`reconstruir-bases.timer` reconstrói só a versão que já está no ar, para pegar
+correções de segurança das imagens-base, sem trazer commits novos. Ver
+docs/RUNBOOK.md.
 
 Este é um software experimental de pesquisa, mantido e usado por uma pessoa.
 Ele calcula, monitora e simula conforto térmico animal; hoje roda em modo
@@ -127,9 +136,12 @@ Valide proporcionalmente ao risco e percorra manualmente o fluxo alterado.
 Mudanças de persistência, migrações, dependências ou contêineres exigem a pilha
 completa. Migração exige bootstrap em PostgreSQL vazio e backup conferido antes
 de atuar sobre dados existentes. Registre verificações omitidas e o motivo.
+Em qualquer mudança de código, rode o `quality` completo na máquina antes do
+commit: é essa verificação que vale.
 
 A CI valida Compose, executa o estágio `quality`, audita dependências Python,
-varre a imagem servida e confere contratos do runtime. Não afrouxe controles de
+varre a imagem servida e confere contratos do runtime; roda depois de cada
+push só como aviso e não bloqueia nada. Não afrouxe controles de
 segurança para fazer a CI passar. Dependências usam faixas limitadas e são
 atualizadas deliberadamente; preserve o menor piso efetivamente suportado.
 

@@ -1,32 +1,16 @@
 # Operação, dados e recuperação
 
-## Entrega por imagem validada
+## Build no servidor
 
-No VPS, use somente `~/deploy.sh conforto` depois da instalação da
-infraestrutura compatível de `manutencao/main`. `compose.release.yaml` recebe
-`APP_IMAGE` e `POSTGRES_IMAGE` por digest; não execute um build Compose para
-atualizar esse ambiente. O Compose base continua servindo ao desenvolvimento
-AMD64 local, que é validação separada da entrega ARM64.
-
-A CI nativa ARM64 constrói um runtime e um PostgreSQL. `Dockerfile.verify`
-adiciona ferramentas sobre o candidato e confere que as versões de runtime
-não mudaram. Ruff/mypy/pytest, Chromium e Trivy validam os candidatos;
-`Runtime contracts` recebe esses mesmos IDs via artefato para conferir
-imutabilidade, health e papel restrito (ict/coletor/schema). Só depois dos dois jobs,
-o job de publicação envia os mesmos IDs ao GHCR, sem reconstruir.
-
-Pacotes: `ghcr.io/mspa-coder/conforto-termico` e `conforto-termico-postgres`, tags
-`run-<run_id>-<tentativa>`. Visibilidade pública só após conferir conteúdo
-publicável; nenhuma conta, .env, .secrets, chave privada ou fixture entra no
-runtime. Repositório público não torna um pacote automaticamente público.
-
-O deploy exige run completo verde de main no SHA exato, revisão/run e
-arquitetura em **ambas** as imagens. Confere os IDs anteriores disponíveis
-antes de alterar código/serviços; depois sobe `--no-build --pull never`.
-Rollback restaura IDs por papel e código, nunca dados/schema. Só o serviço
-PostgreSQL recebe `mspa.backup.postgres=true`, preservando a descoberta do
-backup mesmo com digest ou ID local. `--refresh` escolhe o novo run verde do
-mesmo commit. Aguarde a publicação de main antes de implantar.
+No VPS, use somente `~/deploy.sh conforto`, e só quando o usuário mandar. O
+script (de `manutencao/main`) monta as imagens no próprio servidor a partir do
+código do `main`, sem esperar a CI nem baixar nada do GHCR; confere a saúde e
+volta sozinho para o código e a imagem anteriores se falhar, nunca para
+dados/schema. Só o serviço PostgreSQL recebe `mspa.backup.postgres=true`, o
+que preserva a descoberta do backup. `~/deploy.sh --status` compara VPS ×
+GitHub. Na quarta-feira, o `reconstruir-bases.timer` reconstrói só a versão
+que já está no ar, para pegar correções de segurança das imagens-base, sem
+trazer commits novos.
 
 O ambiente suportado é Docker Compose com PostgreSQL. O uso é individual,
 experimental e simulado, tanto localmente quanto na instância de demonstração
@@ -156,14 +140,13 @@ O deploy oficial vem de `_manutencao/vps/deploy.sh` e está instalado como
 ~/deploy.sh conforto
 ```
 
-Publique por branch, pull request com checks obrigatórios verdes e squash merge;
-só então o `main` remoto é elegível para o deploy. Não faça push direto ao
-`main` nem aguarde uma segunda rodada de CI manualmente: o script confere o
-commit que vai aplicar.
+Publique com commit direto no `main` e `git push`, depois da verificação
+completa na máquina; não há PR nem espera de CI, que roda depois do push só
+como aviso. Rode o deploy só quando o usuário mandar.
 
-Não edite nem commite no VPS. O script exige checkout limpo, confere o commit
-elegível, avança a partir do `main`, reconstrói a imagem e valida o endereço
-público. `~/deploy.sh --status` é apenas diagnóstico transversal. Se a nova
+Não edite nem commite no VPS. O script exige checkout limpo, avança a partir
+do `main`, reconstrói a imagem e valida o endereço público. `~/deploy.sh
+--status` compara VPS × GitHub. Se a nova
 versão não ficar saudável, ele restaura o commit e a imagem anteriores. Esse rollback
 **não reverte migrações**; mudança de schema exige compatibilidade, backup
 central conferido pelo BackupRestore e procedimento explícito de recuperação de dados.
