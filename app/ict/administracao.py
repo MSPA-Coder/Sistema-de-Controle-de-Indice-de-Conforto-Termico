@@ -197,7 +197,7 @@ def criar_equipamento(zona_id):
 def atualizar_equipamento(zona_id, equipamento_id):
     dados = request.get_json(force=True, silent=True) or {}
     try:
-        equipamento = db.atualizar_equipamento(equipamento_id, dados)
+        equipamento = db.atualizar_equipamento(equipamento_id, dados, zona_id=zona_id)
     except db.ZonaInvalidaError:
         return jsonify({"erro": "Os dados do equipamento são inválidos."}), 400
     if equipamento is None or equipamento["zona_id"] != zona_id:

@@ -92,11 +92,13 @@ class ClimaHorario:
 
 def _inteiro(dados: dict, chave: str, minimo: int, maximo: int) -> int:
     bruto = dados.get(chave)
-    if bruto is None:
-        raise GeracaoDadosError(f"Informe um nÃºmero inteiro para {chave}.")
+    if bruto is None or isinstance(bruto, bool) or (
+        isinstance(bruto, float) and not bruto.is_integer()
+    ):
+        raise GeracaoDadosError(f"Informe um número inteiro para {chave}.")
     try:
         valor = int(bruto)
-    except (TypeError, ValueError) as erro:
+    except (TypeError, ValueError, OverflowError) as erro:
         raise GeracaoDadosError(f"Informe um número inteiro para {chave}.") from erro
     if not minimo <= valor <= maximo:
         raise GeracaoDadosError(f"{chave} deve estar entre {minimo} e {maximo}.")

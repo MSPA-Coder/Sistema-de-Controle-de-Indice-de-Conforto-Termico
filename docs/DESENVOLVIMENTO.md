@@ -164,6 +164,10 @@ execução quando ela passa a `concluida`. Leases expirados são recuperados e o
 staging incompleto é descartado. Exports CSV também ignoram execuções não
 concluídas.
 
+A recuperação bloqueia a execução e revalida a expiração antes de apagar as
+amostras. Se um heartbeat ou uma conclusão estiver em curso, aguarda seu commit
+e preserva os dados quando a execução já tiver sido renovada ou concluída.
+
 Alertas automáticos entram primeiro em `historico.notificacoes_outbox`. A chave
 de deduplicação evita repetição do mesmo evento; o worker aplica retry com
 limite, registra o último erro e recupera itens cujo bloqueio expirou. Uma

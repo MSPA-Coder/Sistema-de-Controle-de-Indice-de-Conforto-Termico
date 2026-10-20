@@ -15,7 +15,10 @@ from __future__ import annotations
 import bisect
 import datetime
 import json
+import math
+from decimal import Decimal, InvalidOperation
 
+from app.models import fuso_local, parsear_timestamp
 from app.termico import thermal_indices as ti
 
 from .comum import coagir_booleano as coagir_booleano
@@ -118,19 +121,24 @@ def salvar_controle_zona(zona_id: int, dados: dict) -> dict:
 
 def _validar_inteiro(valor, nome_campo: str, minimo: int, maximo: int) -> int:
     try:
-        numero = int(float(str(valor).replace(",", ".")))
-    except (TypeError, ValueError) as err:
+        numero = Decimal(str(valor).replace(",", "."))
+    except (InvalidOperation, TypeError, ValueError) as err:
         raise ZonaInvalidaError(f"O campo '{nome_campo}' precisa ser um número inteiro.") from err
+    if not numero.is_finite() or numero != numero.to_integral_value():
+        raise ZonaInvalidaError(f"O campo '{nome_campo}' precisa ser um número inteiro.")
     if not (minimo <= numero <= maximo):
         raise ZonaInvalidaError(f"O campo '{nome_campo}' precisa estar entre {minimo} e {maximo}.")
-    return numero
+    return int(numero)
 
 
 def _validar_numero(valor, nome_campo: str) -> float:
     try:
-        return float(str(valor).replace(",", "."))
+        numero = float(str(valor).replace(",", "."))
     except (TypeError, ValueError) as err:
         raise ZonaInvalidaError(f"O campo '{nome_campo}' precisa ser numérico.") from err
+    if not math.isfinite(numero):
+        raise ZonaInvalidaError(f"O campo '{nome_campo}' precisa ser numérico e finito.")
+    return numero
 
 
 def _validar_zona(dados: dict) -> dict:
@@ -530,7 +538,7 @@ def obter_painel_zonas() -> list[dict]:
     tenha acesso ao mesmo banco, incluindo um processo de "dashboard"
     somente-leitura que nunca fala Modbus (ver `zona_service.py` e
     `agents.md`)."""
-    agora = datetime.datetime.now().replace(microsecond=0)
+    agora = datetime.datetime.now(fuso_local()).replace(microsecond=0)
     inicio_dia = agora.replace(hour=0, minute=0, second=0)
 
     with _conexao(escrita=False) as conn:
@@ -657,7 +665,7 @@ def _resumir_painel_zona(
     # binaria via `bisect`, valida porque a lista ja esta ordenada), o
     # resultado e identico, so que em O(n) no lugar de O(n) repetido
     # varias vezes.
-    datas = [datetime.datetime.fromisoformat(linha["criado_em"]) for linha in leituras]
+    datas = [parsear_timestamp(linha["criado_em"]).astimezone(fuso_local()) for linha in leituras]
 
     ultima = leituras[-1]
     ultima_dt = datas[-1]

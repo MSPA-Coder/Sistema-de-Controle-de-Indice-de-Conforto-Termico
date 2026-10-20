@@ -407,9 +407,12 @@ def recuperar_execucoes_expiradas() -> list[int]:
     agora = _agora()
     ids: list[int] = []
     with _conexao() as conn:
+        # Espera o heartbeat/conclusão em curso e reavalia o predicado antes
+        # de descartar staging. Uma leitura sem lock pode apagar amostras de
+        # uma execução que já renovou o lease ou terminou enquanto aguardava.
         linhas = conn.execute(
             "SELECT id FROM execucoes WHERE status='processando' "
-            "AND lease_until IS NOT NULL AND lease_until < ?",
+            "AND lease_until IS NOT NULL AND lease_until < ? ORDER BY id FOR UPDATE",
             (agora,),
         ).fetchall()
         for linha in linhas:

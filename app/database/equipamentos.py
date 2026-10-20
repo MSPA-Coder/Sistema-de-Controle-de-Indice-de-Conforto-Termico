@@ -279,12 +279,22 @@ def obter_equipamento(equipamento_id: int) -> dict | None:
     return dict(linha) if linha else None
 
 
-def atualizar_equipamento(equipamento_id: int, dados: dict) -> dict | None:
+def atualizar_equipamento(
+    equipamento_id: int, dados: dict, *, zona_id: int | None = None
+) -> dict | None:
     validado = validar_equipamento(dados)
     with conexao() as conn:
-        existe = conn.execute(
-            "SELECT 1 FROM equipamentos WHERE id = ?", (equipamento_id,)
-        ).fetchone()
+        # A zona endereçada faz parte da identidade do recurso. Confere e
+        # bloqueia a linha na mesma transação que escreve, antes de mutá-la.
+        if zona_id is None:
+            existe = conn.execute(
+                "SELECT 1 FROM equipamentos WHERE id = ? FOR UPDATE", (equipamento_id,)
+            ).fetchone()
+        else:
+            existe = conn.execute(
+                "SELECT 1 FROM equipamentos WHERE id = ? AND zona_id = ? FOR UPDATE",
+                (equipamento_id, zona_id),
+            ).fetchone()
         if existe is None:
             return None
         conn.execute(
