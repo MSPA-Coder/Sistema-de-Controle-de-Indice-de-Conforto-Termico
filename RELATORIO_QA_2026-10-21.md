@@ -45,7 +45,7 @@ e desktop). Nada foi enviado ao VPS.
 | 17 | Corrigido | Análises mostra "DADO DESATUALIZADO" com a idade da leitura |
 | 18 | Corrigido | Eventos, Histórico e Auditoria com data completa no fuso e formato da conta; entradas no formato regional |
 | 19 | Corrigido | Sem rolagem horizontal em 375 e 768 px nas 9 abas |
-| 20 | Pendente (VPS) | Rodar `~/deploy.sh --status` e decidir o deploy |
+| 20 | Resolvido | VPS estava em d49cf25 (já com a validação de números); deploy de 2dc7479 feito em 22/10/2026, saúde ok, sem IGNU legado no VPS |
 | U1 | Corrigido | Botão **Zonas** na tela de usuários e coluna com a contagem |
 | U2 | Corrigido | Erro do servidor com campo: mensagem real, `aria-invalid`, foco e Host obrigatório em TCP |
 | U3 | Corrigido | Salvar mostra "Configurações salvas"; valor fora da faixa não é corrigido em silêncio nem gravado |
