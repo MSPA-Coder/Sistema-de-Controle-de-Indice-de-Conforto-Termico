@@ -203,15 +203,19 @@ def log_login_sucesso(usuario_id: int, login: str, perfil: str = "unknown") -> N
     )
 
 
-def log_login_falha(login: str, motivo: str) -> None:
+def log_login_falha(login: str, motivo: str, conta_existe: bool = True) -> None:
     """Registra falha de login.
 
     O login vem do formulário, então é texto de terceiro: sem `sanitizar_log`,
     quem digitasse uma quebra de linha no campo escreveria uma linha inteira
     de log por conta própria -- e este registro em particular é o que alguém
     vai ler depois de uma tentativa de invasão.
+
+    Só uma conta que existe tem o login gravado: quem digita a senha (ou outro
+    texto) no campo de login por engano não a deixa na trilha, e a tabela não
+    guarda texto arbitrário de quem não está autenticado.
     """
-    login_seguro = sanitizar_log(login)[:80]
+    login_seguro = sanitizar_log(login)[:80] if conta_existe else "(login inexistente)"
     registrar_evento_revisavel(
         EventosAuditoria.LOGIN_FALHA,
         "autenticacao",

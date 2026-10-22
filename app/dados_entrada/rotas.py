@@ -99,9 +99,15 @@ def gerar_dados():
 
 @dados_entrada_leitura_bp.route("/api/dados-entrada/execucoes", methods=["GET"])
 def listar_execucoes():
+    execucoes = dados_db.listar_execucoes()
+    permitidas = zonas_permitidas(auth.usuario_atual())
+    if permitidas is not None:
+        # Execução com medição de zona alheia não aparece para quem não a enxerga.
+        vetadas = dados_db.execucoes_com_zona_fora(permitidas)
+        execucoes = [e for e in execucoes if e["id"] not in vetadas]
     return jsonify(
         {
-            "execucoes": dados_db.listar_execucoes(),
+            "execucoes": execucoes,
             "destino": "PostgreSQL (schema dados_entrada)",
         }
     )
@@ -150,6 +156,13 @@ def excluir_medicoes():
         execucao_id = int(execucao_id) if execucao_id not in (None, "") else None
     except (TypeError, ValueError):
         return jsonify({"erro": "execucao_id deve ser inteiro."}), 400
+    permitidas = zonas_permitidas(auth.usuario_atual())
+    if permitidas is not None and (
+        execucao_id is None or not dados_db.zonas_da_execucao(execucao_id) <= permitidas
+    ):
+        # Apagar tudo, ou uma execução com zona alheia, atinge dados que a conta
+        # não enxerga: fica com quem tem acesso global.
+        return jsonify({"erro": "Seu perfil não tem acesso a esta função."}), 403
     apagadas = dados_db.excluir_medicoes(execucao_id)
     registrar_evento_revisavel(
         "MEDICOES_EXCLUIDAS",
@@ -195,6 +208,9 @@ def apagar_historico():
     dados = request.get_json(force=True, silent=True) or {}
     if not confirmacao_de_exclusao_valida(dados):
         return jsonify({"erro": "Digite APAGAR para confirmar a exclusão."}), 400
+    if zonas_permitidas(auth.usuario_atual()) is not None:
+        # O histórico é apagado para todas as zonas: só acesso global.
+        return jsonify({"erro": "Seu perfil não tem acesso a esta função."}), 403
     total = db.contar_leituras()
     db.limpar_historico()
     registrar_evento_revisavel(

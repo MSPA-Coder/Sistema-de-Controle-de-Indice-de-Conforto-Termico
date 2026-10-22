@@ -21,6 +21,15 @@ def usuario_tem_acesso_zona(usuario_id: int, zona_id: int) -> bool:
     return linha is not None
 
 
+def contar_zonas_por_usuario() -> dict[int, int]:
+    """Quantas zonas cada conta tem liberadas (contas sem concessão não aparecem)."""
+    with conexao(escrita=False) as conn:
+        linhas = conn.execute(
+            "SELECT usuario_id, COUNT(*) AS total FROM usuario_zonas GROUP BY usuario_id"
+        ).fetchall()
+    return {int(linha["usuario_id"]): int(linha["total"]) for linha in linhas}
+
+
 def listar_zonas_do_usuario(usuario_id: int) -> list[dict]:
     with conexao(escrita=False) as conn:
         linhas = conn.execute(

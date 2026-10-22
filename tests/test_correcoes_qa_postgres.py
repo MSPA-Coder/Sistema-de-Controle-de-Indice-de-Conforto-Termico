@@ -375,3 +375,47 @@ def test_lista_de_usuarios_mostra_quantas_zonas_cada_conta_tem(criar_conta):
     assert "1 de 2" in linha(com_zona)
     assert "Nenhuma" in linha(sem_zona)
     assert "Todas" in re.sub(r"\s+", " ", pagina)  # o administrador logado
+
+
+# ---------------------------------------------------------------------------
+# Revisão de código de 22/10/2026
+# ---------------------------------------------------------------------------
+
+
+def test_conta_com_zonas_restritas_nao_apaga_dados_de_outras_zonas(criar_conta):
+    from app.dados_entrada import db as dados_db
+
+    _, _, criar = criar_conta
+    a = db.criar_zona(zona("QA A"))["id"]
+    tecnico, cabecalhos, _, _ = criar("tecnico", zonas=[a])
+
+    # Apagar tudo atingiria zonas que a conta não enxerga.
+    for caminho in ("/api/dados-entrada/medicoes", "/api/dados-entrada/apagar-historico"):
+        resposta = tecnico.delete(caminho, json={"confirmacao": "APAGAR"}, headers=cabecalhos)
+        assert resposta.status_code == 403, caminho
+    assert tecnico.get("/api/dados-entrada/execucoes").status_code == 200
+    assert dados_db.execucoes_com_zona_fora(frozenset({a})) is not None
+
+
+def test_login_inexistente_nao_deixa_o_texto_digitado_na_trilha(criar_conta):
+    admin, _, _ = criar_conta
+    texto = f"naoexiste-{uuid4().hex[:8]}"
+    anonimo = admin.application.test_client()
+    anonimo.post(
+        "/login",
+        data={"login": texto, "senha": "x", "_csrf_token": _token(anonimo, "/login")},
+    )
+    assert not [e for e in _eventos(evento="LOGIN_FALHA") if texto in str(e)]
+    assert _eventos(evento="LOGIN_FALHA")  # a falha em si continua registrada
+
+
+def test_logout_encerra_a_sessao_mesmo_se_a_revogacao_falhar(criar_conta, monkeypatch):
+    _, _, criar = criar_conta
+    cliente, cabecalhos, _, _ = criar("gestor")
+
+    def falha(*_args, **_kwargs):
+        raise RuntimeError("banco indisponível")
+
+    monkeypatch.setattr(auth.db, "revogar_sessao", falha)
+    assert cliente.post("/logout", headers=cabecalhos).status_code == 302
+    assert cliente.get("/preferencias").status_code == 302  # sem sessão: volta ao login

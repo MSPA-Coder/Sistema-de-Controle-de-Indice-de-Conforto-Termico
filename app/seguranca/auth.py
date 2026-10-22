@@ -672,7 +672,7 @@ def login() -> ResponseReturnValue:
             if usuario and not usuario["ativo"]:
                 motivo = "usuario_inativo"
 
-            log_login_falha(login_digitado, motivo)
+            log_login_falha(login_digitado, motivo, conta_existe=usuario is not None)
             erro = "Login ou senha inválidos."
         else:
             session.clear()
@@ -696,14 +696,20 @@ def logout() -> ResponseReturnValue:
     from app.seguranca.audit_log import EventosAuditoria, registrar_evento_revisavel
 
     sid = session.get("sid")
-    if sid is not None:
-        # O cookie e assinado e sem estado: apagar so o do navegador deixava
-        # uma copia dele valendo. A revogacao vale ate a sessao vencer sozinha.
-        validade = current_app.permanent_session_lifetime
-        db.revogar_sessao(
-            str(sid), datetime.datetime.now(datetime.UTC) + validade + datetime.timedelta(minutes=5)
-        )
-    registrar_evento_revisavel(EventosAuditoria.LOGOUT, "autenticacao", "Encerrou a sessão")
+    try:
+        if sid is not None:
+            # O cookie e assinado e sem estado: apagar so o do navegador deixava
+            # uma copia dele valendo. A revogacao vale ate a sessao vencer sozinha.
+            validade = current_app.permanent_session_lifetime
+            db.revogar_sessao(
+                str(sid),
+                datetime.datetime.now(datetime.UTC) + validade + datetime.timedelta(minutes=5),
+            )
+        registrar_evento_revisavel(EventosAuditoria.LOGOUT, "autenticacao", "Encerrou a sessão")
+    except Exception:
+        # Sair nunca pode falhar por causa do banco: a pessoa fica sem a sessao
+        # no navegador de qualquer jeito, e a falha da revogacao vai para o log.
+        current_app.logger.exception("Falha ao revogar a sessão no logout")
     session.clear()
     return redirect(url_for("auth.login"))
 
@@ -822,12 +828,11 @@ def _render_usuarios(**extra) -> ResponseReturnValue:
     usuarios = db.listar_usuarios()
     precisa_de_zonas = any(conta["perfil"] != "administrador" for conta in usuarios)
     total_zonas = len(db.listar_zonas()) if precisa_de_zonas else 0
+    liberadas = db.contar_zonas_por_usuario() if precisa_de_zonas else {}
     for conta in usuarios:
         # Administrador enxerga tudo por perfil; os demais, so o que lhes foi concedido.
         conta["zonas_liberadas"] = (
-            None
-            if conta["perfil"] == "administrador"
-            else len(db.listar_zonas_do_usuario(conta["id"]))
+            None if conta["perfil"] == "administrador" else liberadas.get(int(conta["id"]), 0)
         )
     return render_template(
         "usuarios.html",
@@ -991,6 +996,7 @@ def zonas_usuario_rota(usuario_id: int) -> ResponseReturnValue:
     """
     usuario = db.obter_usuario(usuario_id)
     if usuario is None:
+        flash("Conta não encontrada.", "erro")
         return redirect(url_for("usuarios.pagina_usuarios"))
 
     zonas = db.listar_zonas()
@@ -1018,7 +1024,12 @@ def zonas_usuario_rota(usuario_id: int) -> ResponseReturnValue:
                 concedidas=novas,
                 revogadas=removidas,
             )
-        flash(f"Zonas de {usuario['nome']} atualizadas.", "ok")
+        flash(
+            f"Zonas de {usuario['nome']} atualizadas."
+            if novas or removidas
+            else f"Nenhuma mudança nas zonas de {usuario['nome']}.",
+            "ok",
+        )
         return redirect(url_for("usuarios.pagina_usuarios"))
 
     return render_template(

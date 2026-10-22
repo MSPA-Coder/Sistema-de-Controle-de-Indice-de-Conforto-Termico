@@ -17,6 +17,7 @@ from __future__ import annotations
 import os
 
 from .acl_zonas import conceder_acesso_zona as conceder_acesso_zona
+from .acl_zonas import contar_zonas_por_usuario as contar_zonas_por_usuario
 from .acl_zonas import listar_zonas_do_usuario as listar_zonas_do_usuario
 from .acl_zonas import revogar_acesso_zona as revogar_acesso_zona
 from .acl_zonas import usuario_tem_acesso_zona as usuario_tem_acesso_zona

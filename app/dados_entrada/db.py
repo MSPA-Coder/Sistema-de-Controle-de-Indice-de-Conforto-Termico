@@ -553,6 +553,20 @@ def zonas_da_execucao(execucao_id: int) -> frozenset[int]:
     return frozenset(int(linha["zona_id"]) for linha in linhas if linha["zona_id"] is not None)
 
 
+def execucoes_com_zona_fora(permitidas: frozenset[int]) -> frozenset[int]:
+    """Execuções que têm medição de alguma zona fora de `permitidas`."""
+    with _conexao(escrita=False) as conn:
+        if permitidas:
+            linhas = conn.execute(
+                "SELECT DISTINCT execucao_id FROM medicoes WHERE zona_id IS NULL OR zona_id NOT IN "
+                f"({','.join('?' for _ in permitidas)})",
+                tuple(sorted(permitidas)),
+            ).fetchall()
+        else:
+            linhas = conn.execute("SELECT DISTINCT execucao_id FROM medicoes").fetchall()
+    return frozenset(int(linha["execucao_id"]) for linha in linhas)
+
+
 def excluir_medicoes(execucao_id: int | None = None) -> int:
     with _conexao() as conn:
         if execucao_id is None:

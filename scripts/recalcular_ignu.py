@@ -95,11 +95,10 @@ def _recalcular_tabela(esquema, tabela, col_valor, col_status, col_entradas, col
             if zona_id is not None:
                 zonas.add(int(zona_id))
         if aplicar and mudancas:
-            for novo, novo_status, _id in mudancas:
-                conn.execute(
-                    f"UPDATE {tabela} SET {col_valor} = ?, {col_status} = ? WHERE id = ?",
-                    (novo, novo_status, _id),
-                )
+            conn.executemany(
+                f"UPDATE {tabela} SET {col_valor} = ?, {col_status} = ? WHERE id = ?",
+                mudancas,
+            )
             conn.commit()
     finally:
         conn.close()
@@ -107,9 +106,16 @@ def _recalcular_tabela(esquema, tabela, col_valor, col_status, col_entradas, col
 
 
 def _refazer_agregados(zonas: set[int]) -> None:
+    # Só as zonas que ainda usam o IGNU: para as outras não há como reconstruir,
+    # e apagar deixaria o agregado antigo sem substituto.
+    zonas_ignu = {}
+    for zona_id in sorted(zonas):
+        zona = db.obter_zona(zona_id)
+        if zona is not None and zona["indice"] == INDICE:
+            zonas_ignu[zona_id] = zona
     conn = db_backend.abrir_conexao_postgres("historico")
     try:
-        for zona_id in sorted(zonas):
+        for zona_id in sorted(zonas_ignu):
             conn.execute(
                 "DELETE FROM agregados_15min WHERE zona_id = ? AND indice = ?", (zona_id, INDICE)
             )
@@ -119,10 +125,7 @@ def _refazer_agregados(zonas: set[int]) -> None:
         conn.commit()
     finally:
         conn.close()
-    for zona_id in sorted(zonas):
-        zona = db.obter_zona(zona_id)
-        if zona is None or zona["indice"] != INDICE:
-            continue
+    for zona_id, zona in sorted(zonas_ignu.items()):
         # `executar_para_zona` processa até 500 janelas por chamada.
         while True:
             resultado = agregacao.executar_para_zona(zona)
