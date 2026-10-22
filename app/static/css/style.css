@@ -28,9 +28,31 @@
   --fonte-sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
 
   --raio: 10px;
+
+  /* Versões das cores de status para TEXTO sobre o fundo escuro: as puras
+     ficam entre 3,0:1 e 3,8:1 (mínimo AA: 4,5:1 em texto pequeno). Cada uma é
+     a cor de status misturada com o texto claro até passar de 4,5:1. */
+  --texto-conforto: #86B491;
+  --texto-alerta: #E9C37F;
+  --texto-perigo: #D5877E;
+  --texto-emergencia: #E8756B;
 }
 
 * { box-sizing: border-box; }
+
+/* Só para leitor de tela (ex.: o h1 que dá nome à página). */
+.so-leitor {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+.obrigatorio { color: var(--texto-perigo); }
 
 html, body {
   margin: 0;
@@ -113,6 +135,9 @@ button { font-family: inherit; }
   margin: 0 auto;
   flex: 1;
 }
+/* Sem isto um filho com conteúdo largo (tabela, gráfico) impõe a própria
+   largura mínima à trilha do grid e a página ganha rolagem horizontal. */
+.grade > * { min-width: 0; }
 .graficos-painel, .email-painel, .tabela-painel { grid-column: 1 / -1; }
 #aba-principal {
   grid-template-columns: repeat(24, minmax(0, 1fr));
@@ -206,9 +231,11 @@ button { font-family: inherit; }
 }
 
 @media (max-width: 900px) {
-  .grade { grid-template-columns: 1fr; padding: 1rem; }
-  #aba-principal { grid-template-columns: 1fr; }
-  .principal-zona-linha { grid-template-columns: 1fr; }
+  /* `minmax(0, 1fr)`, e não `1fr` (= minmax(auto, 1fr)): a trilha não pode
+     crescer além da tela por causa do conteúdo. */
+  .grade { grid-template-columns: minmax(0, 1fr); padding: 1rem; }
+  #aba-principal { grid-template-columns: minmax(0, 1fr); }
+  .principal-zona-linha { grid-template-columns: minmax(0, 1fr); }
   #aba-principal .linhas-zonas-principal,
   #aba-principal .entradas-grafico-painel,
   #aba-principal .leitura-painel,
@@ -218,7 +245,7 @@ button { font-family: inherit; }
   #aba-principal .tabela-painel {
     grid-column: auto;
   }
-  .grade-historico { grid-template-columns: 1fr; }
+  .grade-historico { grid-template-columns: minmax(0, 1fr); }
   .historico-grafico-entradas,
   .historico-graficos-indices {
     grid-column: auto;
@@ -228,7 +255,7 @@ button { font-family: inherit; }
     height: auto;
     min-height: auto;
   }
-  .grade-configuracoes { grid-template-columns: 1fr; }
+  .grade-configuracoes { grid-template-columns: minmax(0, 1fr); }
   .grade-configuracoes-enxuta { grid-template-columns: minmax(0, 1fr); }
   .abas-app { padding: 0.85rem 1rem 0; gap: 0.85rem; }
   .abas-grupo-rotulo { width: 100%; }
@@ -277,7 +304,9 @@ button { font-family: inherit; }
   font-size: 0.68rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--cor-texto-mute);
+  /* `--cor-campo` é a cor da série do campo nos gráficos; no texto ela entra
+     misturada com o claro para manter 4,5:1 de contraste. */
+  color: color-mix(in srgb, var(--cor-campo, var(--cor-texto-mute)) 60%, var(--cor-texto));
 }
 .campo-entrada input {
   font-family: var(--fonte-mono);
@@ -344,7 +373,7 @@ button { font-family: inherit; }
 .botao--perigo { background: rgba(193, 68, 60, 0.16); border-color: var(--status-perigo); color: #ffcdc8; }
 .botao--perigo:hover:not(:disabled) { background: rgba(193, 68, 60, 0.26); color: #fff2ef; }
 .botao--texto { background: transparent; border: none; color: var(--cor-texto-mute); text-decoration: underline; padding: 0.4rem 0; font-size: 0.8rem; }
-.botao--texto:hover { color: var(--status-perigo); }
+.botao--texto:hover { color: var(--texto-perigo); }
 .botao--compacto { padding: 0.4rem 0.75rem; font-size: 0.75rem; }
 
 .config-grade { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem 1rem; }
@@ -916,10 +945,10 @@ button { font-family: inherit; }
 table { width: 100%; min-width: 780px; border-collapse: collapse; font-family: var(--fonte-mono); font-size: 0.78rem; }
 th, td { text-align: left; padding: 0.5rem 0.7rem; border-bottom: 1px solid var(--cor-borda); white-space: nowrap; }
 th { color: var(--cor-acento); text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.66rem; }
-td.status-conforto { color: var(--status-conforto); }
-td.status-alerta { color: var(--status-alerta); }
-td.status-perigo { color: var(--status-perigo); }
-td.status-emergencia { color: var(--status-emergencia); }
+td.status-conforto { color: var(--texto-conforto); }
+td.status-alerta { color: var(--texto-alerta); }
+td.status-perigo { color: var(--texto-perigo); }
+td.status-emergencia { color: var(--texto-emergencia); }
 .tabela-vazia { color: var(--cor-texto-mute); font-size: 0.85rem; margin: 0.5rem 0 0; }
 .tabela-clicavel tbody tr { cursor: pointer; transition: background-color 0.12s ease; }
 .tabela-clicavel tbody tr:hover { background: var(--cor-painel-alt); }
@@ -988,13 +1017,13 @@ td.status-emergencia { color: var(--status-emergencia); }
   word-break: break-word;
 }
 .executivo-metrica-valor.cor-conforto,
-.executivo-metrica-valor .cor-conforto { color: var(--status-conforto); }
+.executivo-metrica-valor .cor-conforto { color: var(--texto-conforto); }
 .executivo-metrica-valor.cor-alerta,
-.executivo-metrica-valor .cor-alerta { color: var(--status-alerta); }
+.executivo-metrica-valor .cor-alerta { color: var(--texto-alerta); }
 .executivo-metrica-valor.cor-perigo,
-.executivo-metrica-valor .cor-perigo { color: var(--status-perigo); }
+.executivo-metrica-valor .cor-perigo { color: var(--texto-perigo); }
 .executivo-metrica-valor.cor-emergencia,
-.executivo-metrica-valor .cor-emergencia { color: var(--status-emergencia); }
+.executivo-metrica-valor .cor-emergencia { color: var(--texto-emergencia); }
 .executivo-metrica-nota { display: block; margin-top: 0.2rem; font-size: 0.7rem; color: var(--cor-texto-mute); }
 .executivo-recomendacao {
   margin: 0.9rem 0 0;
@@ -1193,7 +1222,7 @@ td.status-emergencia { color: var(--status-emergencia); }
   border: 1px solid var(--cor-borda);
   color: var(--cor-texto-mute);
 }
-.zona-badge--inativa { color: var(--status-perigo); border-color: var(--status-perigo); }
+.zona-badge--inativa { color: var(--texto-perigo); border-color: var(--status-perigo); }
 .zona-acoes { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 
 .zona-equipamentos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.9rem; margin-top: 1rem; }
@@ -1258,7 +1287,8 @@ td.status-emergencia { color: var(--status-emergencia); }
 .campos-entrada--somente-leitura { margin: 0; }
 .campo-entrada-rotulo {
   font-family: var(--fonte-mono);
-  font-size: 0.6rem;
+  font-size: 0.7rem;
+  color: color-mix(in srgb, var(--cor-campo, var(--cor-texto-mute)) 60%, var(--cor-texto));
   line-height: 1.1;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -1289,8 +1319,8 @@ td.status-emergencia { color: var(--status-emergencia); }
   font-family: var(--fonte-mono);
   font-size: 0.73rem;
 }
-.coletor-status--online { color: var(--status-conforto); border-color: var(--status-conforto); }
-.coletor-status--offline { color: var(--status-perigo); border-color: var(--status-perigo); }
+.coletor-status--online { color: var(--texto-conforto); border-color: var(--status-conforto); }
+.coletor-status--offline { color: var(--texto-perigo); border-color: var(--status-perigo); }
 #aba-operacao { max-width: 1360px; margin: 1.5rem auto 0; }
 #aba-operacao > .painel { grid-column: span 16; }
 .operacao-cabecalho { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; }
@@ -1340,9 +1370,9 @@ td.status-emergencia { color: var(--status-emergencia); }
 .operacao-equipamento-cabecalho { display: flex; justify-content: space-between; gap: 0.6rem; align-items: flex-start; margin-bottom: 0.55rem; }
 .operacao-equipamento-cabecalho > strong { min-width: 0; overflow-wrap: anywhere; color: var(--cor-texto); font-size: 0.83rem; }
 .operacao-equipamento-status { flex: 0 0 auto; padding: 0.14rem 0.42rem; border-radius: 999px; background: rgba(148, 163, 184, 0.14); color: var(--cor-texto-mute); font-size: 0.66rem; text-transform: uppercase; }
-.operacao-equipamento-status.status--ok { color: var(--status-conforto); background: rgba(34, 197, 94, 0.12); }
+.operacao-equipamento-status.status--ok { color: var(--texto-conforto); background: rgba(34, 197, 94, 0.12); }
 .operacao-equipamento-status.status--ativo { color: #60a5fa; background: rgba(96, 165, 250, 0.12); }
-.operacao-equipamento-status.status--falha { color: var(--status-perigo); background: rgba(239, 68, 68, 0.12); }
+.operacao-equipamento-status.status--falha { color: var(--texto-perigo); background: rgba(239, 68, 68, 0.12); }
 .operacao-equipamento-dado { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); gap: 0.5rem; padding: 0.25rem 0; border-top: 1px solid rgba(148, 163, 184, 0.08); font-size: 0.7rem; line-height: 1.35; }
 .operacao-equipamento-dado span { color: var(--cor-texto-mute); }
 .operacao-equipamento-dado strong { min-width: 0; color: var(--cor-texto); font-family: var(--fonte-mono); font-weight: 500; overflow-wrap: anywhere; text-align: right; }
@@ -1447,6 +1477,21 @@ td.status-emergencia { color: var(--status-emergencia); }
   border: 1px solid var(--status-perigo);
   color: #ffcdc8;
 }
+.admin-flash--ok {
+  background: rgba(46, 160, 100, 0.16);
+  border: 1px solid var(--status-conforto, #2ea064);
+  color: #c9f0da;
+}
+.admin-aviso { color: var(--texto-alerta); font-weight: 600; }
+.admin-zonas {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  border: 1px solid var(--cor-borda, #2b3440);
+  border-radius: var(--raio);
+  padding: 0.75rem 1rem;
+}
+.admin-zonas legend { padding: 0 0.4rem; color: var(--cor-texto-mute); font-size: 0.82rem; }
 
 .admin-painel { max-width: none; }
 .admin-painel-cabecalho {

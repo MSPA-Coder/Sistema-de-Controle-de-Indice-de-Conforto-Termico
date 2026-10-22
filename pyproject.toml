@@ -113,6 +113,7 @@ known-first-party = ["app", "migrations", "scripts", "tests"]
 # Estes scripts ajustam sys.path antes de importar o pacote da aplicacao.
 "scripts/criar_usuario_admin.py" = ["E402"]
 "scripts/seed_zonas.py" = ["E402"]
+"scripts/recalcular_ignu.py" = ["E402"]
 
 [tool.ruff.format]
 quote-style = "double"

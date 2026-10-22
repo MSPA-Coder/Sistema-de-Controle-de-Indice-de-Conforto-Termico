@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime
 import json
+from typing import TYPE_CHECKING
 
 from app.models import (
     agora_utc,
@@ -20,6 +21,9 @@ from app.models import (
 from app.termico import thermal_indices as ti
 
 from .comum import conexao
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 INTERVALO_MINIMO_LEITURAS = datetime.timedelta(minutes=1)
 LIMITE_JANELAS_PENDENTES = 500
@@ -254,8 +258,14 @@ def obter_historico_leituras(
     valor_referencia: float | None = None,
     data_inicio: str | None = None,
     data_fim: str | None = None,
+    zona_ids: Sequence[int] | None = None,
 ) -> dict:
-    """Consulta paginada do histórico persistido e seus extremos filtrados."""
+    """Consulta paginada do histórico persistido e seus extremos filtrados.
+
+    `zona_ids` restringe o resultado as zonas que a conta pode ver (lista vazia
+    = nenhuma; `None` = sem restricao). Linhas sem zona (`zona_id` nulo, de zona
+    excluida) so aparecem sem restricao.
+    """
     limite = max(1, min(200, int(limite)))
     filtros = []
     parametros: list = []
@@ -263,6 +273,12 @@ def obter_historico_leituras(
     if zona_id is not None:
         filtros.append("l.zona_id = ?")
         parametros.append(zona_id)
+    if zona_ids is not None:
+        if zona_ids:
+            filtros.append(f"l.zona_id IN ({', '.join('?' for _ in zona_ids)})")
+            parametros.extend(zona_ids)
+        else:
+            filtros.append("FALSE")
     if indice:
         filtros.append("l.indice = ?")
         parametros.append(indice)

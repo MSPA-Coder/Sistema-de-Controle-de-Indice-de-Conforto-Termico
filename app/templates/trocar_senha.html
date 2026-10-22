@@ -39,6 +39,11 @@
         <input type="password" id="campo-senha-confirmacao" name="senha_confirmacao"
                autocomplete="new-password" minlength="{{ senha_tamanho_minimo }}" required>
       </div>
+      <p class="auth-subtitulo">A nova senha precisa ter pelo menos {{ senha_tamanho_minimo }} caracteres.</p>
+      <label class="check">
+        <input type="checkbox" data-mostrar-senha>
+        <span>Mostrar as senhas digitadas</span>
+      </label>
       <button type="submit" class="botao botao--primario auth-botao">Trocar senha</button>
     </form>
 
@@ -51,3 +56,4 @@
   </div>
 </div>
 {% endblock %}
+{% block componente_ui_js %}{{ super() }}<script src="{{ url_for('static', filename='js/mostrar-senha.js') }}" defer></script>{% endblock %}

@@ -97,16 +97,21 @@ def limites_utc_do_periodo(
     """
     fuso = fuso_local()
 
-    def _utc(dia: datetime.date) -> str:
+    def _utc(dia: datetime.date) -> str | None:
         meia_noite = datetime.datetime.combine(dia, datetime.time(0), tzinfo=fuso)
-        return meia_noite.astimezone(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S")
+        try:
+            return meia_noite.astimezone(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S")
+        except OverflowError:
+            # Data nos extremos do calendário (0001-01-01 / 9999-12-31): não há
+            # instante UTC representável, e "sem limite" é o que ela significa.
+            return None
 
     inicio = _utc(datetime.date.fromisoformat(data_inicio)) if data_inicio else None
-    fim = (
-        _utc(datetime.date.fromisoformat(data_fim) + datetime.timedelta(days=1))
-        if data_fim
-        else None
-    )
+    fim = None
+    if data_fim:
+        ultimo_dia = datetime.date.fromisoformat(data_fim)
+        if ultimo_dia < datetime.date.max:
+            fim = _utc(ultimo_dia + datetime.timedelta(days=1))
     return inicio, fim
 
 

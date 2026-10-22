@@ -72,5 +72,9 @@ def test_acl_recusa_usuario_inexistente_sem_criar_associacoes(acesso, banco, met
 def test_acl_recusa_zona_inexistente(operador):
     admin, headers, _, _, uid = operador
     resposta = admin.post(f"/usuarios/api/{uid}/zonas/2147483647", json={}, headers=headers)
-    assert resposta.status_code == 302 and resposta.location == "/"
+    # Quem enxerga todas as zonas ouve "nao existe" (404), e nao o 403 generico
+    # de antes: o 404 do handler era inalcancavel porque o hook central
+    # respondia primeiro.
+    assert resposta.status_code == 404
+    assert "não encontrada" in resposta.get_json()["erro"]
     assert db.listar_zonas_do_usuario(uid) == []

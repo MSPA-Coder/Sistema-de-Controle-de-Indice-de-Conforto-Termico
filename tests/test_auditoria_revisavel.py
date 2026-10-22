@@ -17,9 +17,12 @@ def test_evento_revisavel_persiste_ator_contexto_e_oculta_segredo(monkeypatch, a
 
     monkeypatch.setattr(database_auditoria, "registrar_evento_auditoria", registrar)
     with app.test_request_context("/api/zonas", method="POST", environ_base={"REMOTE_ADDR": "127.0.0.1"}):
-        from flask import session
+        from flask import g
 
-        session.update(usuario_id=7, usuario_login="admin", usuario_perfil="administrador")
+        # O ator vem de `g.usuario` (carregado pelo hook de login). A sessao so
+        # guarda `usuario_id`: ler `usuario_login`/`usuario_perfil` dela gravava
+        # sempre "unknown" na trilha.
+        g.usuario = {"id": 7, "login": "admin", "perfil": "administrador"}
         audit_log.registrar_evento_revisavel(
             "ZONA_CRIADA", "cadastro", "Criou zona", detalhes={"senha": "nunca"}
         )

@@ -63,6 +63,25 @@ medições originais. A aba Auditoria, exclusiva de administradores, permite
 revisar as mutações administrativas e de dados relevantes; ela não registra
 visualizações ou polling.
 
+**Séries de IGNU anteriores ao ADR 009** (fórmula com 0,6·Tgn) são corrigidas
+sem gerar tudo de novo, porque as entradas (`tgn`, `tpo`) ficam gravadas junto
+de cada linha. Com backup conferido:
+
+```powershell
+docker compose --env-file .env.docker exec ict python -m scripts.recalcular_ignu
+docker compose --env-file .env.docker exec ict python -m scripts.recalcular_ignu --aplicar
+```
+
+A primeira chamada só mostra quantas linhas mudariam e as trocas de status; a
+segunda grava em `historico.leituras`, `historico.leituras_recentes_zona` e
+`dados_entrada.medicoes` e refaz os agregados de 15 minutos e os resumos
+horários das zonas afetadas. É idempotente.
+
+A tela **Usuários** mostra quantas zonas cada conta tem e o botão **Zonas**
+abre a escolha; conta não administradora sem zona liberada vê as abas, mas não
+consulta nem opera nenhuma zona. A tabela `historico.sessoes_revogadas` guarda
+as sessões encerradas no logout e se limpa sozinha a cada novo logout.
+
 Cada zona define se sua última leitura expira após dois ou três ciclos de
 coleta; três é o padrão. O limite efetivo acompanha o intervalo global de
 coleta e tem piso de dez segundos.

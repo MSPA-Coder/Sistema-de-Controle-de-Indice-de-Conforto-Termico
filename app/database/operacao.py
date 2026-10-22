@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import datetime
 import json
+from typing import TYPE_CHECKING
 
 from .comum import conexao
 from .configuracoes import obter_configuracoes
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 
 def salvar_status_coletor(
@@ -96,9 +100,25 @@ def registrar_evento_operacao(
         )
 
 
-def listar_eventos_operacao(zona_id: int | None = None, limite: int = 30) -> list[dict]:
-    filtro = "WHERE zona_id = ?" if zona_id is not None else ""
-    parametros = (zona_id, limite) if zona_id is not None else (limite,)
+def listar_eventos_operacao(
+    zona_id: int | None = None,
+    limite: int = 30,
+    zona_ids: Sequence[int] | None = None,
+) -> list[dict]:
+    """Eventos recentes; `zona_ids` restringe as zonas que a conta pode ver."""
+    condicoes: list[str] = []
+    parametros_filtro: list = []
+    if zona_id is not None:
+        condicoes.append("zona_id = ?")
+        parametros_filtro.append(zona_id)
+    if zona_ids is not None:
+        if zona_ids:
+            condicoes.append(f"zona_id IN ({', '.join('?' for _ in zona_ids)})")
+            parametros_filtro.extend(zona_ids)
+        else:
+            condicoes.append("FALSE")
+    filtro = ("WHERE " + " AND ".join(condicoes)) if condicoes else ""
+    parametros = (*parametros_filtro, limite)
     with conexao(escrita=False) as conn:
         linhas = conn.execute(
             f"SELECT * FROM eventos_operacao {filtro} ORDER BY id DESC LIMIT ?",

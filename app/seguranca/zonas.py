@@ -42,3 +42,32 @@ def verificar_acesso_zona(
             return "negada"
 
     return "autorizada"
+
+
+def zonas_permitidas(usuario: dict | None) -> frozenset[int] | None:
+    """Zonas que a conta enxerga, ou `None` quando nao ha restricao.
+
+    `verificar_acesso_zona` so cobre rota com `zona_id` no CAMINHO. As leituras
+    que listam varias zonas (`/api/zonas`, historico, analises, operacao,
+    exportacao) ficavam abertas: uma conta sem nenhuma concessao via todas. Elas
+    usam esta funcao para filtrar pelo mesmo vinculo que as rotas por zona
+    consultam. Administradores seguem globais por perfil.
+    """
+    if usuario is None:
+        return frozenset()
+    if usuario.get("perfil") == "administrador":
+        return None
+    from .. import database as db
+
+    return frozenset(int(zona["id"]) for zona in db.listar_zonas_do_usuario(int(usuario["id"])))
+
+
+def zona_visivel(permitidas: frozenset[int] | None, zona_id: int | None) -> bool:
+    return permitidas is None or (zona_id is not None and int(zona_id) in permitidas)
+
+
+def filtrar_por_zona(itens, permitidas: frozenset[int] | None, chave: str = "zona_id") -> list:
+    """Mantem so os itens (dicts) cuja zona a conta pode ver."""
+    if permitidas is None:
+        return list(itens)
+    return [item for item in itens if zona_visivel(permitidas, item.get(chave))]

@@ -69,9 +69,12 @@ perfil, sem obrigação. O script acima é a exceção: quem o roda escolheu a
 própria senha e não fica com troca pendente.
 
 Contas não administradoras recebem acesso às zonas por ACL explícita. O
-administrador pode conceder ou revogar vínculos em
-`/usuarios/api/<usuario_id>/zonas/<zona_id>`; a ausência do vínculo bloqueia a
-rota mesmo quando o perfil possui a área correspondente.
+administrador escolhe as zonas de cada conta no botão **Zonas** da tela de
+usuários (`/usuarios/<id>/zonas`); as rotas JSON
+`/usuarios/api/<usuario_id>/zonas/<zona_id>` seguem disponíveis. A ausência do
+vínculo bloqueia a rota mesmo quando o perfil possui a área correspondente, e
+as consultas que listam várias zonas (zonas, histórico, análises, operação,
+dados de entrada e exportação) devolvem somente as zonas liberadas à conta.
 
 Duas garantias vieram junto, compartilhadas com os outros apps Flask do
 mantenedor: o destino pós-login (`?next=`) é validado por

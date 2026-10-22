@@ -35,6 +35,20 @@ CHAVES_CONFIGURACOES_NAO_TECNICAS = frozenset(
 )
 
 
+def _recusa_de_validacao(erro: Exception, padrao: str):
+    """400 que diz o que esta errado e em que campo.
+
+    As mensagens de `ZonaInvalidaError` sao escritas para quem preenche o
+    formulario (nome do campo e a regra), nunca trazem SQL nem caminho. A tela
+    usa `campo` para marcar o campo e levar o foco. Sem texto, cai no padrao.
+    """
+    corpo = {"erro": str(erro) or padrao}
+    campo = getattr(erro, "campo", None)
+    if campo:
+        corpo["campo"] = campo
+    return jsonify(corpo), 400
+
+
 def _configuracoes_publicas(config: dict) -> dict:
     """Nunca deixa a senha SMTP sair do servidor.
 
@@ -134,8 +148,8 @@ def criar_zona():
             "ZONA_CRIADA", "cadastro", "Criou zona", detalhes={"zona_id": zona["id"]}
         )
         return jsonify(zona), 201
-    except db.ZonaInvalidaError:
-        return jsonify({"erro": "Os dados da zona são inválidos."}), 400
+    except db.ZonaInvalidaError as erro:
+        return _recusa_de_validacao(erro, "Os dados da zona são inválidos.")
 
 
 @administracao_bp.route("/api/zonas/<int:zona_id>", methods=["GET"])
@@ -151,8 +165,8 @@ def atualizar_zona(zona_id):
     dados = request.get_json(force=True, silent=True) or {}
     try:
         zona = db.atualizar_zona(zona_id, dados)
-    except db.ZonaInvalidaError:
-        return jsonify({"erro": "Os dados da zona são inválidos."}), 400
+    except db.ZonaInvalidaError as erro:
+        return _recusa_de_validacao(erro, "Os dados da zona são inválidos.")
     if zona is None:
         return jsonify({"erro": f"Zona {zona_id} não encontrada."}), 404
     registrar_evento_revisavel(
@@ -187,8 +201,8 @@ def criar_equipamento(zona_id):
         return jsonify(equipamento), 201
     except db.ZonaNaoEncontradaError:
         return jsonify({"erro": f"Zona {zona_id} não encontrada."}), 404
-    except db.ZonaInvalidaError:
-        return jsonify({"erro": "Os dados do equipamento são inválidos."}), 400
+    except db.ZonaInvalidaError as erro:
+        return _recusa_de_validacao(erro, "Os dados do equipamento são inválidos.")
 
 
 @administracao_bp.route(
@@ -198,8 +212,8 @@ def atualizar_equipamento(zona_id, equipamento_id):
     dados = request.get_json(force=True, silent=True) or {}
     try:
         equipamento = db.atualizar_equipamento(equipamento_id, dados, zona_id=zona_id)
-    except db.ZonaInvalidaError:
-        return jsonify({"erro": "Os dados do equipamento são inválidos."}), 400
+    except db.ZonaInvalidaError as erro:
+        return _recusa_de_validacao(erro, "Os dados do equipamento são inválidos.")
     if equipamento is None or equipamento["zona_id"] != zona_id:
         return jsonify(
             {"erro": f"Equipamento {equipamento_id} não encontrado na zona {zona_id}."}

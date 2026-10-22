@@ -1,0 +1,43 @@
+{% extends "_layout_auth.html" %}
+{% block titulo %}Zonas de {{ usuario.nome }} · Conforto Térmico{% endblock %}
+{% block conteudo %}
+<div class="admin-pagina">
+  <header class="admin-topo">
+    <div>
+      <a class="botao--texto admin-voltar" href="{{ url_for('usuarios.pagina_usuarios') }}">&larr; Voltar aos usuários</a>
+      <h1 class="admin-titulo">Zonas de {{ usuario.nome }}</h1>
+      <p class="admin-subtitulo">
+        Perfil: {{ perfil_label.get(usuario.perfil, usuario.perfil) }}. Sem zona liberada, esta conta vê as abas,
+        mas não consegue consultar nem operar nenhuma zona.
+      </p>
+    </div>
+  </header>
+
+  <div class="painel admin-painel admin-painel--form">
+    {% if global_por_perfil %}
+    <p class="admin-subtitulo">
+      Administradores enxergam todas as zonas pelo próprio perfil; não há o que escolher aqui.
+    </p>
+    {% elif not zonas %}
+    <p class="admin-subtitulo">Nenhuma zona cadastrada ainda. Cadastre uma na aba Cadastro.</p>
+    {% else %}
+    <form method="post" class="campos-config admin-form">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <fieldset class="admin-zonas">
+        <legend>Zonas liberadas</legend>
+        {% for zona in zonas %}
+        <label class="check">
+          <input type="checkbox" name="zona" value="{{ zona.id }}" {{ "checked" if zona.id in concedidas else "" }}>
+          <span>{{ zona.nome }}{% if not zona.ativa %} <em>(inativa)</em>{% endif %}</span>
+        </label>
+        {% endfor %}
+      </fieldset>
+      <div class="admin-form-acoes">
+        <button type="submit" class="botao botao--primario">Salvar zonas</button>
+        <a class="botao botao--fantasma" href="{{ url_for('usuarios.pagina_usuarios') }}">Cancelar</a>
+      </div>
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

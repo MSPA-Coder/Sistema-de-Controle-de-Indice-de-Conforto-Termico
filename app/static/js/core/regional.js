@@ -220,6 +220,18 @@
         // lê o valor de sempre. O visível ganha um id derivado, e o clique num
         // <label for> é encaminhado a ele (ver `focarPeloRotulo`).
         if (input.id) visible.id = input.id + '-regional';
+        // O <label for> aponta para o original (escondido), então o campo que a
+        // pessoa usa ficava sem nome acessível (só o placeholder). O rótulo
+        // passa a nomeá-lo por aria-labelledby; o clique segue por `focarPeloRotulo`.
+        var rotuloDoCampo = input.id ? document.querySelector('label[for="' + CSS.escape(input.id) + '"]') : null;
+        if (rotuloDoCampo && !visible.hasAttribute('aria-label') && !visible.hasAttribute('aria-labelledby')) {
+            if (!rotuloDoCampo.id) rotuloDoCampo.id = input.id + '-rotulo';
+            visible.setAttribute('aria-labelledby', rotuloDoCampo.id);
+        }
+        // "Ex.: 22.5" em tela brasileira vira "Ex.: 22,5": o exemplo segue o formato escolhido.
+        if (kind === 'number' && visible.placeholder) {
+            visible.placeholder = visible.placeholder.replace(/(\d)\.(\d)/g, '$1' + DECIMAL + '$2');
+        }
         visible.required = required;
         if (input.getAttribute('form')) visible.setAttribute('form', input.getAttribute('form'));
 

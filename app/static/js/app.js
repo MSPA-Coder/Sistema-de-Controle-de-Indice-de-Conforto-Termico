@@ -180,6 +180,17 @@ function formatarHora(isoString) {
   return data.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
+// Data completa + hora: evento de agosto não pode parecer de hoje.
+function formatarDataHora(isoString) {
+  const data = new Date(isoString);
+  if (Number.isNaN(data.getTime())) return String(isoString ?? "");
+  return (
+    data.toLocaleDateString(window.regional.locale, { day: "2-digit", month: "2-digit", year: "numeric" }) +
+    " " +
+    data.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+  );
+}
+
 function formatarDataHoraCurta(isoString) {
   const data = new Date(isoString);
   return data.toLocaleDateString(window.regional.locale, { day: "2-digit", month: "2-digit" }) +
@@ -295,10 +306,37 @@ function chavesCronologicas(historicosPorIndice) {
   )].sort();
 }
 
+// Gráfico em <canvas> não tem texto: sem isto, o leitor de tela não sabia nem
+// que ele existe. O nome sai do título do bloco e das séries desenhadas.
+function descreverGrafico(canvas, configuracao) {
+  const titulo =
+    canvas.closest(".grafico-bloco, .painel, section")?.querySelector(".grafico-titulo")?.textContent.trim() ||
+    "Gráfico";
+  const series = (configuracao.data?.datasets || []).map((dataset) => dataset.label).filter(Boolean);
+  canvas.setAttribute("role", "img");
+  canvas.setAttribute("aria-label", titulo + (series.length ? ". Séries: " + series.join(", ") + "." : "."));
+}
+
+// O eixo direito só existe para quem tem série nele; sem dado, o Chart.js o
+// desenhava de -1 a 1, sem significado nenhum.
+function ajustarEixoSecundario(configuracao) {
+  const y1 = configuracao.options?.scales?.y1;
+  if (!y1) return;
+  y1.display = (configuracao.data?.datasets || []).some(
+    (dataset) =>
+      dataset.yAxisID === "y1" &&
+      (dataset.data || []).some((valor) => valor !== null && valor !== undefined && Number.isFinite(Number(valor)))
+  );
+}
+
 function criarOuAtualizarGrafico(grafico, canvasId, configuracao) {
+  ajustarEixoSecundario(configuracao);
   if (!grafico) {
-    return new Chart(document.getElementById(canvasId).getContext("2d"), configuracao);
+    const canvas = document.getElementById(canvasId);
+    descreverGrafico(canvas, configuracao);
+    return new Chart(canvas.getContext("2d"), configuracao);
   }
+  descreverGrafico(grafico.canvas, configuracao);
 
   grafico.data.labels = configuracao.data.labels;
   grafico.data.datasets = configuracao.data.datasets;
@@ -401,6 +439,8 @@ function ativarAba(aba) {
     const ativo = item.dataset.aba === aba;
     item.classList.toggle("ativo", ativo);
     item.setAttribute("aria-selected", ativo ? "true" : "false");
+    // Só a aba ativa entra na ordem do Tab; as outras se alcançam por setas.
+    item.tabIndex = ativo ? 0 : -1;
   });
 
   conteudos.forEach((conteudo) => {
@@ -439,8 +479,31 @@ function ativarAba(aba) {
 }
 
 function inicializarAbas() {
-  document.querySelectorAll("[data-aba]").forEach((botao) => {
+  const botoes = [...document.querySelectorAll("[data-aba]")];
+  const algumaAtiva = botoes.some((botao) => botao.getAttribute("aria-selected") === "true");
+  botoes.forEach((botao, posicao) => {
+    botao.id = botao.id || "botao-aba-" + botao.dataset.aba;
+    botao.tabIndex = botao.getAttribute("aria-selected") === "true" || (!algumaAtiva && posicao === 0) ? 0 : -1;
     botao.addEventListener("click", () => ativarAba(botao.dataset.aba));
+    // Padrão WAI-ARIA de abas: setas, Home e End movem e ativam.
+    botao.addEventListener("keydown", (evento) => {
+      const destinos = {
+        ArrowRight: (posicao + 1) % botoes.length,
+        ArrowLeft: (posicao - 1 + botoes.length) % botoes.length,
+        Home: 0,
+        End: botoes.length - 1,
+      };
+      if (!(evento.key in destinos)) return;
+      evento.preventDefault();
+      const proximo = botoes[destinos[evento.key]];
+      proximo.focus();
+      ativarAba(proximo.dataset.aba);
+    });
+  });
+  document.querySelectorAll("[data-aba-conteudo]").forEach((painel) => {
+    const botao = botoes.find((item) => item.dataset.aba === painel.dataset.abaConteudo);
+    if (botao) painel.setAttribute("aria-labelledby", botao.id);
+    if (!painel.hasAttribute("role")) painel.setAttribute("role", "tabpanel");
   });
 }
 
@@ -449,10 +512,8 @@ function moverControlesParaConfiguracoes() {
   const configuracoesEmail = document.getElementById("configuracoes-email");
   const configuracoesSensores = document.getElementById("configuracoes-sensores");
   const configuracoesCalculos = document.getElementById("configuracoes-calculos");
-  const configuracoesHistorico = document.getElementById("configuracoes-historico");
 
   const email = document.getElementById("wrap-email-destino");
-  const limparHistorico = document.getElementById("btn-limpar");
 
   const criarGradeChecks = (container) => {
     if (!container) return null;
@@ -498,9 +559,6 @@ function moverControlesParaConfiguracoes() {
   moverCampo("cfg-umidade-relativa", configuracoesCalculos);
   moverCampo("cfg-altitude", configuracoesCalculos);
   moverCampo("cfg-limite-umidade-nebulizador", configuracoesCalculos);
-
-  moverCampo("confirmacao-limpar-historico", configuracoesHistorico);
-  if (configuracoesHistorico && limparHistorico) configuracoesHistorico.appendChild(limparHistorico);
 }
 
 function mostrarErro(msg) {
@@ -569,6 +627,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     rotuloStatus,
     corCampoEntrada,
     formatarHora,
+    formatarDataHora,
     formatarDataHoraCurta,
     statusHistorico: STATUS_HISTORICO,
     rotuloTipoValorHistorico: ROTULO_TIPO_VALOR_HISTORICO,
@@ -602,7 +661,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     mostrarErro,
     atualizarErroLinhaZonaPrincipal: (...argumentos) => dashboardZonas.atualizarErroLinhaZonaPrincipal(...argumentos),
     atualizarResultado: (...argumentos) => dashboardZonas.atualizarResultado(...argumentos),
-    resetarPainelResultado: () => dashboardZonas.resetarPainelResultado(),
     recarregarHistorico: (...argumentos) => dashboardZonas.carregarHistorico(...argumentos),
     recarregarSensores: () => dashboardZonas.atualizarSensorRemoto(),
   });
@@ -619,6 +677,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     atualizarAtualidadeZonas: (...argumentos) => dashboardZonas.atualizarAtualidadeZonas(...argumentos),
     preencherEntradasDoResultado: (...argumentos) => entradaCalculo.preencherEntradasDoResultado(...argumentos),
     formatarHora,
+    formatarDataHora,
     mostrarErro,
     carregarHistoricoTempoReal: () => dashboardZonas.carregarHistorico({ somenteTempoReal: true }),
     salvarConfiguracoes: (...argumentos) => entradaCalculo.salvarConfiguracoes(...argumentos),

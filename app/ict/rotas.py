@@ -7,6 +7,7 @@ from flask import Blueprint, current_app, g, jsonify, request
 from .. import database as db
 from ..nucleo.cache import CacheComTTL
 from ..seguranca.limites import LimitadorJanela
+from ..seguranca.zonas import filtrar_por_zona, zonas_permitidas
 
 ict_bp = Blueprint("ict", __name__)
 
@@ -61,8 +62,12 @@ def _obter_com_cache(chave: str, consulta):
 def obter_analises():
     if resposta := _proteger_analise():
         return resposta
+    # O cache e global; o filtro por zona da conta e aplicado depois dele.
     return jsonify(
-        _obter_com_cache("estatisticas_zonas", db.obter_estatisticas_zonas)
+        filtrar_por_zona(
+            _obter_com_cache("estatisticas_zonas", db.obter_estatisticas_zonas),
+            zonas_permitidas(getattr(g, "usuario", None)),
+        )
     )
 
 
@@ -70,4 +75,9 @@ def obter_analises():
 def obter_painel_executivo():
     if resposta := _proteger_analise():
         return resposta
-    return jsonify(_obter_com_cache("painel_zonas", db.obter_painel_zonas))
+    return jsonify(
+        filtrar_por_zona(
+            _obter_com_cache("painel_zonas", db.obter_painel_zonas),
+            zonas_permitidas(getattr(g, "usuario", None)),
+        )
+    )

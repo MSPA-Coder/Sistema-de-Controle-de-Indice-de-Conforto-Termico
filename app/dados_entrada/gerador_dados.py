@@ -157,6 +157,9 @@ def calcular_ponto_orvalho(tbs: float, ur: float) -> float:
     return b * gama / (a - gama)
 
 
+TOLERANCIA_STULL_C = 0.3
+
+
 def calcular_bulbo_umido(tbs: float, ur: float) -> float:
     """Aproximacao de Stull (2011), adequada para series ambientais."""
     rh = float(ur)
@@ -171,6 +174,13 @@ def calcular_bulbo_umido(tbs: float, ur: float) -> float:
         - 4.686035
     )
     if resultado > t:
+        # A aproximação de Stull passa do bulbo seco por até ~0,2 °C com UR
+        # perto de 100 % e calor (reproduzido em 19-20/09 e 12-13/10/2026), e
+        # uma execução de meses falhava inteira por isso. Dentro dessa
+        # tolerância o bulbo úmido é o próprio bulbo seco (ar saturado); acima
+        # dela o dado é suspeito e continua sendo recusado.
+        if resultado - t <= TOLERANCIA_STULL_C:
+            return t
         raise GeracaoDadosError(
             "A combinação meteorológica produziu bulbo úmido acima do bulbo seco."
         )
@@ -213,7 +223,7 @@ def _baixar_json(url: str) -> dict:
         with urllib.request.urlopen(requisicao, timeout=45, context=contexto_tls) as resposta:
             payload = json.loads(resposta.read().decode("utf-8"))
         if not isinstance(payload, dict):
-            raise GeracaoDadosError("A fonte climÃ¡tica devolveu uma resposta invÃ¡lida.")
+            raise GeracaoDadosError("A fonte climática devolveu uma resposta inválida.")
         return payload
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as erro:
         raise GeracaoDadosError(
@@ -703,8 +713,8 @@ def gerar(dados: dict, zonas: list[dict]) -> dict:
                         "fuso_horario": config["fuso_horario"],
                         "tbs_externa_c": round(tbs, 3),
                         "ur_externa_pct": round(ur, 3),
-                         "ponto_orvalho_c": round(tpo, 3),
-                         "tbu_c": round(tbu, 3),
+                        "ponto_orvalho_c": round(tpo, 3),
+                        "tbu_c": round(tbu, 3),
                         "velocidade_vento_ms": round(clima["vento"], 3),
                         "precipitacao_mm": round(clima["precipitacao"], 5),
                         "pressao_hpa": round(clima["pressao"], 2),

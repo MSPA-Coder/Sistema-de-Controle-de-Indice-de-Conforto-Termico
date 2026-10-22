@@ -10,14 +10,13 @@ export function criarEntradaCalculo({
   mostrarErro,
   atualizarErroLinhaZonaPrincipal,
   atualizarResultado,
-  resetarPainelResultado,
   recarregarHistorico,
   recarregarSensores,
   documento = document,
   requisitar = fetch,
   // `window.sharedauth.confirmar` devolve Promise<boolean> -- ao contrario do
-  // `window.confirm` sincrono que isto substituiu. Ver ATENCAO em
-  // `limparHistorico`, unico chamador: precisa de `await`.
+  // `window.confirm` sincrono que isto substituiu: o chamador (`calcular`)
+  // precisa de `await`.
   confirmar = (opcoes) => window.sharedauth.confirmar(opcoes),
   avisar = (opcoes) => window.sharedauth.avisar(opcoes),
 }) {
@@ -81,7 +80,7 @@ export function criarEntradaCalculo({
       const label = document.createElement("label");
       label.setAttribute("for", "campo-" + campo);
       label.textContent = meta.label + " (" + meta.unidade + ")";
-      label.style.color = corCampoEntrada(campo);
+      label.style.setProperty("--cor-campo", corCampoEntrada(campo));
 
       const input = document.createElement("input");
       input.type = "number";
@@ -126,7 +125,7 @@ export function criarEntradaCalculo({
       const label = document.createElement("span");
       label.className = "campo-entrada-rotulo";
       label.textContent = meta.label + (meta.unidade ? " (" + meta.unidade + ")" : "");
-      label.style.color = corCampoEntrada(campo);
+      label.style.setProperty("--cor-campo", corCampoEntrada(campo));
 
       const valor = document.createElement("output");
       valor.className = "campo-entrada-valor";
@@ -214,14 +213,45 @@ export function criarEntradaCalculo({
     atualizarCamposCalculados({ preservarValoresExistentes: true });
   }
 
+  // Lê o número SEM reescrever o campo: antes, digitar 0 em "Intervalo entre
+  // leituras" virava 1 na hora e era gravado, sem aviso. Valor fora da faixa é
+  // apontado por `validarNumeroConfiguracao` e não é salvo.
   function lerNumeroConfiguracao(id, padrao, minimo) {
     const input = document.getElementById(id);
     if (!input) return padrao;
 
     const valor = Number(input.value);
-    const normalizado = Number.isFinite(valor) ? Math.max(minimo, valor) : padrao;
-    input.value = String(normalizado);
-    return normalizado;
+    return Number.isFinite(valor) && input.value.trim() !== "" ? Math.max(minimo, valor) : padrao;
+  }
+
+  const FAIXAS_NUMERICAS_CONFIGURACAO = [
+    ["cfg-intervalo-leitura", 1, 3600],
+    ["cfg-intervalo-gravacao", 0, 1440],
+    ["cfg-altitude", -500, 9000],
+    ["cfg-limite-umidade-nebulizador", 0, 100],
+    ["cfg-smtp-porta", 1, 65535],
+  ];
+
+  // Marca o campo (aria-invalid) e devolve a frase do problema, ou `null`.
+  function validarNumeroConfiguracao(id, minimo, maximo) {
+    const input = document.getElementById(id);
+    if (!input) return null;
+    const bruto = input.value.trim();
+    const valor = Number(bruto);
+    const invalido = bruto === "" || !Number.isFinite(valor) || valor < minimo || valor > maximo;
+    if (!invalido) {
+      input.removeAttribute("aria-invalid");
+      return null;
+    }
+    input.setAttribute("aria-invalid", "true");
+    const rotulo = documento.querySelector('label[for="' + id + '"]')?.textContent.trim() || id;
+    return rotulo + ": informe um valor entre " + minimo + " e " + maximo + ".";
+  }
+
+  function problemasDasConfiguracoes() {
+    return FAIXAS_NUMERICAS_CONFIGURACAO.map(([id, minimo, maximo]) =>
+      validarNumeroConfiguracao(id, minimo, maximo)
+    ).filter(Boolean);
   }
 
   function coletarConfig() {
@@ -336,25 +366,56 @@ export function criarEntradaCalculo({
     }
   }
 
-  async function salvarConfiguracoesPersistidas() {
+  // `avisarResultado`: o autosave das telas Configurações/Sistema não dava
+  // sinal nenhum de que gravou (ou de que não gravou). `true` avisa sucesso e
+  // falha; "erros" só falha (quem salva por consequência de outra ação, como
+  // calcular); `false` fica em silêncio.
+  async function salvarConfiguracoesPersistidas(avisarResultado = false) {
+    const avisarFalha = avisarResultado === true || avisarResultado === "erros";
+    const problemas = problemasDasConfiguracoes();
+    if (problemas.length) {
+      if (avisarFalha) {
+        avisar({ mensagem: "Não salvo. " + problemas.join(" "), severidade: "warning" });
+      }
+      return false;
+    }
     try {
       const resposta = await fetch("/api/configuracoes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(coletarConfig()),
       });
-      if (!resposta.ok) return;
+      if (!resposta.ok) {
+        const corpo = await resposta.json().catch(() => ({}));
+        if (avisarFalha) {
+          avisar({
+            mensagem: corpo.erro || "Não foi possível salvar as configurações.",
+            severidade: "error",
+          });
+        }
+        return false;
+      }
       const salvo = await resposta.json();
       smtpSenhaJaConfigurada = !!salvo.smtpSenhaConfigurada;
       refletirStatusSmtp();
+      if (avisarResultado === true) {
+        avisar({ mensagem: "Configurações salvas.", severidade: "success" });
+      }
+      return true;
     } catch (erro) {
       console.error("Nao foi possivel salvar configuracoes:", erro);
+      if (avisarFalha) {
+        avisar({ mensagem: "Falha de comunicação ao salvar as configurações.", severidade: "error" });
+      }
+      return false;
     }
   }
 
   function agendarSalvarConfiguracoes() {
     if (salvamentoConfigTimeoutId) clearTimeout(salvamentoConfigTimeoutId);
-    salvamentoConfigTimeoutId = setTimeout(salvarConfiguracoesPersistidas, 250);
+    // Mais folga que os 250 ms de antes: cada tecla num campo numérico chegava
+    // aqui, e agora cada gravação mostra um aviso.
+    salvamentoConfigTimeoutId = setTimeout(() => salvarConfiguracoesPersistidas(true), 700);
   }
 
   // ---------------------------------------------------------------------------
@@ -373,7 +434,7 @@ export function criarEntradaCalculo({
       severidade: "warning",
     });
     if (!confirmado) return;
-    await salvarConfiguracoesPersistidas();
+    if (!(await salvarConfiguracoesPersistidas("erros"))) return;
     const usarSensores = document.getElementById("cfg-coletar").checked;
 
     let dados;
@@ -421,44 +482,6 @@ export function criarEntradaCalculo({
     // dentro de atualizarResultado(), para nunca ser confundido com o caso acima.
     atualizarResultado(dados);
   }
-  async function limparHistorico() {
-    // Modal decide; o campo de texto com "APAGAR" continua existindo e
-    // validado no servidor (`app_factory.confirmacao_de_exclusao_valida`) --
-    // o modal não substitui a digitação, só evita chegar nela sem querer.
-    const confirmacao = document.getElementById("confirmacao-limpar-historico").value;
-    const confirmado = await confirmar({
-      mensagem:
-        "Esta ação apaga todas as leituras salvas no banco e limpa os gráficos/tabelas do histórico " +
-        "nesta sessão.\n\nZonas, equipamentos e configurações serão preservados. A ação não pode ser " +
-        "desfeita; use o aplicativo BackupRestore antes se precisar guardar os dados.",
-      titulo: "Limpar histórico",
-      severidade: "error",
-    });
-    if (!confirmado) return;
-
-    try {
-      const resposta = await fetch("/api/reset", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ confirmacao }),
-      });
-      const corpo = await resposta.json().catch(() => ({}));
-      if (!resposta.ok || !corpo.ok) {
-        avisar({ mensagem: corpo.erro || "Não foi possível limpar o histórico.", severidade: "error" });
-        return;
-      }
-      resetarPainelResultado();
-      await recarregarHistorico();
-      avisar({
-        mensagem: "Histórico limpo. Zonas, equipamentos e configurações foram preservados.",
-        severidade: "success",
-      });
-    } catch (erro) {
-      console.error("Erro ao limpar historico:", erro);
-      avisar({ mensagem: "Falha de comunicação ao limpar o histórico.", severidade: "error" });
-    }
-  }
-
   async function consolidarHistorico() {
     const botao = document.getElementById("btn-consolidar-historico");
     if (botao) botao.disabled = true;
@@ -480,7 +503,6 @@ export function criarEntradaCalculo({
   }
   function inicializar() {
     document.getElementById("btn-calcular").addEventListener("click", calcular);
-    document.getElementById("btn-limpar").addEventListener("click", limparHistorico);
     document.getElementById("btn-consolidar-historico")?.addEventListener("click", consolidarHistorico);
     document.getElementById("cfg-coletar").addEventListener("change", () => {
       recarregarSensores();
@@ -521,7 +543,6 @@ export function criarEntradaCalculo({
     carregarConfiguracoes: carregarConfiguracoesPersistidas,
     inicializar,
     inicializarPersistencia,
-    limparHistorico,
     preencherEntradasDoResultado,
     renderCamposEntrada,
     renderCamposEntradaDashboard,

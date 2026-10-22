@@ -9,6 +9,7 @@ export function criarHistorico({
   rotuloStatus,
   corCampoEntrada,
   formatarHora,
+  formatarDataHora,
   formatarDataHoraCurta,
   statusHistorico,
   rotuloTipoValorHistorico,
@@ -604,13 +605,14 @@ export function criarHistorico({
 
     leituras.forEach((h) => {
       const tr = document.createElement("tr");
+      // Mesmo formato regional do resto da tela (vírgula decimal no Brasil), 2 casas.
       const entradasTexto = Object.entries(h.entradas)
-        .map(([k, v]) => k + "=" + v)
+        .map(([k, v]) => k + "=" + (Number.isFinite(Number(v)) ? window.regional.formatFixed(v, 2) : v))
         .join(", ");
       const classe = "status-" + classeStatus(h.status);
 
       const tdHora = document.createElement("td");
-      tdHora.textContent = formatarHora(h.criado_em);
+      tdHora.textContent = formatarDataHora(h.criado_em);
       const tdIndice = document.createElement("td");
       tdIndice.textContent = h.indice;
       const tdEntradas = document.createElement("td");

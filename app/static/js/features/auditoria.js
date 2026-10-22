@@ -3,6 +3,17 @@ export function criarAuditoria({ documento = document, requisitar = (...args) =>
   const fetch = requisitar;
 
   function texto(valor) { return valor == null || valor === "" ? "—" : String(valor); }
+  // O servidor grava UTC com microssegundos; a tela mostra o horário local, no
+  // formato escolhido pela conta, sem as frações.
+  function momento(iso) {
+    const data = new Date(iso);
+    if (!iso || Number.isNaN(data.getTime())) return texto(iso);
+    return (
+      data.toLocaleDateString(window.regional.locale, { day: "2-digit", month: "2-digit", year: "numeric" }) +
+      " " +
+      data.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+    );
+  }
   function contexto(evento) {
     const dados = evento.contexto || {};
     return [dados.method, dados.path, dados.ip].filter(Boolean).join(" · ") || "—";
@@ -20,7 +31,7 @@ export function criarAuditoria({ documento = document, requisitar = (...args) =>
       vazio.classList.toggle("oculto", eventos.length > 0);
       eventos.forEach((evento) => {
         const linha = document.createElement("tr");
-        [texto(evento.criado_em).replace("T", " ").replace("+00:00", " UTC"), `${texto(evento.ator_login)} (${texto(evento.ator_perfil)})`, texto(evento.acao), contexto(evento)].forEach((valor) => {
+        [momento(evento.criado_em), `${texto(evento.ator_login)} (${texto(evento.ator_perfil)})`, texto(evento.acao), contexto(evento)].forEach((valor) => {
           const celula = document.createElement("td"); celula.textContent = valor; linha.appendChild(celula);
         });
         corpo.appendChild(linha);

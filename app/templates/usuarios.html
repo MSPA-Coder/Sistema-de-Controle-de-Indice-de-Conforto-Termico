@@ -7,8 +7,8 @@
       <a class="botao--texto admin-voltar" href="{{ url_for('comum.index') }}">&larr; Voltar ao sistema</a>
       <h1 class="admin-titulo">Usuários</h1>
       <p class="admin-subtitulo">
-        Cada perfil libera um conjunto diferente de abas -- ver README.md,
-        seção "Organização das abas por papel de uso".
+        Cada perfil libera um conjunto diferente de abas. Contas que não são
+        administradoras também precisam ter zonas liberadas (botão Zonas).
       </p>
     </div>
     <div class="admin-sessao">
@@ -60,7 +60,8 @@
             <th>Login</th>
             <th>Perfil</th>
             <th>Status</th>
-            <th>Último login</th>
+            <th>Zonas</th>
+            <th>Último acesso</th>
             <th>Ações</th>
           </tr>
         </thead>
@@ -71,9 +72,17 @@
             <td>{{ usuario.login }}</td>
             <td>{{ perfil_label.get(usuario.perfil, usuario.perfil) }}</td>
             <td>{{ "Ativo" if usuario.ativo else "Inativo" }}</td>
-            <td>{{ usuario.ultimo_login_em or "Nunca" }}</td>
+            <td>
+              {% if usuario.zonas_liberadas is none %}Todas
+              {% elif usuario.zonas_liberadas == 0 %}<span class="admin-aviso">Nenhuma</span>
+              {% else %}{{ usuario.zonas_liberadas }} de {{ total_zonas }}{% endif %}
+            </td>
+            <td>{{ (usuario.ultimo_login_em | data_hora_regional) or "Nunca" }}</td>
             <td class="admin-acoes">
               <a class="botao botao--fantasma botao--compacto" href="{{ url_for('usuarios.editar_usuario_rota', usuario_id=usuario.id) }}">Editar</a>
+              {% if usuario.perfil != "administrador" %}
+              <a class="botao botao--fantasma botao--compacto" href="{{ url_for('usuarios.zonas_usuario_rota', usuario_id=usuario.id) }}">Zonas</a>
+              {% endif %}
               {# Sem campo de senha: quem administra nao escolhe mais a senha de
                  outra pessoa. O sistema sorteia, mostra uma vez, e o dono e
                  obrigado a trocar no primeiro acesso. #}
@@ -111,7 +120,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="6" class="tabela-vazia">Nenhum usuário cadastrado ainda.</td></tr>
+          <tr><td colspan="7" class="tabela-vazia">Nenhum usuário cadastrado ainda.</td></tr>
           {% endfor %}
         </tbody>
       </table>

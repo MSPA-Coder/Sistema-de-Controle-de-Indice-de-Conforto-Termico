@@ -38,8 +38,13 @@
       <div class="campo-config">
         <label for="campo-senha">Senha</label>
         <input type="password" id="campo-senha" name="senha" autocomplete="new-password"
-               minlength="{{ senha_tamanho_minimo }}" required>
+               minlength="{{ senha_tamanho_minimo }}" required aria-describedby="dica-senha">
+        <small id="dica-senha" class="admin-subtitulo">Mínimo de {{ senha_tamanho_minimo }} caracteres.</small>
       </div>
+      <label class="check">
+        <input type="checkbox" data-mostrar-senha>
+        <span>Mostrar a senha digitada</span>
+      </label>
       {% else %}
       {# A edicao nao mexe mais em senha. Para redefinir, a acao "Redefinir
          senha" da lista sorteia uma temporaria e obriga a troca -- um campo
@@ -68,3 +73,4 @@
   </div>
 </div>
 {% endblock %}
+{% block componente_ui_js %}{{ super() }}<script src="{{ url_for('static', filename='js/mostrar-senha.js') }}" defer></script>{% endblock %}

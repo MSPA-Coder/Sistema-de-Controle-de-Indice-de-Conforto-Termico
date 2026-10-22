@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import datetime
+import ipaddress
 import json
+import re
 
 from app.termico import thermal_indices as ti
 
-from .comum import conexao
+from .comum import conexao, normalizar_texto
 from .zonas import (
     ZonaInvalidaError,
     ZonaNaoEncontradaError,
+    _ErroDeCampo,
     _validar_inteiro,
     _validar_numero,
 )
@@ -19,6 +22,29 @@ TIPOS_EQUIPAMENTO = ("sensor", "ventilador", "nebulizador")
 MODOS_CONEXAO = ("tcp", "rtu")
 TIPOS_DADO = ("int16", "uint16", "float32")
 CAMPOS_MEDIVEIS = tuple(ti.CAMPO_METADADOS.keys())
+
+_ROTULO_DNS = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+_NOME_DE_HOST = re.compile(rf"{_ROTULO_DNS}(?:\.{_ROTULO_DNS})*")
+
+
+def validar_host(host: str) -> str:
+    """Endereço Modbus TCP: IPv4/IPv6 válido ou nome de host DNS.
+
+    Antes só se exigia "não vazio", e `http://x/`, `999.999.999.999`, espaços e
+    5.000 caracteres entravam no cadastro -- e dali no `testar conexão` do
+    coletor. Texto feito só de dígitos e pontos que não é IP (`192.168.11.3.1`)
+    é recusado: o provável é um IP digitado errado, e não um nome de host.
+    """
+    try:
+        return str(ipaddress.ip_address(host))
+    except ValueError:
+        pass
+    if len(host) > 253 or re.fullmatch(r"[0-9.]+", host) or not _NOME_DE_HOST.fullmatch(host):
+        raise ZonaInvalidaError(
+            "Informe um IP válido (ex.: 192.168.0.10) ou um nome de host (ex.: clp-galpao1).",
+            "host",
+        )
+    return host
 
 
 def salvar_estado_equipamentos(
@@ -153,70 +179,89 @@ def registrar_falha_operacional_zona(zona_id: int, mensagem: str) -> None:
 
 def validar_equipamento(dados: dict) -> dict:
     tipo = dados.get("tipo")
-    if tipo not in TIPOS_EQUIPAMENTO:
+    if not isinstance(tipo, str) or tipo not in TIPOS_EQUIPAMENTO:
         raise ZonaInvalidaError(
-            f"Tipo de equipamento inválido: {tipo!r} (esperado um de {TIPOS_EQUIPAMENTO})."
+            f"Tipo de equipamento inválido: {str(tipo)[:40]!r} "
+            f"(esperado um de {TIPOS_EQUIPAMENTO}).",
+            "tipo",
         )
 
-    nome = str(dados.get("nome", "")).strip()
+    nome = normalizar_texto(dados.get("nome", ""), "nome", maximo=255, erro=_ErroDeCampo("nome"))
     if not nome:
-        raise ZonaInvalidaError("Informe um nome para o equipamento.")
+        raise ZonaInvalidaError("Informe um nome para o equipamento.", "nome")
 
     modo_conexao = dados.get("modo_conexao")
-    if modo_conexao not in MODOS_CONEXAO:
+    if not isinstance(modo_conexao, str) or modo_conexao not in MODOS_CONEXAO:
         raise ZonaInvalidaError(
-            f"Modo de conexão inválido: {modo_conexao!r} (esperado 'tcp' ou 'rtu')."
+            f"Modo de conexão inválido: {str(modo_conexao)[:40]!r} (esperado 'tcp' ou 'rtu').",
+            "modo_conexao",
         )
 
     host = porta = porta_serial = baud_rate = None
     if modo_conexao == "tcp":
-        host = str(dados.get("host", "")).strip()
+        host = normalizar_texto(dados.get("host", ""), "host", maximo=253, erro=_ErroDeCampo("host"))
         if not host:
-            raise ZonaInvalidaError("Informe o host/IP para conexão Modbus TCP.")
-        porta = _validar_inteiro(dados.get("porta", 502), "porta", 1, 65535)
+            raise ZonaInvalidaError("Informe o host/IP para conexão Modbus TCP.", "host")
+        host = validar_host(host)
+        porta = _validar_inteiro(dados.get("porta", 502), "porta", 1, 65535, "porta")
     else:
-        porta_serial = str(dados.get("porta_serial", "")).strip()
+        porta_serial = normalizar_texto(
+            dados.get("porta_serial", ""),
+            "porta serial",
+            maximo=255,
+            erro=_ErroDeCampo("porta_serial"),
+        )
         if not porta_serial:
             raise ZonaInvalidaError(
-                "Informe a porta serial (ex.: /dev/ttyUSB0 ou COM3) para conexão Modbus RTU."
+                "Informe a porta serial (ex.: /dev/ttyUSB0 ou COM3) para conexão Modbus RTU.",
+                "porta_serial",
             )
-        baud_rate = _validar_inteiro(dados.get("baud_rate", 9600), "baud_rate", 300, 921600)
+        baud_rate = _validar_inteiro(
+            dados.get("baud_rate", 9600), "baud_rate", 300, 921600, "baud_rate"
+        )
 
-    unidade_id = _validar_inteiro(dados.get("unidade_id", 1), "unidade_id", 1, 247)
+    unidade_id = _validar_inteiro(dados.get("unidade_id", 1), "unidade_id", 1, 247, "unidade_id")
     registradores_validos = ("holding", "input") if tipo == "sensor" else ("holding", "coil")
     tipo_registrador = dados.get("tipo_registrador")
-    if tipo_registrador not in registradores_validos:
+    if not isinstance(tipo_registrador, str) or tipo_registrador not in registradores_validos:
         raise ZonaInvalidaError(
-            f"Tipo de registrador inválido para {tipo}: {tipo_registrador!r} "
-            f"(esperado um de {registradores_validos})."
+            f"Tipo de registrador inválido para {tipo}: {str(tipo_registrador)[:40]!r} "
+            f"(esperado um de {registradores_validos}).",
+            "tipo_registrador",
         )
 
     endereco_registrador = _validar_inteiro(
-        dados.get("endereco_registrador"), "endereco_registrador", 0, 65535
+        dados.get("endereco_registrador"),
+        "endereco_registrador",
+        0,
+        65535,
+        "endereco_registrador",
     )
     tipo_dado = dados.get("tipo_dado", "int16")
-    if tipo_dado not in TIPOS_DADO:
+    if not isinstance(tipo_dado, str) or tipo_dado not in TIPOS_DADO:
         raise ZonaInvalidaError(
-            f"Tipo de dado inválido: {tipo_dado!r} (esperado um de {TIPOS_DADO})."
+            f"Tipo de dado inválido: {str(tipo_dado)[:40]!r} (esperado um de {TIPOS_DADO}).",
+            "tipo_dado",
         )
 
-    fator_escala = _validar_numero(dados.get("fator_escala", 1.0), "fator_escala")
+    fator_escala = _validar_numero(dados.get("fator_escala", 1.0), "fator_escala", "fator_escala")
     if fator_escala == 0:
-        raise ZonaInvalidaError("O fator de escala não pode ser zero.")
+        raise ZonaInvalidaError("O fator de escala não pode ser zero.", "fator_escala")
 
     campo_medido = dados.get("campo_medido")
     if tipo == "sensor":
-        if campo_medido not in CAMPOS_MEDIVEIS:
+        if not isinstance(campo_medido, str) or campo_medido not in CAMPOS_MEDIVEIS:
             raise ZonaInvalidaError(
-                f"Campo medido inválido para sensor: {campo_medido!r} "
-                f"(esperado um de {CAMPOS_MEDIVEIS})."
+                f"Campo medido inválido para sensor: {str(campo_medido)[:40]!r} "
+                f"(esperado um de {CAMPOS_MEDIVEIS}).",
+                "campo_medido",
             )
     else:
         campo_medido = None
 
     return {
         "tipo": tipo,
-        "nome": nome[:255],
+        "nome": nome,
         "modo_conexao": modo_conexao,
         "host": host,
         "porta": porta,

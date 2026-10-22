@@ -40,6 +40,8 @@ um botao no HTML nunca e controle de acesso de verdade.
 from __future__ import annotations
 
 import contextlib
+import datetime
+import functools
 import os
 import secrets
 from pathlib import Path
@@ -75,6 +77,7 @@ from sharedauth.secrets import DIRETORIO_SECRETS_COMPOSE, resolver_segredo
 from sharedauth.session import marca_de_sessao, marcas_conferem
 
 from .. import database as db
+from ..models import fuso_local, parsear_timestamp
 from ..nucleo import regional
 from . import tokens as _tokens
 
@@ -174,6 +177,12 @@ def _marca_da_senha_em_vigor(usuario_id: int) -> str:
 
 def gerar_hash_senha(senha: str) -> str:
     return _gerar_hash(senha)
+
+
+@functools.cache
+def _hash_de_equiparacao() -> str:
+    """Hash descartável para gastar o mesmo tempo quando o login não existe."""
+    return _gerar_hash(secrets.token_urlsafe(16))
 
 
 def conferir_senha(senha: str, hash_: str) -> bool:
@@ -360,6 +369,7 @@ AREA_POR_ENDPOINT: dict[str, str | tuple[str, ...]] = {
     "usuarios.editar_usuario_rota": "usuarios",
     "usuarios.excluir_usuario_rota": "usuarios",
     "usuarios.redefinir_senha_rota": "usuarios",
+    "usuarios.zonas_usuario_rota": "usuarios",
     "usuarios.listar_zonas_usuario": "usuarios",
     "usuarios.conceder_acesso_zona": "usuarios",
     "usuarios.revogar_acesso_zona": "usuarios",
@@ -487,6 +497,13 @@ def registrar_carregamento_usuario(app: Flask) -> None:
         ):
             session.clear()
             return None
+        # Sessao encerrada no logout: o cookie assinado continuaria valendo ate
+        # vencer, entao o `sid` revogado e consultado aqui. Sessao sem `sid`
+        # (de antes desta mudanca) segue valendo ate vencer.
+        sid = session.get("sid")
+        if sid is not None and db.sessao_revogada(str(sid)):
+            session.clear()
+            return None
         g.usuario = usuario
         return None
 
@@ -517,6 +534,17 @@ def registrar_carregamento_usuario(app: Flask) -> None:
     @app.context_processor
     def _contexto_regional() -> dict[str, str]:
         return {"regional_format": regional.formato_ativo()}
+
+    @app.template_filter("data_hora_regional")
+    def _filtro_data_hora_regional(valor: object) -> str:
+        """Instante ISO (UTC) no fuso local e no formato regional da conta."""
+        if not valor:
+            return ""
+        try:
+            instante = parsear_timestamp(valor)
+        except (TypeError, ValueError):
+            return str(valor)
+        return regional.formatar_data_hora(instante.astimezone(fuso_local()))
 
 
 def registrar_controle_de_area(app: Flask) -> None:
@@ -572,16 +600,18 @@ def registrar_controle_de_area(app: Flask) -> None:
             area_da_sessao = next(
                 area for area in areas_aceitas if area_permitida(g.usuario["perfil"], area)
             )
-            if (
-                verificar_acesso_zona(
-                    int(zona_id),
-                    perfil=g.usuario["perfil"],
-                    area=area_da_sessao,
-                    usuario_id=int(g.usuario["id"]),
-                    obter_zona=db.obter_zona,
-                )
-                != "autorizada"
-            ):
+            resultado = verificar_acesso_zona(
+                int(zona_id),
+                perfil=g.usuario["perfil"],
+                area=area_da_sessao,
+                usuario_id=int(g.usuario["id"]),
+                obter_zona=db.obter_zona,
+            )
+            if resultado == "nao_encontrada" and g.usuario["perfil"] == "administrador":
+                # Só quem já enxerga todas as zonas ouve "não existe": para as
+                # demais contas, 403 não revela quais ids existem.
+                return jsonify({"erro": f"Zona {zona_id} não encontrada."}), 404
+            if resultado != "autorizada":
                 return _negar_acesso()
 
         return None
@@ -623,6 +653,11 @@ def login() -> ResponseReturnValue:
         senha_digitada = request.form.get("senha", "")
 
         usuario = db.obter_usuario_por_login(login_digitado)
+        if usuario is None:
+            # Sem isto a conta inexistente respondia em ~13 ms e a existente em
+            # ~85 ms (o hash so rodava para conta real): o tempo entregava quais
+            # logins existem, mesmo com a mensagem identica.
+            conferir_senha(senha_digitada, _hash_de_equiparacao())
 
         # Mensagem identica para "login inexistente" e "senha incorreta"
         # de proposito: diferenciar os dois casos permitiria a quem tenta
@@ -642,12 +677,15 @@ def login() -> ResponseReturnValue:
         else:
             session.clear()
             session["usuario_id"] = usuario["id"]
+            session["sid"] = secrets.token_urlsafe(16)
             session[CHAVE_MARCA_DE_SENHA] = marca_de_sessao(
                 usuario["senha_hash"], chave_secreta=current_app.secret_key
             )
             session.permanent = True
             db.registrar_login_usuario(usuario["id"])
-            log_login_sucesso(usuario["id"], login_digitado)
+            log_login_sucesso(
+                usuario["id"], usuario.get("login") or login_digitado, usuario.get("perfil", "unknown")
+            )
             return redirect(proximo or url_for("comum.index"))
 
     return render_template("login.html", erro=erro, proxima=proximo or "")
@@ -655,8 +693,26 @@ def login() -> ResponseReturnValue:
 
 @auth_bp.route("/logout", methods=["POST"])
 def logout() -> ResponseReturnValue:
+    from app.seguranca.audit_log import EventosAuditoria, registrar_evento_revisavel
+
+    sid = session.get("sid")
+    if sid is not None:
+        # O cookie e assinado e sem estado: apagar so o do navegador deixava
+        # uma copia dele valendo. A revogacao vale ate a sessao vencer sozinha.
+        validade = current_app.permanent_session_lifetime
+        db.revogar_sessao(
+            str(sid), datetime.datetime.now(datetime.UTC) + validade + datetime.timedelta(minutes=5)
+        )
+    registrar_evento_revisavel(EventosAuditoria.LOGOUT, "autenticacao", "Encerrou a sessão")
     session.clear()
     return redirect(url_for("auth.login"))
+
+
+def _auditar(evento: str, acao: str, **detalhes) -> None:
+    """Trilha da UI para mutações de conta (import local: audit_log importa auth)."""
+    from app.seguranca.audit_log import registrar_evento_revisavel
+
+    registrar_evento_revisavel(evento, "usuarios", acao, detalhes=detalhes)
 
 
 @auth_bp.route("/minha-senha", methods=["GET", "POST"])
@@ -694,6 +750,7 @@ def trocar_senha() -> ResponseReturnValue:
         else:
             novo_hash = gerar_hash_senha(request.form.get("senha_nova", ""))
             db.trocar_senha_propria(g.usuario["id"], novo_hash)
+            _auditar("SENHA_PROPRIA_TROCADA", "Trocou a própria senha", usuario_id=g.usuario["id"])
             # Renova a marca DESTA sessao. O efeito que se quer e derrubar as
             # OUTRAS; sem isto a pessoa seria deslogada pela propria troca, na
             # requisicao seguinte.
@@ -762,9 +819,20 @@ def _render_usuarios(**extra) -> ResponseReturnValue:
     senha em texto claro ali sairia legivel no cabecalho da resposta. Vai como
     variavel de contexto, que morre no HTML desta resposta.
     """
+    usuarios = db.listar_usuarios()
+    precisa_de_zonas = any(conta["perfil"] != "administrador" for conta in usuarios)
+    total_zonas = len(db.listar_zonas()) if precisa_de_zonas else 0
+    for conta in usuarios:
+        # Administrador enxerga tudo por perfil; os demais, so o que lhes foi concedido.
+        conta["zonas_liberadas"] = (
+            None
+            if conta["perfil"] == "administrador"
+            else len(db.listar_zonas_do_usuario(conta["id"]))
+        )
     return render_template(
         "usuarios.html",
-        usuarios=db.listar_usuarios(),
+        usuarios=usuarios,
+        total_zonas=total_zonas,
         perfis=db.PERFIS_VALIDOS,
         perfil_label=PERFIL_LABEL,
         usuario_atual=g.usuario,
@@ -799,6 +867,12 @@ def redefinir_senha_rota(usuario_id: int) -> ResponseReturnValue:
     except db.UsuarioInvalidoError as erro:
         flash(str(erro), "erro")
         return redirect(url_for("usuarios.pagina_usuarios"))
+    _auditar(
+        "SENHA_REDEFINIDA",
+        "Redefiniu a senha de outra conta",
+        usuario_id=usuario_id,
+        login=usuario["login"],
+    )
 
     return _render_usuarios(senha_temporaria=senha_temporaria, senha_de=usuario["login"])
 
@@ -822,7 +896,14 @@ def criar_usuario_rota() -> ResponseReturnValue:
             erro = str(erro_senha)
         else:
             try:
-                db.criar_usuario({**valores, "senha_hash": gerar_hash_senha(senha)})
+                criado = db.criar_usuario({**valores, "senha_hash": gerar_hash_senha(senha)})
+                _auditar(
+                    "USUARIO_CRIADO",
+                    "Criou conta",
+                    usuario_id=(criado or {}).get("id"),
+                    login=valores["login"],
+                    perfil=valores["perfil"],
+                )
                 return redirect(url_for("usuarios.pagina_usuarios"))
             except db.UsuarioInvalidoError as erro_validacao:
                 erro = str(erro_validacao)
@@ -876,6 +957,14 @@ def editar_usuario_rota(usuario_id: int) -> ResponseReturnValue:
             if erro is None:
                 try:
                     db.atualizar_usuario(usuario_id, valores)
+                    _auditar(
+                        "USUARIO_ATUALIZADO",
+                        "Atualizou conta",
+                        usuario_id=usuario_id,
+                        login=valores["login"],
+                        perfil=valores["perfil"],
+                        ativo=valores["ativo"],
+                    )
                     return redirect(url_for("usuarios.pagina_usuarios"))
                 except db.UsuarioInvalidoError as erro_validacao:
                     erro = str(erro_validacao)
@@ -892,6 +981,56 @@ def editar_usuario_rota(usuario_id: int) -> ResponseReturnValue:
     )
 
 
+@usuarios_bp.route("/<int:usuario_id>/zonas", methods=["GET", "POST"])
+def zonas_usuario_rota(usuario_id: int) -> ResponseReturnValue:
+    """Tela para escolher as zonas de uma conta que não é administradora.
+
+    Sem concessão, todo perfil que não é administrador recebe 403 em qualquer
+    ação por zona, mesmo vendo as abas. As rotas JSON abaixo existiam, mas
+    nenhuma tela as chamava: esta é a forma de usá-las sem `curl`.
+    """
+    usuario = db.obter_usuario(usuario_id)
+    if usuario is None:
+        return redirect(url_for("usuarios.pagina_usuarios"))
+
+    zonas = db.listar_zonas()
+    concedidas = {int(zona["id"]) for zona in db.listar_zonas_do_usuario(usuario_id)}
+    global_por_perfil = usuario["perfil"] == "administrador"
+
+    if request.method == "POST" and not global_por_perfil:
+        existentes = {int(zona["id"]) for zona in zonas}
+        escolhidas: set[int] = set()
+        for bruto in request.form.getlist("zona"):
+            if bruto.isdigit() and int(bruto) in existentes:
+                escolhidas.add(int(bruto))
+        novas = sorted(escolhidas - concedidas)
+        removidas = sorted(concedidas - escolhidas)
+        for zona_id in novas:
+            db.conceder_acesso_zona(usuario_id, zona_id)
+        for zona_id in removidas:
+            db.revogar_acesso_zona(usuario_id, zona_id)
+        if novas or removidas:
+            _auditar(
+                "ZONAS_DA_CONTA_ALTERADAS",
+                "Alterou as zonas liberadas para uma conta",
+                usuario_id=usuario_id,
+                login=usuario["login"],
+                concedidas=novas,
+                revogadas=removidas,
+            )
+        flash(f"Zonas de {usuario['nome']} atualizadas.", "ok")
+        return redirect(url_for("usuarios.pagina_usuarios"))
+
+    return render_template(
+        "usuario_zonas.html",
+        usuario=usuario,
+        zonas=zonas,
+        concedidas=concedidas,
+        global_por_perfil=global_por_perfil,
+        perfil_label=PERFIL_LABEL,
+    )
+
+
 @usuarios_bp.route("/<int:usuario_id>/excluir", methods=["POST"])
 def excluir_usuario_rota(usuario_id: int) -> ResponseReturnValue:
     if usuario_id == g.usuario["id"]:
@@ -902,6 +1041,7 @@ def excluir_usuario_rota(usuario_id: int) -> ResponseReturnValue:
         return redirect(url_for("usuarios.pagina_usuarios"))
     try:
         db.excluir_usuario(usuario_id)
+        _auditar("USUARIO_EXCLUIDO", "Excluiu conta", usuario_id=usuario_id)
     except db.UltimoAdministradorError as erro:
         flash(str(erro), "erro")
     return redirect(url_for("usuarios.pagina_usuarios"))
@@ -923,6 +1063,7 @@ def conceder_acesso_zona(usuario_id: int, zona_id: int) -> ResponseReturnValue:
     if db.obter_zona(zona_id) is None:
         return jsonify({"erro": "Zona não encontrada."}), 404
     db.conceder_acesso_zona(usuario_id, zona_id)
+    _auditar("ZONA_CONCEDIDA", "Concedeu acesso a zona", usuario_id=usuario_id, zona_id=zona_id)
     return jsonify({"ok": True, "usuario_id": usuario_id, "zona_id": zona_id})
 
 
@@ -932,4 +1073,5 @@ def revogar_acesso_zona(usuario_id: int, zona_id: int) -> ResponseReturnValue:
     if db.obter_usuario(usuario_id) is None:
         return jsonify({"erro": "Usuário não encontrado."}), 404
     db.revogar_acesso_zona(usuario_id, zona_id)
+    _auditar("ZONA_REVOGADA", "Revogou acesso a zona", usuario_id=usuario_id, zona_id=zona_id)
     return jsonify({"ok": True, "usuario_id": usuario_id, "zona_id": zona_id})

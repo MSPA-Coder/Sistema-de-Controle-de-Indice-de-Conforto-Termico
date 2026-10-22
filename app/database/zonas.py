@@ -23,6 +23,7 @@ from app.termico import thermal_indices as ti
 
 from .comum import coagir_booleano as coagir_booleano
 from .comum import conexao as _conexao
+from .comum import exigir_booleano, normalizar_texto
 from .configuracoes import obter_configuracoes
 
 MODOS_OPERACAO = ("desligado", "manual", "automatico", "manutencao")
@@ -45,7 +46,25 @@ MODO_OPERACAO_PADRAO = "manual"
 
 
 class ZonaInvalidaError(ValueError):
-    """Erro de validacao ao criar/atualizar uma zona ou equipamento Modbus."""
+    """Erro de validacao ao criar/atualizar uma zona ou equipamento Modbus.
+
+    `campo` e o nome do campo do formulario que falhou, quando se sabe qual: a
+    tela usa para marcar o campo e levar o foco ate ele.
+    """
+
+    def __init__(self, mensagem: str = "", campo: str | None = None):
+        super().__init__(mensagem)
+        self.campo = campo
+
+
+def _ErroDeCampo(campo: str):  # noqa: N802 - fabrica de classe, usada como `erro=`
+    """Classe de erro que ja carrega o campo, para os validadores de `comum`."""
+
+    class CampoInvalidoError(ZonaInvalidaError):
+        def __init__(self, mensagem: str = ""):
+            super().__init__(mensagem, campo)
+
+    return CampoInvalidoError
 
 
 class ZonaNaoEncontradaError(ZonaInvalidaError):
@@ -119,48 +138,57 @@ def salvar_controle_zona(zona_id: int, dados: dict) -> dict:
     }
 
 
-def _validar_inteiro(valor, nome_campo: str, minimo: int, maximo: int) -> int:
+def _validar_inteiro(
+    valor, nome_campo: str, minimo: int, maximo: int, campo: str | None = None
+) -> int:
     try:
         numero = Decimal(str(valor).replace(",", "."))
     except (InvalidOperation, TypeError, ValueError) as err:
-        raise ZonaInvalidaError(f"O campo '{nome_campo}' precisa ser um número inteiro.") from err
+        raise ZonaInvalidaError(
+            f"O campo '{nome_campo}' precisa ser um número inteiro.", campo
+        ) from err
     if not numero.is_finite() or numero != numero.to_integral_value():
-        raise ZonaInvalidaError(f"O campo '{nome_campo}' precisa ser um número inteiro.")
+        raise ZonaInvalidaError(f"O campo '{nome_campo}' precisa ser um número inteiro.", campo)
     if not (minimo <= numero <= maximo):
-        raise ZonaInvalidaError(f"O campo '{nome_campo}' precisa estar entre {minimo} e {maximo}.")
+        raise ZonaInvalidaError(
+            f"O campo '{nome_campo}' precisa estar entre {minimo} e {maximo}.", campo
+        )
     return int(numero)
 
 
-def _validar_numero(valor, nome_campo: str) -> float:
+def _validar_numero(valor, nome_campo: str, campo: str | None = None) -> float:
     try:
         numero = float(str(valor).replace(",", "."))
     except (TypeError, ValueError) as err:
-        raise ZonaInvalidaError(f"O campo '{nome_campo}' precisa ser numérico.") from err
+        raise ZonaInvalidaError(f"O campo '{nome_campo}' precisa ser numérico.", campo) from err
     if not math.isfinite(numero):
-        raise ZonaInvalidaError(f"O campo '{nome_campo}' precisa ser numérico e finito.")
+        raise ZonaInvalidaError(f"O campo '{nome_campo}' precisa ser numérico e finito.", campo)
     return numero
 
 
 def _validar_zona(dados: dict) -> dict:
-    nome = str(dados.get("nome", "")).strip()
+    nome = normalizar_texto(
+        dados.get("nome", ""), "nome", maximo=255, erro=_ErroDeCampo("nome")
+    )
     if not nome:
-        raise ZonaInvalidaError("Informe um nome para a zona.")
+        raise ZonaInvalidaError("Informe um nome para a zona.", "nome")
 
     especie = dados.get("especie")
-    if especie not in ti.ESPECIES_VALIDAS:
-        raise ZonaInvalidaError(f"Espécie inválida: {especie!r}.")
+    if not isinstance(especie, str) or especie not in ti.ESPECIES_VALIDAS:
+        raise ZonaInvalidaError(f"Espécie inválida: {str(especie)[:40]!r}.", "especie")
 
     indice = dados.get("indice")
-    if indice not in ti.INDICES_POR_ESPECIE.get(especie, ()):
+    if not isinstance(indice, str) or indice not in ti.INDICES_POR_ESPECIE.get(especie, ()):
         raise ZonaInvalidaError(
-            f"Índice {indice!r} não está disponível para a espécie {especie!r}."
+            f"Índice {str(indice)[:40]!r} não está disponível para a espécie {especie!r}.",
+            "indice",
         )
 
     return {
-        "nome": nome[:255],
+        "nome": nome,
         "especie": especie,
         "indice": indice,
-        "ativa": coagir_booleano(dados.get("ativa", True), True),
+        "ativa": exigir_booleano(dados.get("ativa", True), "ativa", erro=_ErroDeCampo("ativa")),
         # Três ciclos é o padrão escolhido para equilibrar atraso transitório
         # e sinalização rápida. A política deliberadamente só admite 2 ou 3.
         "ciclos_expiracao_leitura": _validar_inteiro(
@@ -168,6 +196,7 @@ def _validar_zona(dados: dict) -> dict:
             "ciclos de expiração da leitura",
             2,
             3,
+            "ciclos_expiracao_leitura",
         ),
     }
 
@@ -542,7 +571,9 @@ def obter_painel_zonas() -> list[dict]:
     inicio_dia = agora.replace(hour=0, minute=0, second=0)
 
     with _conexao(escrita=False) as conn:
-        zonas = conn.execute("SELECT id, nome, especie, indice FROM zonas ORDER BY id").fetchall()
+        zonas = conn.execute(
+            "SELECT id, nome, especie, indice, ciclos_expiracao_leitura FROM zonas ORDER BY id"
+        ).fetchall()
         linhas_sensores = conn.execute(
             "SELECT zona_id, nome, campo_medido FROM equipamentos "
             "WHERE tipo = 'sensor' ORDER BY zona_id, id"
@@ -590,6 +621,15 @@ def obter_painel_zonas() -> list[dict]:
 
     estado_por_zona: dict[int, object] = {linha["zona_id"]: linha for linha in linhas_estado}
 
+    # Mesma regra de `obter_estado_operacional_zonas` (ciclos de expiracao da
+    # zona), com o intervalo de GRAVACAO como piso: este painel le o historico
+    # persistido, que so ganha linha nova a cada `intervaloGravacaoMinutos`.
+    configuracoes = obter_configuracoes()
+    periodo_segundos = max(
+        float(configuracoes.get("intervaloLeituraSegundos") or 1),
+        float(configuracoes.get("intervaloGravacaoMinutos") or 0) * 60,
+    )
+
     return [
         _resumir_painel_zona(
             zona,
@@ -599,6 +639,9 @@ def obter_painel_zonas() -> list[dict]:
             estado_por_zona.get(zona["id"]),
             agora,
             inicio_dia,
+            limite_atualidade_segundos=max(
+                10.0, periodo_segundos * int(zona["ciclos_expiracao_leitura"] or 3)
+            ),
         )
         for zona in zonas
     ]
@@ -612,6 +655,7 @@ def _resumir_painel_zona(
     estado_atuadores,
     agora: datetime.datetime,
     inicio_dia: datetime.datetime,
+    limite_atualidade_segundos: float | None = None,
 ) -> dict:
     ventiladores_total = totais_equipamento.get("ventilador", 0)
     nebulizadores_total = totais_equipamento.get("nebulizador", 0)
@@ -638,6 +682,8 @@ def _resumir_painel_zona(
                 "status_atual": None,
                 "valor_atual": None,
                 "ultima_leitura_em": None,
+                "leitura_atual": None,
+                "idade_leitura_segundos": None,
                 "tendencias": {"15min": None, "30min": None, "60min": None},
                 "percentual_conforto_24h": None,
                 "tempo_continuo_status_minutos": None,
@@ -672,6 +718,14 @@ def _resumir_painel_zona(
     base["status_atual"] = ultima["status"]
     base["valor_atual"] = round(ultima["valor"], 2)
     base["ultima_leitura_em"] = ultima["criado_em"]
+    # Leitura antiga nao e "status atual": sem isto o painel mostrava
+    # "Conforto" e "condicoes adequadas" para uma leitura de dois meses atras,
+    # enquanto o Dashboard ja avisava "dado desatualizado".
+    idade_leitura = max(0, int((agora - ultima_dt).total_seconds()))
+    base["idade_leitura_segundos"] = idade_leitura
+    base["leitura_atual"] = (
+        None if limite_atualidade_segundos is None else idade_leitura <= limite_atualidade_segundos
+    )
 
     def _indice_ate(alvo: datetime.datetime) -> int:
         """Indice do ultimo elemento de `datas` com data <= alvo, ou -1 se
@@ -815,6 +869,11 @@ def _recomendacao_operacional(painel: dict) -> str:
     status = painel.get("status_atual")
     if status is None:
         return "Ainda não há leitura registrada para esta zona."
+    if painel.get("leitura_atual") is False:
+        return (
+            "A última leitura desta zona é antiga: o status térmico mostrado não é atual. "
+            "Confira o coletor e os sensores."
+        )
 
     partes = [ti.mensagem_do_status(status)]
 

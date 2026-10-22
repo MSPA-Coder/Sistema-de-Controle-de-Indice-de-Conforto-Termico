@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime
 
 from ..nucleo.regional import normalize_regional_format
-from .comum import PERFIS_VALIDOS, coagir_booleano, conexao
+from .comum import PERFIS_VALIDOS, coagir_booleano, conexao, normalizar_texto
 
 
 class UsuarioInvalidoError(ValueError):
@@ -25,14 +25,12 @@ def _bloquear_administradores(conn) -> None:
 
 
 def _validar_usuario(dados: dict, *, exigir_senha: bool) -> dict:
-    nome = str(dados.get("nome", "")).strip()
+    nome = normalizar_texto(dados.get("nome", ""), "nome", maximo=255, erro=UsuarioInvalidoError)
     if not nome:
         raise UsuarioInvalidoError("Informe o nome do usuário.")
-    login = str(dados.get("login", "")).strip()
+    login = normalizar_texto(dados.get("login", ""), "login", maximo=80, erro=UsuarioInvalidoError)
     if not login:
         raise UsuarioInvalidoError("Informe o login do usuário.")
-    if len(login) > 80:
-        raise UsuarioInvalidoError("O login pode ter no máximo 80 caracteres.")
     if any(caractere.isspace() for caractere in login):
         raise UsuarioInvalidoError("O login não pode conter espaços.")
     perfil = dados.get("perfil")
@@ -41,7 +39,7 @@ def _validar_usuario(dados: dict, *, exigir_senha: bool) -> dict:
             f"Perfil inválido: {perfil!r} (esperado um de {PERFIS_VALIDOS})."
         )
     resultado = {
-        "nome": nome[:255],
+        "nome": nome,
         "login": login,
         "perfil": perfil,
         "ativo": coagir_booleano(dados.get("ativo", True), True),

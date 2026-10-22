@@ -284,12 +284,38 @@ def _criar_app_base(processo: str, config: AppConfig) -> Flask:
 
     registrar_cabecalhos(app)
 
+    @app.before_request
+    def _exigir_corpo_json_objeto():
+        """Corpo JSON que nao e objeto (`[1]`, `"x"`, `123`) e 400, nao 500.
+
+        As rotas leem o corpo com `get_json(force=True, silent=True) or {}` e
+        chamam `.get` no resultado: uma lista ou um texto estourava como erro
+        interno e, nas rotas que encaminham ao coletor, abria o circuito e
+        derrubava calculo, controle e comando para todos. Formularios (login,
+        usuarios) ficam de fora: ler o corpo aqui consumiria o que o Flask-WTF
+        ainda precisa analisar.
+        """
+        if request.method not in ("POST", "PUT", "PATCH", "DELETE"):
+            return None
+        if request.mimetype in ("application/x-www-form-urlencoded", "multipart/form-data"):
+            return None
+        corpo = request.get_json(force=True, silent=True)
+        if corpo is not None and not isinstance(corpo, dict):
+            return jsonify({"erro": "O corpo da requisição precisa ser um objeto JSON."}), 400
+        return None
+
     @app.after_request
-    def _nao_guardar_resposta_de_api(resposta):
+    def _nao_guardar_resposta(resposta):
         # Especifico deste projeto, nao do conjunto comum: as rotas `/api/`
-        # servem leitura de sensor, que nao pode ser reaproveitada do cache.
-        if request.path.startswith("/api/"):
-            resposta.headers["Cache-Control"] = "no-store"
+        # servem leitura de sensor, que nao pode ser reaproveitada do cache. As
+        # paginas HTML tambem: a de usuarios mostra a senha temporaria uma vez,
+        # e uma pagina autenticada nao deve voltar do cache depois do logout.
+        if request.path.startswith("/api/") or resposta.mimetype == "text/html":
+            resposta.headers.setdefault("Cache-Control", "no-store")
+        # HSTS so faz sentido (e so e honrado) sobre HTTPS; `is_secure` vale
+        # atras do proxy quando CONFORTO_TRUST_PROXY_HEADERS esta ligado.
+        if request.is_secure:
+            resposta.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
         return resposta
 
     @app.errorhandler(Exception)
@@ -441,6 +467,24 @@ def criar_app_ict(config: AppConfig | None = None) -> Flask:
             "comum.eventos_operacao",
         ),
         "60 per minute; 5000 per hour",
+        override_defaults=True,
+    )
+    # Leituras da interface (historico, analises, inventario de zonas): a tela do
+    # Historico dispara uma por filtro e uma por pagina rolada, e 100 por hora
+    # por rota se esgotava navegando. A protecao estrita continua nas escritas.
+    aplicar_limite(
+        app,
+        limiter,
+        (
+            "comum.listar_zonas",
+            "comum.historico_leituras",
+            "comum.historico_zona",
+            "comum.agregados_15min_zona",
+            "comum.resumo_horario_zona",
+            "ict.obter_analises",
+            "ict.obter_painel_executivo",
+        ),
+        "120 per minute; 3000 per hour",
         override_defaults=True,
     )
 

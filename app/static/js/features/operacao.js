@@ -10,6 +10,7 @@ export function criarOperacao({
   atualizarAtualidadeZonas,
   preencherEntradasDoResultado,
   formatarHora,
+  formatarDataHora,
   mostrarErro,
   carregarHistoricoTempoReal,
   salvarConfiguracoes,
@@ -204,7 +205,7 @@ export function criarOperacao({
       const linha = document.createElement("div");
       linha.className = "operacao-evento";
       const momento = document.createElement("time");
-      momento.textContent = formatarHora(evento.criado_em);
+      momento.textContent = formatarDataHora(evento.criado_em);
       const texto = document.createElement("span");
       texto.textContent = evento.acao.replaceAll("_", " ");
       linha.append(momento, texto);
@@ -393,7 +394,7 @@ export function criarOperacao({
   }
   function inicializarConfiguracao() {
     document.getElementById("cfg-equipamentos").addEventListener("change", async () => {
-      await salvarConfiguracoes();
+      await salvarConfiguracoes(true);
       await carregarEstadoOperacional();
     });
   }

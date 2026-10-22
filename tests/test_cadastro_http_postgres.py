@@ -78,11 +78,11 @@ def test_cadastro_http_persiste_alteracoes_e_auditoria(acesso):
 
 @pytest.mark.parametrize("metodo,caminho,dados,esperado", [
     ("post", "/api/zonas", {"nome": "inválida"}, 400),
-    ("put", "/api/zonas/2147483647", zona(), 403),
-    ("delete", "/api/zonas/2147483647", None, 403),
-    ("post", "/api/zonas/2147483647/equipamentos", equipamento(), 403),
-    ("put", "/api/zonas/2147483647/equipamentos/2147483647", equipamento(), 403),
-    ("delete", "/api/zonas/2147483647/equipamentos/2147483647", None, 403),
+    ("put", "/api/zonas/2147483647", zona(), 404),
+    ("delete", "/api/zonas/2147483647", None, 404),
+    ("post", "/api/zonas/2147483647/equipamentos", equipamento(), 404),
+    ("put", "/api/zonas/2147483647/equipamentos/2147483647", equipamento(), 404),
+    ("delete", "/api/zonas/2147483647/equipamentos/2147483647", None, 404),
     ("get", "/api/auditoria?limite=inválido", None, 400),
 ])
 def test_cadastro_invalido_ou_inexistente_recusa_sem_escrita(acesso, metodo, caminho, dados, esperado):

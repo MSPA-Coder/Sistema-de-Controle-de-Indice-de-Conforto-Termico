@@ -43,18 +43,21 @@ def _obter_contexto_requisicao() -> dict[str, Any]:
 def _obter_usuario_atual() -> dict[str, Any]:
     """Obtém informações do usuário atual (se disponível)."""
     try:
-        from flask import session
+        from flask import g, session
 
-        usuario_id = session.get("usuario_id")
-        usuario_login = session.get("usuario_login")
-        usuario_perfil = session.get("usuario_perfil")
-
-        if usuario_id:
+        # A sessao guarda so `usuario_id` (e a marca da senha): ler `usuario_login`
+        # e `usuario_perfil` dela devolvia sempre `unknown`. Quem a requisicao
+        # autenticou e `g.usuario`, carregado pelo hook de login.
+        usuario = getattr(g, "usuario", None)
+        if usuario:
             return {
-                "id": usuario_id,
-                "login": usuario_login or "unknown",
-                "perfil": usuario_perfil or "unknown",
+                "id": usuario.get("id"),
+                "login": usuario.get("login") or "unknown",
+                "perfil": usuario.get("perfil") or "unknown",
             }
+        usuario_id = session.get("usuario_id")
+        if usuario_id:
+            return {"id": usuario_id, "login": "unknown", "perfil": "unknown"}
     except (RuntimeError, AttributeError):
         pass
 
@@ -97,17 +100,26 @@ def log_evento(
 
 
 def registrar_evento_revisavel(
-    evento: str, categoria: str, acao: str, *, detalhes: dict[str, Any] | None = None
+    evento: str,
+    categoria: str,
+    acao: str,
+    *,
+    detalhes: dict[str, Any] | None = None,
+    sucesso: bool = True,
+    ator: dict[str, Any] | None = None,
 ) -> None:
     """Registra uma mutação relevante no log operacional e na trilha da UI.
 
     Não é usado para visualizações, polling ou leituras de dados: esses eventos
     não agregam valor à revisão e tornariam a trilha inutilmente ruidosa.
+
+    `ator` (`id`, `login`, `perfil`) vale quando a requisição ainda não tem
+    `g.usuario` -- o login, que é quem cria a sessão.
     """
     detalhes_seguros = _sanitizar_detalhes(detalhes or {})
     contexto = _obter_contexto_requisicao()
-    usuario = _obter_usuario_atual()
-    log_evento(evento, categoria, acao, detalhes=detalhes_seguros)
+    usuario = ator or _obter_usuario_atual()
+    log_evento(evento, categoria, acao, sucesso=sucesso, detalhes=detalhes_seguros)
     from ..database.auditoria import registrar_evento_auditoria
 
     try:
@@ -115,7 +127,7 @@ def registrar_evento_revisavel(
             evento=evento,
             categoria=categoria,
             acao=acao,
-            sucesso=True,
+            sucesso=sucesso,
             ator_id=usuario["id"],
             ator_login=usuario["login"],
             ator_perfil=usuario["perfil"],
@@ -177,16 +189,17 @@ class EventosAuditoria:
     # Autenticação
     LOGIN_SUCESSO = "LOGIN_SUCESSO"
     LOGIN_FALHA = "LOGIN_FALHA"
+    LOGOUT = "LOGOUT"
 
 
-def log_login_sucesso(usuario_id: int, login: str) -> None:
-    """Registra login bem-sucedido."""
-    log_evento(
-        evento=EventosAuditoria.LOGIN_SUCESSO,
-        categoria="autenticacao",
-        acao=f"Usuário {login} realizou login com sucesso",
-        sucesso=True,
+def log_login_sucesso(usuario_id: int, login: str, perfil: str = "unknown") -> None:
+    """Registra login bem-sucedido (log e trilha da UI)."""
+    registrar_evento_revisavel(
+        EventosAuditoria.LOGIN_SUCESSO,
+        "autenticacao",
+        f"Usuário {login} realizou login com sucesso",
         detalhes={"usuario_id": usuario_id, "login": login},
+        ator={"id": usuario_id, "login": login, "perfil": perfil},
     )
 
 
@@ -198,11 +211,11 @@ def log_login_falha(login: str, motivo: str) -> None:
     de log por conta própria -- e este registro em particular é o que alguém
     vai ler depois de uma tentativa de invasão.
     """
-    login_seguro = sanitizar_log(login)
-    log_evento(
-        evento=EventosAuditoria.LOGIN_FALHA,
-        categoria="autenticacao",
-        acao=f"Tentativa de login falhou para {login_seguro}",
-        sucesso=False,
+    login_seguro = sanitizar_log(login)[:80]
+    registrar_evento_revisavel(
+        EventosAuditoria.LOGIN_FALHA,
+        "autenticacao",
+        f"Tentativa de login falhou para {login_seguro}",
         detalhes={"login": login_seguro, "motivo": motivo},
+        sucesso=False,
     )

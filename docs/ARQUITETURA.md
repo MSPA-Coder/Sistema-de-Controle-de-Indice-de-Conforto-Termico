@@ -82,7 +82,9 @@ O modelo possui a associação `historico.usuario_zonas`. Contas não
 administradoras só acessam zonas concedidas, enquanto administradores têm
 acesso global para manter a operação e administrar os vínculos. A checagem é
 centralizada em `app/seguranca/auth.py` e a gestão fica disponível somente na
-área `usuarios`; não se infere ACL de campos atuais.
+área `usuarios`; não se infere ACL de campos atuais. As leituras que listam
+várias zonas aplicam o mesmo vínculo por `zonas_permitidas` (`None` = sem
+restrição, para administradores), que as consultas recebem como `zona_ids`.
 
 ## Formato regional (Brasil/EUA)
 

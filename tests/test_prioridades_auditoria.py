@@ -142,7 +142,7 @@ def test_exportacao_csv_e_incremental(app, monkeypatch):
     monkeypatch.setattr(
         dados_entrada_rotas.dados_db,
         "iterar_medicoes_csv",
-        lambda _execucao_id: (["id", "zona"], linhas()),
+        lambda _execucao_id, **_: (["id", "zona"], linhas()),
     )
 
     with app.test_request_context("/api/dados-entrada/exportar.csv"):

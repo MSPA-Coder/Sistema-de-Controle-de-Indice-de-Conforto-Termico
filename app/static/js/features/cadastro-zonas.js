@@ -251,16 +251,81 @@ export function criarCadastroZonas({
   }
 
   // --- Dialog de zona ---------------------------------------------------------
+  // Campo que o servidor aponta como inválido (`campo` na resposta 400) ->
+  // elemento do formulário. Sem isto o aviso dizia só "dados inválidos" e nada
+  // marcava qual campo corrigir.
+  const CAMPO_DA_ZONA = {
+    nome: "zona-nome",
+    especie: "zona-especie",
+    indice: "zona-indice",
+    ativa: "zona-ativa",
+    ciclos_expiracao_leitura: "zona-ciclos-expiracao-leitura",
+  };
+  const CAMPO_DO_EQUIPAMENTO = {
+    tipo: "equip-tipo",
+    nome: "equip-nome",
+    modo_conexao: "equip-modo-conexao",
+    host: "equip-host",
+    porta: "equip-porta",
+    porta_serial: "equip-porta-serial",
+    baud_rate: "equip-baud-rate",
+    unidade_id: "equip-unidade-id",
+    tipo_registrador: "equip-tipo-registrador",
+    endereco_registrador: "equip-endereco-registrador",
+    tipo_dado: "equip-tipo-dado",
+    fator_escala: "equip-fator-escala",
+    campo_medido: "equip-campo-medido",
+  };
+
+  function limparCamposInvalidos(idErro) {
+    const dialog = document.getElementById(idErro).closest("dialog");
+    dialog?.querySelectorAll("[aria-invalid]").forEach((campo) => {
+      campo.removeAttribute("aria-invalid");
+      campo.removeAttribute("aria-describedby");
+    });
+  }
+
   function esconderErroDialog(id) {
     const el = document.getElementById(id);
+    limparCamposInvalidos(id);
     el.textContent = "";
     el.classList.add("oculto");
   }
 
-  function mostrarErroDialog(id, mensagem) {
+  // `campoId` (opcional): marca o campo, liga o aviso a ele para leitores de
+  // tela e leva o foco até lá; a marca some assim que a pessoa mexe no campo.
+  function mostrarErroDialog(id, mensagem, campoId = null) {
     const el = document.getElementById(id);
+    limparCamposInvalidos(id);
     el.textContent = mensagem;
     el.classList.remove("oculto");
+    const campo = campoId ? document.getElementById(campoId) : null;
+    if (!campo) return;
+    campo.setAttribute("aria-invalid", "true");
+    campo.setAttribute("aria-describedby", id);
+    campo.focus();
+    const limpar = () => {
+      campo.removeAttribute("aria-invalid");
+      campo.removeAttribute("aria-describedby");
+    };
+    campo.addEventListener("input", limpar, { once: true });
+    campo.addEventListener("change", limpar, { once: true });
+  }
+
+  async function lerResposta(resposta) {
+    // Erro de proxy/limite devolve HTML ou texto: não pode virar "falha de comunicação".
+    try {
+      return await resposta.json();
+    } catch (erro) {
+      return {};
+    }
+  }
+
+  function mensagemDaResposta(resposta, dados, padrao) {
+    if (dados.erro) return dados.erro;
+    if (resposta.status === 429) return "Muitas requisições em pouco tempo. Aguarde um instante e tente de novo.";
+    if (resposta.status === 403) return "Seu perfil não tem permissão para esta ação.";
+    return padrao;
   }
 
   function popularSelectEspecieZona() {
@@ -328,9 +393,13 @@ export function criarCadastroZonas({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const dados = await resposta.json();
+      const dados = await lerResposta(resposta);
       if (!resposta.ok) {
-        mostrarErroDialog("zona-form-erro", dados.erro || "Não foi possível salvar a zona.");
+        mostrarErroDialog(
+          "zona-form-erro",
+          mensagemDaResposta(resposta, dados, "Não foi possível salvar a zona."),
+          CAMPO_DA_ZONA[dados.campo]
+        );
         return;
       }
       zonaCadastroSelecionadaId = dados.id;
@@ -359,7 +428,11 @@ export function criarCadastroZonas({
     try {
       const resposta = await fetch("/api/zonas/" + zona.id, { method: "DELETE" });
       if (!resposta.ok) {
-        avisar({ mensagem: "Não foi possível excluir a zona.", severidade: "error" });
+        const dados = await lerResposta(resposta);
+        avisar({
+          mensagem: mensagemDaResposta(resposta, dados, "Não foi possível excluir a zona."),
+          severidade: "error",
+        });
         return;
       }
       if (zonaCadastroSelecionadaId === zona.id) zonaCadastroSelecionadaId = null;
@@ -409,6 +482,8 @@ export function criarCadastroZonas({
     document.getElementById("wrap-equip-tipo-dado").classList.toggle("oculto", !ehSensor);
     document.getElementById("wrap-equip-fator-escala").classList.toggle("oculto", !ehSensor);
 
+    document.getElementById("equip-host").required = modoConexao === "tcp";
+    document.getElementById("equip-porta-serial").required = modoConexao === "rtu";
     document.getElementById("wrap-equip-host").classList.toggle("oculto", modoConexao !== "tcp");
     document.getElementById("wrap-equip-porta").classList.toggle("oculto", modoConexao !== "tcp");
     document
@@ -494,9 +569,13 @@ export function criarCadastroZonas({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const dados = await resposta.json();
+      const dados = await lerResposta(resposta);
       if (!resposta.ok) {
-        mostrarErroDialog("equipamento-form-erro", dados.erro || "Não foi possível salvar o equipamento.");
+        mostrarErroDialog(
+          "equipamento-form-erro",
+          mensagemDaResposta(resposta, dados, "Não foi possível salvar o equipamento."),
+          CAMPO_DO_EQUIPAMENTO[dados.campo]
+        );
         return;
       }
       document.getElementById("dialog-equipamento").close();
@@ -519,7 +598,11 @@ export function criarCadastroZonas({
         { method: "DELETE" }
       );
       if (!resposta.ok) {
-        avisar({ mensagem: "Não foi possível excluir o equipamento.", severidade: "error" });
+        const dados = await lerResposta(resposta);
+        avisar({
+          mensagem: mensagemDaResposta(resposta, dados, "Não foi possível excluir o equipamento."),
+          severidade: "error",
+        });
         return;
       }
       await recarregarZonas();
@@ -570,6 +653,14 @@ export function criarCadastroZonas({
       document.getElementById("dialog-zona").close();
     });
     document.getElementById("form-zona")?.addEventListener("submit", salvarZona);
+    // O aviso é `role="alert"`: sem limpar ao fechar, o último erro ficava na
+    // região e era relido na próxima vez que o diálogo abria.
+    document.getElementById("dialog-zona")?.addEventListener("close", () => {
+      esconderErroDialog("zona-form-erro");
+    });
+    document.getElementById("dialog-equipamento")?.addEventListener("close", () => {
+      esconderErroDialog("equipamento-form-erro");
+    });
     document.getElementById("zona-especie")?.addEventListener("change", atualizarSelectIndiceZona);
     document.getElementById("btn-cancelar-equipamento")?.addEventListener("click", () => {
       document.getElementById("dialog-equipamento").close();

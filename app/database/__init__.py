@@ -63,6 +63,8 @@ from .operacao import listar_eventos_operacao as listar_eventos_operacao
 from .operacao import obter_status_coletor as obter_status_coletor
 from .operacao import registrar_evento_operacao as registrar_evento_operacao
 from .operacao import salvar_status_coletor as salvar_status_coletor
+from .sessoes import revogar_sessao as revogar_sessao
+from .sessoes import sessao_revogada as sessao_revogada
 from .usuarios import UltimoAdministradorError as UltimoAdministradorError
 from .usuarios import UsuarioInvalidoError as UsuarioInvalidoError
 from .usuarios import UsuarioNaoEncontradoError as UsuarioNaoEncontradoError

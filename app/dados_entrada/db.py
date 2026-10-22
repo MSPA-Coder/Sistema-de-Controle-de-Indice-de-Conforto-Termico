@@ -22,7 +22,7 @@ from .cidades import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterator, Sequence
 
 
 class ConfiguracaoDadosEntradaError(ValueError):
@@ -198,7 +198,7 @@ def _config_publica(config: dict) -> dict:
 def _numero(dados: dict, chave: str, minimo: float, maximo: float) -> float:
     bruto = dados.get(chave)
     if bruto is None:
-        raise ConfiguracaoDadosEntradaError(f"Informe um valor numÃ©rico para {chave}.")
+        raise ConfiguracaoDadosEntradaError(f"Informe um valor numérico para {chave}.")
     try:
         valor = float(bruto)
     except (TypeError, ValueError) as erro:
@@ -282,7 +282,7 @@ def salvar_configuracoes_zonas(dados: list[dict], zonas: list[dict]) -> list[dic
     for item in dados:
         zona_id_bruto = item.get("zona_id")
         if zona_id_bruto is None:
-            raise ConfiguracaoDadosEntradaError("ID de zona invÃ¡lido.")
+            raise ConfiguracaoDadosEntradaError("ID de zona inválido.")
         try:
             zona_id = int(zona_id_bruto)
         except (TypeError, ValueError) as erro:
@@ -544,6 +544,15 @@ def obter_execucao(execucao_id: int) -> dict | None:
     return dict(linha) if linha else None
 
 
+def zonas_da_execucao(execucao_id: int) -> frozenset[int]:
+    """Zonas que têm medições na execução (para conferir a ACL antes de copiar)."""
+    with _conexao(escrita=False) as conn:
+        linhas = conn.execute(
+            "SELECT DISTINCT zona_id FROM medicoes WHERE execucao_id=?", (execucao_id,)
+        ).fetchall()
+    return frozenset(int(linha["zona_id"]) for linha in linhas if linha["zona_id"] is not None)
+
+
 def excluir_medicoes(execucao_id: int | None = None) -> int:
     with _conexao() as conn:
         if execucao_id is None:
@@ -558,7 +567,10 @@ def excluir_medicoes(execucao_id: int | None = None) -> int:
 
 
 def iterar_medicoes_csv(
-    execucao_id: int | None = None, *, tamanho_lote: int = 500
+    execucao_id: int | None = None,
+    *,
+    tamanho_lote: int = 500,
+    zona_ids: Sequence[int] | None = None,
 ) -> tuple[list[str], Iterator[tuple]]:
     """Devolve as medições em lotes, mantendo a conexão só durante a iteração.
 
@@ -568,22 +580,32 @@ def iterar_medicoes_csv(
     """
     colunas = [coluna for coluna in _COLUNAS_MEDICAO if coluna != "execucao_id"]
     lote = max(1, min(5000, int(tamanho_lote)))
+    # `zona_ids` e o filtro por ACL (ver `seguranca.zonas.zonas_permitidas`).
+    restricao = ""
+    parametros_zonas: tuple = ()
+    if zona_ids is not None:
+        if zona_ids:
+            restricao = f" AND m.zona_id IN ({','.join('?' for _ in zona_ids)})"
+            parametros_zonas = tuple(zona_ids)
+        else:
+            restricao = " AND FALSE"
 
     def _linhas() -> Iterator[tuple]:
         with _conexao(escrita=False) as conn:
             if execucao_id is None:
                 resultado = conn.execute(
                     f"SELECT m.{','.join(colunas)} FROM medicoes m "
-                    "JOIN execucoes e ON e.id=m.execucao_id WHERE e.status='concluida' "
-                    "ORDER BY m.execucao_id,m.zona_id,m.timestamp_utc"
+                    "JOIN execucoes e ON e.id=m.execucao_id WHERE e.status='concluida'"
+                    f"{restricao} ORDER BY m.execucao_id,m.zona_id,m.timestamp_utc",
+                    parametros_zonas,
                 )
             else:
                 resultado = conn.execute(
                     f"SELECT m.{','.join(colunas)} FROM medicoes m "
                     "JOIN execucoes e ON e.id=m.execucao_id "
-                    "WHERE m.execucao_id=? AND e.status='concluida' "
+                    f"WHERE m.execucao_id=? AND e.status='concluida'{restricao} "
                     "ORDER BY m.zona_id,m.timestamp_utc",
-                    (execucao_id,),
+                    (execucao_id, *parametros_zonas),
                 )
             while linhas := resultado.fetchmany(lote):
                 for linha in linhas:

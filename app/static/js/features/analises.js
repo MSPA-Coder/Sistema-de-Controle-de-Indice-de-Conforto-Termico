@@ -84,6 +84,16 @@ function construirMetricaExecutivo(rotulo, montarValor) {
 // partir do resultado de GET /api/analises/painel-executivo. Assim como o
 // resto do app.js, tudo aqui e construido via DOM real (createElement +
 // textContent), nunca via innerHTML com dado vindo do servidor.
+function descreverIdade(segundos) {
+  const total = Number(segundos);
+  if (!Number.isFinite(total)) return "tempo indeterminado";
+  const dias = Math.floor(total / 86400);
+  if (dias >= 1) return dias + (dias === 1 ? " dia" : " dias");
+  const horas = Math.floor(total / 3600);
+  if (horas >= 1) return horas + (horas === 1 ? " hora" : " horas");
+  return Math.max(1, Math.floor(total / 60)) + " min";
+}
+
 function construirCartaoExecutivoZona(zona) {
   const cartao = document.createElement("section");
   cartao.className = "executivo-cartao";
@@ -107,7 +117,13 @@ function construirCartaoExecutivoZona(zona) {
   tituloGrupo.appendChild(badgeEspecie);
 
   const badgeStatus = document.createElement("span");
-  if (zona.status_atual) {
+  if (zona.status_atual && zona.leitura_atual === false) {
+    // Mesmo critério do Dashboard: status de uma leitura antiga não é o
+    // estado de agora, e "CONFORTO" ali enganava (leitura de agosto em outubro).
+    badgeStatus.className = "faixa-status executivo-status-badge faixa-status--vazio";
+    badgeStatus.textContent = "DADO DESATUALIZADO";
+    badgeStatus.title = "Última leitura há " + descreverIdade(zona.idade_leitura_segundos) + ".";
+  } else if (zona.status_atual) {
     badgeStatus.className = "faixa-status executivo-status-badge faixa-" + classeStatus(zona.status_atual);
     badgeStatus.textContent = rotuloStatus(zona.status_atual).toUpperCase();
   } else {

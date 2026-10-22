@@ -8,6 +8,7 @@ import math
 from flask import Blueprint, jsonify, render_template, request
 
 from app.seguranca import auth
+from app.seguranca.zonas import filtrar_por_zona, zona_visivel, zonas_permitidas
 from app.termico import agregacao
 from app.termico import thermal_indices as ti
 
@@ -47,6 +48,10 @@ def _parametro_data(nome: str) -> tuple[str | None, tuple | None]:
         return datetime.date.fromisoformat(valor).isoformat(), None
     except ValueError:
         return None, ({"erro": f"Parâmetro '{nome}' precisa estar em AAAA-MM-DD."}, 400)
+
+
+def _sem_acesso_a_zona():
+    return jsonify({"erro": "Seu perfil não tem acesso a esta função."}), 403
 
 
 @comum_bp.route("/")
@@ -112,7 +117,8 @@ def listar_zonas():
     """
     usuario = auth.usuario_atual()
     perfil = usuario["perfil"] if usuario else ""
-    return jsonify(db.listar_zonas(com_fiacao=auth.area_permitida(perfil, "cadastro")))
+    zonas = db.listar_zonas(com_fiacao=auth.area_permitida(perfil, "cadastro"))
+    return jsonify(filtrar_por_zona(zonas, zonas_permitidas(usuario), "id"))
 
 
 @comum_bp.route("/api/zonas/historicos-recentes", methods=["GET"])
@@ -122,7 +128,9 @@ def historicos_recentes_zonas():
     if erro:
         return jsonify(erro[0]), erro[1]
     limite = max(1, min(200, limite or 30))
-    return jsonify(db.obter_historicos_recentes_zonas(limite=limite))
+    permitidas = zonas_permitidas(auth.usuario_atual())
+    historicos = db.obter_historicos_recentes_zonas(limite=limite)
+    return jsonify({zona: itens for zona, itens in historicos.items() if zona_visivel(permitidas, zona)})
 
 
 @comum_bp.route("/api/zonas/<int:zona_id>/historico", methods=["GET"])
@@ -140,6 +148,7 @@ def historico_zona(zona_id):
 @comum_bp.route("/api/operacao/status", methods=["GET"])
 def status_operacao():
     config = db.obter_configuracoes()
+    permitidas = zonas_permitidas(auth.usuario_atual())
     return jsonify(
         {
             "coletor": db.obter_status_coletor(),
@@ -147,7 +156,7 @@ def status_operacao():
                 "habilitarEquipamentos": bool(config.get("habilitarEquipamentos")),
                 "intervaloLeituraSegundos": config.get("intervaloLeituraSegundos"),
             },
-            "zonas": db.obter_estado_operacional_zonas(),
+            "zonas": filtrar_por_zona(db.obter_estado_operacional_zonas(), permitidas),
         }
     )
 
@@ -160,7 +169,16 @@ def eventos_operacao():
     limite, erro = _parametro_inteiro("limite", 30)
     if erro:
         return jsonify(erro[0]), erro[1]
-    return jsonify(db.listar_eventos_operacao(zona_id, max(1, min(200, limite or 30))))
+    permitidas = zonas_permitidas(auth.usuario_atual())
+    if zona_id is not None and not zona_visivel(permitidas, zona_id):
+        return _sem_acesso_a_zona()
+    return jsonify(
+        db.listar_eventos_operacao(
+            zona_id,
+            max(1, min(200, limite or 30)),
+            zona_ids=None if permitidas is None else sorted(permitidas),
+        )
+    )
 
 
 @comum_bp.route("/api/historico-leituras")
@@ -175,6 +193,9 @@ def historico_leituras():
     zona_id, erro = _parametro_inteiro("zona_id")
     if erro:
         return jsonify(erro[0]), erro[1]
+    permitidas = zonas_permitidas(auth.usuario_atual())
+    if zona_id is not None and not zona_visivel(permitidas, zona_id):
+        return _sem_acesso_a_zona()
     if zona_id is not None and db.obter_zona(zona_id) is None:
         return jsonify({"erro": f"Zona {zona_id} não encontrada."}), 404
 
@@ -202,7 +223,7 @@ def historico_leituras():
 
     return jsonify(
         db.obter_historico_leituras(
-            limite=limite or 30,
+            limite=max(1, min(200, limite or 30)),
             deslocamento=deslocamento,
             zona_id=zona_id,
             indice=indice,
@@ -210,6 +231,7 @@ def historico_leituras():
             valor_referencia=valor_referencia,
             data_inicio=data_inicio,
             data_fim=data_fim,
+            zona_ids=None if permitidas is None else sorted(permitidas),
         )
     )
 
@@ -233,7 +255,7 @@ def agregados_15min_zona(zona_id):
     limite, erro = _parametro_inteiro("limite", 96)
     if erro:
         return jsonify(erro[0]), erro[1]
-    return jsonify(db.obter_agregados_15min(zona_id, limite=limite or 96))
+    return jsonify(db.obter_agregados_15min(zona_id, limite=max(1, min(2000, limite or 96))))
 
 
 @comum_bp.route("/api/zonas/<int:zona_id>/resumo-horario", methods=["GET"])
@@ -256,6 +278,9 @@ def resumo_horario_zona(zona_id):
         return jsonify({"erro": "A data inicial não pode ser posterior à data final."}), 400
     return jsonify(
         db.obter_resumos_horarios(
-            zona_id, limite=limite or 168, data_inicio=data_inicio, data_fim=data_fim
+            zona_id,
+            limite=max(1, min(5000, limite or 168)),
+            data_inicio=data_inicio,
+            data_fim=data_fim,
         )
     )
