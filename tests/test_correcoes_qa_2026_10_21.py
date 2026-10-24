@@ -1,7 +1,7 @@
 """Correções da rodada de testes de 21/10/2026 que não precisam de PostgreSQL.
 
 Cada teste nasceu de um defeito reproduzido contra a pilha local; o relatório
-(`RELATORIO_QA_2026-10-21.md`) traz o número de cada um. A parte que só o banco
+(`docs/RELATORIO_QA_2026-10-21.md`) traz o número de cada um. A parte que só o banco
 mostra (ACL das leituras agregadas, revogação de sessão, trilha de auditoria)
 está em `test_correcoes_qa_postgres.py`.
 """
