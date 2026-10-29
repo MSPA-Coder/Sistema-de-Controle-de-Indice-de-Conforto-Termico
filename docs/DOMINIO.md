@@ -81,6 +81,9 @@ Séries da área Dados de entrada combinam clima histórico obtido do Open-Meteo
 com cálculos e variáveis simuladas. Elas são dados sintéticos para pesquisa,
 não medições de uma instalação animal. Períodos ausentes do cache dependem de
 internet e da disponibilidade do serviço externo.
+Ao copiar uma geração para períodos já consolidados, os agregados das janelas
+e horas afetadas são invalidados na mesma transação e recalculados pelo próximo
+ciclo de agregação. Repetir a cópia da mesma geração não invalida novamente.
 
 ## O que foi validado
 

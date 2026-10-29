@@ -49,6 +49,27 @@ def test_recuperar_abandono_descarta_staging_e_impede_publicacao_tardia(ambiente
     assert gerar() != eid  # O abandono não impede uma execução posterior.
 
 
+def test_falha_tardia_nao_apaga_execucao_ja_publicada(ambiente):
+    eid = gerar()
+    assert dados.obter_execucao(eid)["status"] == "concluida"
+    dados.falhar_execucao(eid, "erro após confirmação ambígua")
+    assert dados.obter_execucao(eid)["status"] == "concluida"
+    assert len(list(dados.iterar_medicoes_csv(eid, tamanho_lote=7)[1])) == 24
+    assert dados.copiar_medicoes_para_historico(eid)["novas_copiadas"] == 24
+
+
+def test_lote_tardio_nao_grava_depois_da_recuperacao(ambiente):
+    eid = gerar()
+    with dados._conexao(escrita=False) as conn:
+        amostra = dict(conn.execute("SELECT * FROM medicoes WHERE execucao_id=? LIMIT 1", (eid,)).fetchone())
+    estado(eid, "processando")
+    assert dados.recuperar_execucoes_expiradas() == [eid]
+    with dados.sessao_geracao(eid) as sessao, pytest.raises(dados.ConfiguracaoDadosEntradaError):
+        sessao.inserir_medicoes([amostra])
+    with dados._conexao(escrita=False) as conn:
+        assert conn.execute("SELECT count(*) FROM medicoes WHERE execucao_id=?", (eid,)).fetchone()[0] == 0
+
+
 @pytest.mark.parametrize("finalizar", [False, True])
 def test_recuperacao_aguarda_renovacao_ou_conclusao_em_curso_sem_apagar_amostras(ambiente, finalizar):
     eid = gerar()
