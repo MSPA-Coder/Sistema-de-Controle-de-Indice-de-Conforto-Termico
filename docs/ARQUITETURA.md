@@ -21,6 +21,15 @@ navegador -> ICT -> API interna autenticada -> coletor
 - **Schema**: job efêmero que aplica as migrações Alembic antes de liberar os
   processos.
 
+O Compose executa uma instância do coletor. Os bloqueios de ciclo e comando por
+zona vivem na memória desse processo e não coordenam múltiplos coletores.
+Antes de ampliar a topologia para mais de uma instância, é necessário definir
+exclusão compartilhada e recuperação de falhas e testá-las entre processos.
+Ao detectar uma zona removida, o coletor espera que a operação em andamento
+termine antes de limpar histórico e estado transitório. Os objetos de trava
+permanecem em memória até o processo reiniciar; seu número cresce conforme as
+zonas distintas usadas pelo processo.
+
 O SharedAuth fornece sessão, CSRF, autenticação, rate limit de login,
 autorização comum, hash de senha, cabeçalhos de segurança, CSP e health checks.
 Perfis e a associação entre perfis e áreas pertencem a `app/seguranca/auth.py`.
