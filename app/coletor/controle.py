@@ -66,6 +66,7 @@ class GerenciadorControleZonas:
         # correspondente. Comeca vazio de proposito: no PRIMEIRO ciclo,
         # nao ha "zona que sumiu" ainda -- so uma baseline sendo criada.
         self._zonas_conhecidas: set[int] = set()
+        self._zonas_pendentes_limpeza: set[int] = set()
 
     def _lock_zona(self, zona_id: int) -> threading.Lock:
         with self._locks_guard:
@@ -145,7 +146,7 @@ class GerenciadorControleZonas:
                 db.salvar_status_coletor("online", erro=str(erro))
 
     def _reconciliar_zonas_removidas(self) -> None:
-        """Limpa o estado em memoria (lock, historico do grafico,
+        """Limpa o estado em memoria (historico do grafico,
         histerese do resfriador -- ver `ZonaService`) de zonas que
         sumiram de `db.listar_zonas()` desde o ciclo anterior.
 
@@ -164,12 +165,22 @@ class GerenciadorControleZonas:
         `intervaloLeituraSegundos`) resolve os dois problemas sem
         precisar de um mecanismo de notificacao entre processos."""
         ids_atuais = {zona["id"] for zona in db.listar_zonas()}
-        removidas = self._zonas_conhecidas - ids_atuais
+        removidas = (self._zonas_conhecidas - ids_atuais) | self._zonas_pendentes_limpeza
+        ocupadas = set()
         for zona_id in removidas:
-            self.zona_service.limpar_historico_grafico(zona_id)
-            self.zona_service.limpar_resfriador(zona_id)
-            with self._locks_guard:
-                self._locks.pop(zona_id, None)
+            def limpar(zona_id=zona_id):
+                self.zona_service.limpar_historico_grafico(zona_id)
+                self.zona_service.limpar_resfriador(zona_id)
+
+            try:
+                self._executar_exclusivo(zona_id, limpar)
+            except ZonaOcupadaError:
+                # Um ciclo anterior ainda pode preencher o estado: tente no
+                # próximo ciclo, depois que ele terminar.
+                ocupadas.add(zona_id)
+        # O lock permanece durante a vida do processo. Removê-lo poderia
+        # criar uma segunda trava enquanto uma thread ainda usa a primeira.
+        self._zonas_pendentes_limpeza = ocupadas
         self._zonas_conhecidas = ids_atuais
 
     def _consolidar_automaticamente_se_devido(self, logger=None) -> None:

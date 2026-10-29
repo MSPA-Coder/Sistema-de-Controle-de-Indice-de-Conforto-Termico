@@ -4,6 +4,7 @@ import copy
 import datetime as dt
 import io
 import json
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -100,6 +101,34 @@ def test_falha_na_segunda_zona_limpa_lotes_ja_confirmados_e_permite_retry(ambien
         dados.copiar_medicoes_para_historico(execucao["id"])
     ambiente["falhar_segunda"] = False
     assert g.gerar(parametros(), [a, b])["total_medicoes"] == 48
+
+
+def test_publicacao_posterior_reconsolida_janelas_e_horas_afetadas(ambiente):
+    zona, _ = configurar()
+    primeira = g.gerar(parametros(), [zona])
+    segunda = g.gerar(parametros(), [zona])
+    dados.copiar_medicoes_para_historico(primeira["execucao_id"])
+    agregacao.executar_para_zona(zona)
+    assert all(item["amostras"] == 1 for item in db.obter_agregados_15min(zona["id"]))
+    dados.copiar_medicoes_para_historico(segunda["execucao_id"])
+    agregacao.executar_para_zona(zona)
+    assert all(item["amostras"] == 2 for item in db.obter_agregados_15min(zona["id"]))
+    assert all(item["amostras"] == 2 for item in db.obter_resumos_horarios(zona["id"]))
+    assert dados.copiar_medicoes_para_historico(segunda["execucao_id"])["novas_copiadas"] == 0
+    assert agregacao.executar_para_zona(zona)["horas_consolidadas"] == 0
+
+
+def test_publicacao_aguarda_consolidacao_da_mesma_zona(ambiente):
+    zona, _ = configurar()
+    execucao = g.gerar(parametros(), [zona])
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with dados._conexao() as conn:
+            conn.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"conforto:agregacao:{zona['id']}:ITU",))
+            futuro = pool.submit(dados.copiar_medicoes_para_historico, execucao["execucao_id"])
+            with pytest.raises(TimeoutError):
+                futuro.result(timeout=1)
+        assert futuro.result(timeout=10)["novas_copiadas"] == 24
+    assert agregacao.executar_para_zona(zona)["horas_consolidadas"] == 24
 
 
 @pytest.mark.parametrize("defeito", ["sem_tempos", "variavel_ausente", "nulo", "nao_finito", "ur_zero", "periodo_incompleto"])
