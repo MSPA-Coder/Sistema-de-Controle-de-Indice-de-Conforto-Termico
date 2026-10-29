@@ -78,11 +78,10 @@ class _SessaoGeracao:
         if not medicoes:
             return
         try:
+            if self._execucao_id is not None and not heartbeat_execucao(self._execucao_id, conn=self._conn):
+                raise ConfiguracaoDadosEntradaError("A execução não está mais disponível para receber medições.")
             _inserir_medicoes_na_conexao(self._conn, medicoes)
             self._conn.commit()
-            if self._execucao_id is not None:
-                heartbeat_execucao(self._execucao_id, conn=self._conn)
-                self._conn.commit()
         except Exception:
             self._conn.rollback()
             raise
@@ -515,11 +514,13 @@ def concluir_execucao(execucao_id: int, total_medicoes: int) -> None:
 
 def falhar_execucao(execucao_id: int, erro: str) -> None:
     with _conexao() as conn:
-        conn.execute("DELETE FROM medicoes WHERE execucao_id=?", (execucao_id,))
-        conn.execute(
-            "UPDATE execucoes SET status='falhou', erro=?, concluido_em=? WHERE id=?",
+        cursor = conn.execute(
+            "UPDATE execucoes SET status='falhou', erro=?, concluido_em=?, "
+            "lease_token=NULL, lease_until=NULL WHERE id=? AND status='processando'",
             (str(erro)[:1000], _agora(), execucao_id),
         )
+        if int(cursor.rowcount or 0) == 1:
+            conn.execute("DELETE FROM medicoes WHERE execucao_id=?", (execucao_id,))
 
 
 def listar_execucoes(limite: int = 20) -> list[dict]:
@@ -681,6 +682,32 @@ def copiar_medicoes_para_historico(execucao_id: int) -> dict:
         )
         agora = _agora()
         if pendentes:
+            # Publicação e consolidação compartilham a trava por zona/índice:
+            # uma consolidação iniciada antes da cópia não pode republicar um
+            # resumo antigo depois da invalidação. A ordem evita deadlocks
+            # entre publicações de diferentes execuções com zonas em comum.
+            chaves = conn.execute(
+                "SELECT DISTINCT zona_id, indice FROM medicoes WHERE execucao_id=? ORDER BY zona_id, indice",
+                (execucao_id,),
+            ).fetchall()
+            for chave in chaves:
+                conn.execute("SELECT pg_advisory_xact_lock(hashtext(?))",
+                             (f"conforto:agregacao:{chave['zona_id']}:{chave['indice']}",))
+            for tabela, coluna, bucket in (
+                ("agregados_15min", "janela_inicio", "date_bin(INTERVAL '15 minutes', m.timestamp_utc::timestamp, TIMESTAMP '2000-01-01')"),
+                ("resumos_horarios", "hora_inicio", "date_trunc('hour', m.timestamp_utc::timestamp)"),
+            ):
+                conn.execute(
+                    f"""DELETE FROM historico.{tabela} a
+                    WHERE EXISTS (
+                        SELECT 1 FROM medicoes m
+                        LEFT JOIN historico_exportado he ON he.medicao_id = m.id
+                        WHERE m.execucao_id=? AND he.medicao_id IS NULL
+                          AND a.zona_id=m.zona_id AND a.indice=m.indice
+                          AND a.{coluna}=to_char({bucket}, 'YYYY-MM-DD"T"HH24:MI:SS')
+                    )""",
+                    (execucao_id,),
+                )
             conn.execute(
                 """
                 INSERT INTO historico.leituras

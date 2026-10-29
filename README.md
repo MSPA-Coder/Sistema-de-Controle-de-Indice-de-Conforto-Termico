@@ -10,6 +10,13 @@ O projeto ainda não está em uso operacional. Ele trabalha em modo simulado e
 código não representa implantação, homologação de hardware ou autorização para
 controle real.
 
+## Ambiente oficial
+
+| Atividade | Ambiente |
+| --- | --- |
+| Aplicação, PostgreSQL, migrações e qualidade | Docker Compose |
+| `.venv` local | Não é necessária; não use para runtime, lint ou testes |
+
 ## Limites da validação
 
 Os testes verificam comportamento do software, inclusive fórmulas e exemplos

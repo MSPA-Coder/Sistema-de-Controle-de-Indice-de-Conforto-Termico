@@ -479,6 +479,7 @@ def agregar_janela_15min(
         datetime.datetime.fromisoformat(janela_inicio) + datetime.timedelta(minutes=15)
     ).isoformat(timespec="seconds")
     with conexao() as conn:
+        conn.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"conforto:agregacao:{zona_id}:{indice}",))
         linhas = conn.execute(
             """
             SELECT valor, entradas FROM leituras
@@ -591,6 +592,7 @@ def consolidar_resumo_horario(
         datetime.datetime.fromisoformat(hora_inicio) + datetime.timedelta(hours=1)
     ).isoformat(timespec="seconds")
     with conexao() as conn:
+        conn.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"conforto:agregacao:{zona_id}:{indice}",))
         linhas = conn.execute(
             """
             SELECT valor, status FROM leituras
