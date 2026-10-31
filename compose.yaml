@@ -2,8 +2,6 @@ name: conforto-termico
 
 x-app-build: &app-build
   context: .
-  pull: true
-  no_cache: true
   target: runtime
   secrets:
     - local_ca
@@ -46,8 +44,6 @@ services:
     build:
       context: .
       dockerfile: docker/sandbox-postgres/Dockerfile
-      pull: true
-      no_cache: true
     pull_policy: build
     user: postgres
     cpus: 1.0
@@ -91,8 +87,6 @@ services:
     build:
       context: .
       dockerfile: docker/sandbox-postgres/Dockerfile
-      pull: true
-      no_cache: true
     pull_policy: build
     user: postgres
     read_only: true
@@ -274,7 +268,6 @@ services:
   quality:
     build:
       context: .
-      pull: true
       target: quality
       secrets:
         - local_ca
@@ -293,13 +286,14 @@ services:
   #
   # `uid=70,gid=70,mode=0700` no tmpfs de dados: ele nasce do root, e o
   # `initdb` roda como `postgres` com `cap_drop: ALL`, sem CAP_CHOWN.
+  #
+  # O contêiner pode sobreviver entre execuções; quem garante o banco vazio é
+  # `tests/conftest.py`, que cria um banco novo por execução e por worker.
   postgres-teste:
     image: mspa-postgres:17-alpine
     build:
       context: .
       dockerfile: docker/sandbox-postgres/Dockerfile
-      pull: true
-      no_cache: true
     pull_policy: build
     profiles: ["quality"]
     user: postgres

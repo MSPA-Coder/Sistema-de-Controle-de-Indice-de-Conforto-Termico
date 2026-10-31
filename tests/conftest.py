@@ -79,6 +79,75 @@ def client(app):
 # banco. O schema nasce pela cadeia Alembic inteira, como em produção.
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _banco_proprio_da_execucao(worker_id):
+    """Dá a cada execução, e a cada worker do xdist, um banco de teste novo.
+
+    É o padrão do pytest-django: `conforto_teste_gw0`, `_gw1`... e
+    `conforto_teste_master` sem xdist, criado no início e apagado no fim. Por
+    dois motivos:
+
+    - em paralelo, cada worker aplica as migrações e trunca o próprio banco,
+      sem disputar o `alembic_version` nem apagar as linhas dos outros;
+    - o `postgres-teste` sobrevive entre execuções quando a imagem não muda, e
+      só um banco novo a cada execução mantém a promessa de `banco_de_teste`:
+      a cadeia Alembic inteira sobre um banco vazio.
+
+    O banco nasce como cópia (`TEMPLATE`) do que o `postgres-teste` criou. O
+    modelo nunca é migrado; um modelo que já traga tabelas para a execução
+    inteira, em vez de deixar a suíte passar sobre um schema que não nasceu da
+    cadeia.
+    """
+    import os
+
+    url = os.environ.get("TESTE_DATABASE_URL", "").strip()
+    if not url:
+        yield
+        return
+    import psycopg
+    from psycopg import sql
+    from sqlalchemy.engine import make_url
+
+    url_modelo = make_url(url)
+    modelo = url_modelo.database
+    proprio = f"{modelo}_{worker_id}"
+    libpq = url_modelo.set(drivername="postgresql")
+    servidor = libpq.set(database="postgres").render_as_string(hide_password=False)
+    apagar = sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(proprio))
+
+    with psycopg.connect(servidor, autocommit=True) as conexao:
+        conexao.execute(apagar)
+        conexao.execute(
+            sql.SQL("CREATE DATABASE {} TEMPLATE {}").format(
+                sql.Identifier(proprio), sql.Identifier(modelo)
+            )
+        )
+    with psycopg.connect(libpq.set(database=proprio).render_as_string(hide_password=False)) as conexao:
+        tabelas = conexao.execute(
+            "SELECT count(*) FROM pg_tables "
+            "WHERE schemaname NOT IN ('pg_catalog', 'information_schema')"
+        ).fetchone()[0]
+    if tabelas:
+        with psycopg.connect(servidor, autocommit=True) as conexao:
+            conexao.execute(apagar)
+        pytest.fail(
+            f"o banco-modelo `{modelo}` do postgres-teste já tem {tabelas} tabela(s); "
+            "recrie-o com `docker compose --env-file .env.docker --profile quality "
+            "rm -sf postgres-teste`",
+            pytrace=False,
+        )
+
+    os.environ["TESTE_DATABASE_URL"] = url_modelo.set(database=proprio).render_as_string(
+        hide_password=False
+    )
+    try:
+        yield
+    finally:
+        os.environ["TESTE_DATABASE_URL"] = url
+        with psycopg.connect(servidor, autocommit=True) as conexao:
+            conexao.execute(apagar)
+
+
 @pytest.fixture(scope="session")
 def banco_de_teste():
     import os

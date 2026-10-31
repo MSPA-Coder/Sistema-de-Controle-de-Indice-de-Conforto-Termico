@@ -105,8 +105,9 @@ docker compose --env-file .env.docker --profile quality run --build --rm quality
 ```
 
 `--build` mantém a validação explícita e reproduzível: o serviço `quality` não
-monta o código do host, e Compose reconstrói sem cache com a tag base atual
-antes de executar os testes.
+monta o código do host, e Compose reconstrói a imagem com o código atual, com
+cache, antes de executar os testes. A suíte roda em paralelo (`pytest -n`), com
+um banco de teste novo por worker e por execução (ver `tests/conftest.py`).
 
 ### Ambiente Python local
 
@@ -123,14 +124,14 @@ política de atualização testada. As dependências PyPI ficam fixadas em
 `constraints.txt`, aplicado ao runtime, às ferramentas e ao isolamento de build;
 SharedAuth usa referência Git imutável no `pyproject.toml`. Não há `uv.lock`;
 a imagem usa a tag móvel Python 3.15 e recebe atualizações Debian e de ferramentas
-em cada build. A CI semanal reconstrói, testa, audita dependências Python e
+quando as bases são renovadas: o build comum usa o cache e as bases já baixadas,
+como o deploy, e bases novas entram com `build --pull --no-cache` na máquina e
+`deploy.sh conforto --refresh` no servidor (ver `docs/DESENVOLVIMENTO.md`). A
+CI semanal reconstrói sem cache, testa, audita dependências Python e
 varre CVEs corrigíveis da imagem. O Dependabot propõe atualizações de
 dependências, tags e Actions; elas só entram depois dos checks passarem. O
 Compose reconstrói `mspa-postgres:17-alpine` a partir da tag móvel oficial,
 mantendo a série principal 17 para preservar o formato dos volumes existentes.
-
-O Compose usa `mspa-postgres:17-alpine` e reconstrói os serviços sem cache a
-cada subida, mantendo a série principal 17 para preservar os volumes existentes.
 
 Valide proporcionalmente ao risco e percorra manualmente o fluxo alterado.
 Mudanças de persistência, migrações, dependências ou contêineres exigem a pilha

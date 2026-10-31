@@ -107,8 +107,8 @@ docker compose --env-file .env.docker --profile quality run --build --rm quality
 ```
 
 `--build` mantém a validação explícita e reproduzível: o serviço `quality` não
-monta o código do host, e Compose reconstrói sem cache com as tags base atuais
-antes de executar os testes.
+monta o código do host, e Compose reconstrói a imagem com o código atual, com
+cache, antes de executar os testes, e a suíte roda em paralelo.
 
 O estágio executa `ruff check . && pytest`. Mudanças de persistência,
 migrações, dependências ou contêineres também exigem a pilha completa e

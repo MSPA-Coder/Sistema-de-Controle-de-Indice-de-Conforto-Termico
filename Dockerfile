@@ -87,4 +87,6 @@ COPY --chown=app:app compose.yaml .env.docker.example ./
 ENV RUFF_CACHE_DIR=/tmp/ruff-cache \
     PYTEST_ADDOPTS="-o cache_dir=/tmp/pytest-cache"
 USER app
-CMD ["sh", "-c", "ruff check . && mypy && pytest"]
+# `-n auto` distribui a suíte pelos núcleos, até 8 workers; cada um com o
+# próprio banco de teste (ver `tests/conftest.py`).
+CMD ["sh", "-c", "ruff check . && mypy && pytest -n auto --maxprocesses 8"]
