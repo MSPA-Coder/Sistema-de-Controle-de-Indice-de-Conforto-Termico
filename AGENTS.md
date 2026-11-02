@@ -38,9 +38,10 @@ As fórmulas, limites e combinações de espécie/índice têm fonte única em
 testes. Testes do código validam a implementação de software, não constituem
 validação acadêmica ou experimental dos índices.
 
-O ambiente suportado é Docker Compose com PostgreSQL. Leia `README.md` e os
-documentos vivos em `docs/` antes de alterar comportamento documentado. Confirme
-contratos no código, migrações, configuração e testes afetados.
+O ambiente suportado é Docker Compose com PostgreSQL. Antes de alterar um
+comportamento documentado, leia o documento de `docs/` que o descreve (o
+`README.md` tem o índice), não todos. Confirme contratos no código, migrações,
+configuração e testes afetados.
 
 ## Arquitetura e invariantes
 
@@ -148,3 +149,12 @@ atualizadas deliberadamente; preserve o menor piso efetivamente suportado.
 
 Não altere contratos JSON isoladamente: atualize no mesmo trabalho o backend,
 o consumidor JavaScript e a documentação pertinente.
+
+## Arquivos sincronizados com o manutencao
+
+`Dockerfile.browser`, `scripts/provision-db-runtime.sh`,
+`docs/security-audit/gerar_relatorio.py`, `docs/TESTES.md` são cópias
+de arquivos canônicos do repositório `manutencao` (ver
+`manutencao/compartilhados/README.md`). Não os edite aqui: mude a canônica e
+rode `python compartilhados/sincronizar.py --aplicar` no `manutencao`, que
+copia para todos os repositórios de uma vez.

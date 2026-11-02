@@ -27,11 +27,18 @@ RUN apt-get update \
 
 FROM base AS runtime-dependencies
 COPY pyproject.toml README.md constraints.txt ./
-COPY app ./app
 # `sharedauth` é fixado por commit no pyproject.toml. O arquivo de constraints
 # fixa os demais pacotes transitivos e de qualidade.
+#
+# Dependências antes do código: mudar o código não reinstala tudo, só o pacote
+# do projeto (medido em 02/11/2026). A lista sai do próprio `pyproject.toml`; o
+# constraints não serve de lista porque inclui as ferramentas de teste.
 RUN --mount=type=cache,target=/root/.cache/pip \
-    PIP_CONSTRAINT=/workspace/constraints.txt python -m pip install -c constraints.txt .
+    python -c "import tomllib; print('\n'.join(tomllib.load(open('pyproject.toml', 'rb'))['project']['dependencies']))" >/tmp/dependencias.txt \
+    && PIP_CONSTRAINT=/workspace/constraints.txt python -m pip install -c constraints.txt -r /tmp/dependencias.txt
+COPY app ./app
+RUN --mount=type=cache,target=/root/.cache/pip \
+    PIP_CONSTRAINT=/workspace/constraints.txt python -m pip install --no-deps -c constraints.txt .
 
 FROM runtime-dependencies AS runtime
 ARG ARTIFACT_REVISION=local
