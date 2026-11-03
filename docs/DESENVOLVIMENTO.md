@@ -31,8 +31,8 @@ ou ciência. ICT e API do coletor usam a mesma imagem candidata.
 ## Ambiente reproduzível
 
 Use Docker Compose para aplicação, PostgreSQL, migrações e ferramentas. No host,
-o único Python do projeto é o venv opcional do laço rápido (ver `AGENTS.md`);
-nada vai para o Python global.
+o `.venv` do projeto é isolado e fora do PATH, sem dependências de
+desenvolvimento; nada vai para o Python global.
 
 Prepare a instalação local:
 

@@ -1,160 +1,119 @@
-# ConfortoTermico — orientações de trabalho
+# ConfortoTermico — guia de trabalho
 
-> **Este projeto segue trilha própria e não faz parte da frota.** A frota é
-> MegaSena, ControleBancario e ControleRendaVariavel; eles compartilham base e
-> servem de referência uns aos outros. Aqui a **arquitetura é livre** — não
-> compare com os irmãos nem proponha unificar por uniformidade. O que continua
-> obrigatório é o **contrato operacional**: VPS, `deploy.sh`, vigia, autocura,
-> alerta, backup, `SharedAuth` e as proteções de repositório. Decisão de
-> 07/09/2026, registrada em
-> [`docs/adr/008-trilha-propria-fora-da-frota.md`](docs/adr/008-trilha-propria-fora-da-frota.md).
+<!-- comum: início. Cópia de _manutencao/compartilhados/AGENTS-comum.md; mude lá e rode sincronizar.py --aplicar. -->
+## Regras comuns aos repositórios
 
-## Escopo e fontes de verdade
+**O que espera o "sim" do mantenedor:** commit e push (quando ele pedir),
+deploy, qualquer ação no VPS, e apagar dados, volumes ou backups
+(`docker compose down -v` inclusive). Na dúvida sobre algo irreversível,
+pergunte; no resto, decida e diga o que decidiu.
 
-Depois da verificação completa na máquina (o `quality`), faça commit direto no
-`main` e `git push`, sem PR e sem esperar nada. A regra do `main` continua
-impedindo apagá-lo ou reescrever o histórico: nada de push forçado nem de
-rebase do `main`. A CI do GitHub roda depois de cada push só como aviso e não
-bloqueia nada; se falhar, investigue. O Dependabot continua por PR, com os
-checks obrigatórios; o merge é manual (o workflow de auto-merge foi removido).
+**Ciclo.** Altere, rode a verificação completa deste repositório (seção
+"Validação"), commite direto no `main` e dê `git push`: sem PR, sem push
+forçado, sem rebase do `main` publicado. A CI roda depois, só como aviso, mas
+vermelho no `main` se investiga. O Dependabot chega por PR, com merge manual. O
+deploy é `~/deploy.sh <app>` no VPS1: monta a imagem a partir do `main`,
+confere `/health` e volta sozinho se falhar. O VPS só espelha o `main`; nada se
+edita lá. Imagem-base nova (correção do Debian ou do Python) só quando ele
+pedir: testa na máquina e depois `~/deploy.sh <app> --refresh`. Ao terminar,
+diga o que rodou, o resultado e o que deixou de validar.
 
-O deploy (`~/deploy.sh conforto`) só roda quando o usuário mandar. O servidor
-monta a imagem a partir do código do `main`, sem esperar nem baixar nada da
-CI, confere a saúde e volta sozinho para a versão anterior se falhar.
-`~/deploy.sh --status` compara VPS × GitHub. Nada muda em produção sem o
-usuário mandar. As correções de segurança das imagens-base (Debian/Python)
-entram só quando ele pedir: testa localmente com as bases novas e depois roda
-`~/deploy.sh conforto --refresh`. Ver docs/RUNBOOK.md.
+**Dados e segredos.** Mudança destrutiva ou conversão de dados reais começa por
+backup conferido no BackupRestore. Segredos ficam fora do Git (`.secrets/` ou
+configuração do usuário) e não aparecem em código, imagem, log, diff,
+documento nem relatório.
 
-Este é um software experimental de pesquisa, mantido e usado por uma pessoa.
-Ele calcula, monitora e simula conforto térmico animal; hoje roda em modo
-simulado e não aciona equipamentos físicos. Conectar hardware é um passo
-previsto da pesquisa, com pré-requisitos: autorização explícita do mantenedor e
-um plano de segurança para animais e equipamentos antes de desligar o modo
-simulado.
+**Dependências.** Alargue o teto e preserve o piso já verificado: elevar o piso
+afirma uma incompatibilidade, e isso exige prova. Vulnerabilidade se corrige
+atualizando; exceção só explícita, com motivo e data. Enquanto o Dependabot não
+aceitar Python 3.15, ele não propõe atualização de `uv` e o grafo do GitHub fica
+parado no lock de 13/10/2026: confira alerta pela versão do `uv.lock`, e
+atualize à mão (`uv lock --upgrade-package <pacote>`) quando o `pip-audit` ou o
+Trivy apontarem.
 
-As fórmulas, limites e combinações de espécie/índice têm fonte única em
-`app/termico/thermal_indices.py`. Mudanças exigem justificativa, exemplos numéricos e
-testes. Testes do código validam a implementação de software, não constituem
-validação acadêmica ou experimental dos índices.
+**Testes.** `docs/TESTES.md` diz o que testar e como. Diante de vermelho,
+decida de quem é o defeito; nunca escreva código para um teste passar. Não
+rode duas verificações do mesmo repositório ao mesmo tempo: a segunda recria o
+banco de teste e derruba a primeira.
 
-O ambiente suportado é Docker Compose com PostgreSQL. Antes de alterar um
-comportamento documentado, leia o documento de `docs/` que o descreve (o
-`README.md` tem o índice), não todos. Confirme contratos no código, migrações,
-configuração e testes afetados.
+**Cópias.** Este bloco, `docs/TESTES.md` e os arquivos listados em
+`_manutencao/compartilhados/sincronizar.py` são cópias: mude a canônica lá e
+rode `python compartilhados/sincronizar.py --aplicar` no `_manutencao`.
 
-## Arquitetura e invariantes
+**Este arquivo.** Guarde aqui só o que o código não diz: limites, decisões com
+o motivo, armadilhas e comandos. História fica no `git log`; decisão com
+alternativas vira ADR; detalhe de implementação fica no código. Para
+acrescentar uma regra, retire ou funda outra: `sincronizar.py` reprova este
+arquivo acima de 900 palavras fora deste bloco.
+<!-- comum: fim -->
 
-`ict` é a única interface pública: autentica, autoriza e encaminha comandos.
-`coletor` é privado, mantém o ciclo por zona e expõe somente `/health` e
-`/api/interno/*`. `criar_app_ict()` não deve importar cliente Modbus,
-`zona_service` nem estado do coletor. O navegador consome somente a API do ICT.
+## O sistema
 
-Sessão, CSRF, limite de login, controle de acesso, hash de senha, senha
-temporária e trava de troca pendente, destino pós-login seguro e a marca que
-amarra a sessão à senha em vigor, cabeçalhos de
-segurança, CSP e health checks vêm do SharedAuth. Perfis e áreas permanecem
-próprios deste projeto em `app/seguranca/auth.py`. Preserve autorização no servidor; não
-trate a ocultação de elementos da interface como controle de acesso.
+Software experimental de pesquisa, mantido e usado por uma pessoa: calcula,
+monitora e simula conforto térmico animal. No ar em
+`https://conforto-mspa.duckdns.org` (deploy `~/deploy.sh conforto`; operação
+em `docs/RUNBOOK.md`). Hoje roda em modo simulado e não aciona equipamento
+físico. Ligar hardware exige autorização explícita do mantenedor e um plano de
+segurança para animais e equipamentos antes de desligar o modo simulado.
 
-Falhas de sensores ou atuadores devem ser observáveis sem derrubar processos.
-Cada zona isola ciclo e estado. Entradas físicas inválidas não recebem fallback
-silencioso. Estado transitório pertence ao coletor; dados persistentes passam
-pelos módulos de banco.
+**Trilha própria, fora da frota** (ADR 008): a arquitetura é livre; não compare
+com o CB, o CRV ou o MegaSena nem proponha unificar por uniformidade. Continua
+obrigatório o contrato operacional: VPS, `deploy.sh`, vigia, autocura, alerta,
+backup e SharedAuth.
 
-PostgreSQL usa os schemas `historico` e `dados_entrada`. O job `schema` aplica
-migrações Alembic antes de `ict` e `coletor`; a aplicação não cria schema em
-runtime. Mudanças de schema usam nova revisão com `upgrade` e `downgrade`; não
-reescreva revisão aplicada nem use `stamp` para declarar compatibilidade.
+O `README.md` tem o índice de `docs/`; leia só o documento do assunto
+(`docs/DOMINIO.md`, `docs/ARQUITETURA.md`, `docs/DESENVOLVIMENTO.md`,
+`docs/SEGURANCA.md`, `docs/travas.md`, `docs/adr/`).
 
-`app/nucleo/db_backend.py` é uma camada de compatibilidade de chamadas SQL sobre
-PostgreSQL. A arquitetura é livre (ADR 008): se ela crescer a ponto de
-atrapalhar, trocá-la por um ORM ou pelo driver direto é opção legítima. Ao
-escrever SQL, evite ambiguidade entre
-marcadores `?` e operadores JSONB: prefira `jsonb_exists(coluna, ?)`; considere
-também que `%` literal precisa ser tratado ao adaptar para o estilo do psycopg.
-
-## Segurança e dados
-
-Segredos ficam em `.secrets/`, montados somente nos serviços que precisam
-deles. Nunca os inclua em imagem, logs, documentação ou valores padrão. Senhas
-ficam como hash; SMTP é write-only. Preserve a regra que impede remover ou
-desativar o último administrador ativo.
-
-Os contêineres operacionais usam usuário não-root, filesystem somente leitura,
-capabilities removidas e diretórios temporários explícitos. Não monte código do
-host, não exponha o coletor e não monte o socket Docker. Preserve health checks,
-limites de logs, desligamento gracioso e respostas `/api/*` sem detalhes internos.
-
-Medições de pesquisa podem ser descartadas quando a tarefa autorizar isso;
-zonas, equipamentos, usuários e configurações devem ser preservados quando
-possível. `docker compose down` preserva volumes. `down -v`, restauração e
-migração destrutiva exigem autorização explícita, backup conferido e plano de
-retorno. A proteção e o restore pertencem ao aplicativo BackupRestore, e o
-procedimento operacional está em `docs/RUNBOOK.md`.
-
-## Desenvolvimento e validação
-
-Use as interfaces Docker documentadas pelo projeto para validar a imagem e o
-Linux:
+## Validação
 
 ```powershell
-docker compose --env-file .env.docker config --quiet
-docker compose --env-file .env.docker up -d --build --wait
-docker compose --env-file .env.docker exec ict python -m scripts.verificar_postgres
 docker compose --env-file .env.docker --profile quality run --build --rm quality
 ```
 
-`--build` mantém a validação explícita e reproduzível: o serviço `quality` não
-monta o código do host, e Compose reconstrói a imagem com o código atual, com
-cache, antes de executar os testes. A suíte roda em paralelo (`pytest -n`), com
-um banco de teste novo por worker e por execução (ver `tests/conftest.py`).
+Suíte em paralelo, com um banco de teste novo por worker e por execução. Rode
+antes de todo commit de código.
 
-### Ambiente Python local
+- Persistência, migração, dependência ou contêiner: também a pilha completa
+  (`up -d --build --wait`) e
+  `docker compose --env-file .env.docker exec ict python -m scripts.verificar_postgres`.
+- Mudança visível: percorra o fluxo na tela.
+- Só documentação: `git diff --check` e
+  `python ../_manutencao/compartilhados/sincronizar.py`.
 
-O `.venv` padronizado em Python 3.15 é isolado e não faz parte do PATH. Para
-lint, testes, migrações e runtime, use os serviços Compose acima; o host não
-precisa de dependências de desenvolvimento.
+## Limites
 
-`sharedauth` é instalado direto do GitHub, no commit que `pyproject.toml` fixa. O
-repositório é **público**: o build precisa só de `git` no PATH, nenhuma
-credencial.
+- Fórmulas, limites e combinações de espécie e índice têm fonte única em
+  `app/termico/thermal_indices.py`. Mudança exige justificativa, exemplos
+  numéricos e testes; os testes validam o software, não a validade acadêmica
+  dos índices.
+- `ict` é a única interface pública: autentica, autoriza e encaminha comandos.
+  `coletor` é privado, mantém o ciclo por zona e expõe só `/health` e
+  `/api/interno/*`; não se expõe nem se monta código do host nele.
+  `criar_app_ict()` não importa cliente Modbus, `zona_service` nem estado do
+  coletor; o navegador só fala com a API do ICT.
+- Cada zona isola ciclo e estado. Falha de sensor ou atuador é observável sem
+  derrubar processo, e entrada física inválida não recebe fallback silencioso.
+- Contrato JSON muda junto com o backend, o JavaScript que o consome e a
+  documentação, no mesmo trabalho.
+- Sessão, CSRF, limite de login, senhas, cabeçalhos, CSP e health vêm do
+  SharedAuth; perfis e áreas são deste projeto (`app/seguranca/auth.py`).
+  Ocultar elemento na tela não é controle de acesso. Não se remove nem se
+  desativa o último administrador ativo.
+- PostgreSQL com os schemas `historico` e `dados_entrada`. O job `schema`
+  aplica Alembic antes de `ict` e `coletor`; revisão nova com `upgrade` e
+  `downgrade`, sem reescrever revisão aplicada nem usar `stamp`.
+- Medições de pesquisa podem ser descartadas quando a tarefa autorizar; zonas,
+  equipamentos, usuários e configurações se preservam.
 
-Este projeto segue trilha própria de arquitetura, mas isso não é uma exceção à
-política de atualização testada. As dependências PyPI ficam fixadas em
-`constraints.txt`, aplicado ao runtime, às ferramentas e ao isolamento de build;
-SharedAuth usa referência Git imutável no `pyproject.toml`. Não há `uv.lock`;
-a imagem usa a tag móvel Python 3.15 e recebe atualizações Debian e de ferramentas
-quando as bases são renovadas: o build comum usa o cache e as bases já baixadas,
-como o deploy, e bases novas entram com `build --pull --no-cache` na máquina e
-`deploy.sh conforto --refresh` no servidor (ver `docs/DESENVOLVIMENTO.md`). A
-CI semanal reconstrói sem cache, testa, audita dependências Python e
-varre CVEs corrigíveis da imagem. O Dependabot propõe atualizações de
-dependências, tags e Actions; elas só entram depois dos checks passarem. O
-Compose reconstrói `mspa-postgres:17-alpine` a partir da tag móvel oficial,
-mantendo a série principal 17 para preservar o formato dos volumes existentes.
+## Armadilhas
 
-Valide proporcionalmente ao risco e percorra manualmente o fluxo alterado.
-Mudanças de persistência, migrações, dependências ou contêineres exigem a pilha
-completa. Migração exige bootstrap em PostgreSQL vazio e backup conferido antes
-de atuar sobre dados existentes. Registre verificações omitidas e o motivo.
-Em qualquer mudança de código, rode o `quality` completo na máquina antes do
-commit: é essa verificação que vale.
-
-A CI valida Compose, executa o estágio `quality`, audita dependências Python,
-varre a imagem servida e confere contratos do runtime; roda depois de cada
-push só como aviso e não bloqueia nada. Não afrouxe controles de
-segurança para fazer a CI passar. Dependências usam faixas limitadas e são
-atualizadas deliberadamente; preserve o menor piso efetivamente suportado.
-
-Não altere contratos JSON isoladamente: atualize no mesmo trabalho o backend,
-o consumidor JavaScript e a documentação pertinente.
-
-## Arquivos sincronizados com o manutencao
-
-`Dockerfile.browser`, `scripts/provision-db-runtime.sh`,
-`docs/security-audit/gerar_relatorio.py`, `docs/TESTES.md` são cópias
-de arquivos canônicos do repositório `manutencao` (ver
-`manutencao/compartilhados/README.md`). Não os edite aqui: mude a canônica e
-rode `python compartilhados/sincronizar.py --aplicar` no `manutencao`, que
-copia para todos os repositórios de uma vez.
+- Não há `uv.lock`: as versões PyPI ficam em `constraints.txt` (runtime,
+  ferramentas e isolamento de build), e o SharedAuth entra por referência Git
+  imutável no `pyproject.toml`.
+- `app/nucleo/db_backend.py` é uma camada de compatibilidade de SQL sobre o
+  PostgreSQL; trocá-la por ORM ou driver direto é opção legítima se atrapalhar.
+  Ao escrever SQL, prefira `jsonb_exists(coluna, ?)` ao operador `?` do JSONB e
+  trate o `%` literal ao adaptar para o psycopg.
+- Segredos ficam em `.secrets/`, montados só nos serviços que precisam; SMTP é
+  só de escrita.
