@@ -2,8 +2,8 @@
 
 O cookie de sessão é assinado e sem estado no servidor; o `sid` gravado nele no
 login é registrado aqui quando a pessoa sai, e `_carregar_usuario_da_sessao`
-trata a sessão com `sid` revogado como deslogada. Ver a migração
-``20261021_01_sessoes_revogadas``.
+trata a sessão com `sid` revogado como deslogada. Tabela
+``historico.sessoes_revogadas``.
 """
 
 from __future__ import annotations

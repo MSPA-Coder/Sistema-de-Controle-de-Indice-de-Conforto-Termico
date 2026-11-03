@@ -135,7 +135,8 @@ Antes de restaurar:
 
 1. preserve o estado atual;
 2. valide o artefato e o restore no sandbox do BackupRestore;
-3. confirme a compatibilidade entre o código e a revisão Alembic do dump;
+3. confirme a compatibilidade entre o código e a revisão Alembic do dump (dump
+   anterior à base de 03/11/2026: ver `migrations/versions/20261103_base.py`);
 4. planeje a parada de `ict` e `coletor` e o retorno;
 5. confirme a preservação de usuários, zonas, equipamentos e configurações.
 

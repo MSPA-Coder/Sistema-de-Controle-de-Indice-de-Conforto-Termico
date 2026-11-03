@@ -179,8 +179,8 @@ def _sanitizar_configuracoes(configuracoes: dict, *, base: dict | None = None) -
         "smtpPorta": _coagir_numero(bruto["smtpPorta"], padrao["smtpPorta"], 1, 65535),
         "smtpUsuario": _coagir_texto_livre(bruto["smtpUsuario"], padrao["smtpUsuario"]),
         # Sem "smtpSenha" aqui de proposito (CT-03): a senha do SMTP nao mora
-        # mais nesta tabela. Ver `models.senha_smtp_configurada` e a migracao
-        # `20260902_0001_remover_smtp_senha`, que apaga o valor ja persistido.
+        # mais nesta tabela. Ver `models.senha_smtp_configurada`; o valor que
+        # existia foi apagado por migracao em 02/09/2026.
         "modoSimuladoZonas": _coagir_booleano(
             bruto["modoSimuladoZonas"], padrao["modoSimuladoZonas"]
         ),

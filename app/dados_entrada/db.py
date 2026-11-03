@@ -121,7 +121,7 @@ def sincronizar_zonas(zonas: list[dict]) -> list[dict]:
 
 
 # Espelha os DEFAULT do DDL de `configuracoes_zona`
-# (`migrations/versions/20260803_0001_baseline.py`). Uma zona sem linha
+# (`migrations/versions/20261103_base.py`). Uma zona sem linha
 # gravada e apresentada exatamente como a linha que o INSERT criaria -- e a
 # unica forma de a leitura nao precisar gravar para responder.
 _CONFIG_PADRAO: dict = {

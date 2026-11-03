@@ -57,7 +57,7 @@ def _linha_usuario_publica(linha) -> dict:
     usuario.pop("senha_hash", None)
     usuario["ativo"] = bool(usuario["ativo"])
     # Mesma coagir-para-bool de `ativo`: a coluna e INTEGER 0/1 no banco (ver
-    # a migration `20260830_0001_trocar_senha`), e quem le espera booleano.
+    # `migrations/versions/20261103_base.py`), e quem le espera booleano.
     usuario["trocar_senha"] = bool(usuario.get("trocar_senha", 0))
     return usuario
 
