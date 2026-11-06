@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 
+from ..nucleo.idioma import normalizar as normalizar_idioma
 from ..nucleo.regional import normalize_regional_format
 from .comum import PERFIS_VALIDOS, coagir_booleano, conexao, normalizar_texto
 
@@ -279,6 +280,21 @@ def atualizar_formato_regional(usuario_id: int, formato: str | None) -> str:
             (normalizado, agora, usuario_id),
         )
     return normalizado
+
+
+def atualizar_idioma(usuario_id: int, idioma: str | None) -> str:
+    """Grava o idioma da interface da própria conta."""
+    escolhido = normalizar_idioma(idioma)
+    agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+    with conexao() as conn:
+        atual = conn.execute("SELECT 1 FROM usuarios WHERE id = ?", (usuario_id,)).fetchone()
+        if atual is None:
+            raise UsuarioNaoEncontradoError(f"Usuário {usuario_id} não encontrado.")
+        conn.execute(
+            "UPDATE usuarios SET idioma = ?, atualizado_em = ? WHERE id = ?",
+            (escolhido, agora, usuario_id),
+        )
+    return escolhido
 
 
 def registrar_login_usuario(usuario_id: int) -> None:

@@ -1,5 +1,6 @@
 {% extends "_layout_auth.html" %}
-{% block titulo %}Entrar · Conforto Térmico{% endblock %}
+{% block idioma_html %}{{ idioma_atual }}{% endblock %}
+{% block titulo %}{{ traduzir('Entrar') }} · {{ traduzir('Conforto Térmico') }}{% endblock %}
 {# O componente comum sai daqui de proposito. `sharedauth_ui.static` NAO esta
    em `ENDPOINTS_ISENTOS_DE_LOGIN`, entao para quem ainda nao entrou os dois
    arquivos respondem 302 para o proprio login: o navegador recebe `text/html`
@@ -19,8 +20,8 @@
 {% block conteudo %}
 <div class="auth-pagina">
   <div class="auth-cartao painel">
-    <h1 class="auth-titulo">Conforto Térmico</h1>
-    <p class="auth-subtitulo">Entre com seu usuário para continuar.</p>
+    <h1 class="auth-titulo">{{ traduzir('Conforto Térmico') }}</h1>
+    <p class="auth-subtitulo">{{ traduzir('Entre com seu usuário para continuar.') }}</p>
 
     {% if erro %}
     <p class="auth-erro" role="alert">{{ erro }}</p>
@@ -30,14 +31,14 @@
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="next" value="{{ proxima }}">
       <div class="campo-config">
-        <label for="campo-login">Usuário</label>
+        <label for="campo-login">{{ traduzir('Usuário') }}</label>
         <input type="text" id="campo-login" name="login" autocomplete="username" autofocus required>
       </div>
       <div class="campo-config">
-        <label for="campo-senha">Senha</label>
+        <label for="campo-senha">{{ traduzir('Senha') }}</label>
         <input type="password" id="campo-senha" name="senha" autocomplete="current-password" required>
       </div>
-      <button type="submit" class="botao botao--primario auth-botao">Entrar</button>
+      <button type="submit" class="botao botao--primario auth-botao">{{ traduzir('Entrar') }}</button>
     </form>
   </div>
 </div>

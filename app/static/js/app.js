@@ -33,7 +33,7 @@ const COR_STATUS = {
 // backend grava. "Emergencia" recebe acento so na exibicao, via rotuloStatus.
 const STATUS_HISTORICO = ["Conforto", "Alerta", "Perigo", "Emergencia"];
 const ROTULO_STATUS = { Emergencia: "Emerg\u00eancia" };
-const ROTULO_TIPO_VALOR_HISTORICO = { minimo: "Mínimo", medio: "Médio", maximo: "Máximo" };
+const ROTULO_TIPO_VALOR_HISTORICO = { minimo: window.t("Mínimo"), medio: window.t("Médio"), maximo: window.t("Máximo") };
 const CORES_CAMPOS_ENTRADA = ["#4F8A93", "#D9A441", "#8FBF9F", "#C1443C", "#9E7BB5", "#6FA8DC"];
 const HISTORICO_LINHAS_POR_PAGINA = 20;
 const HISTORICO_JANELA_LEITURAS = 30;
@@ -52,7 +52,9 @@ function corStatus(status, fallback = "#4F8A93") {
 }
 
 function rotuloStatus(status) {
-  return ROTULO_STATUS[normalizarChaveTexto(status)] || status || "";
+  const chave = normalizarChaveTexto(status);
+  const rotulo = ROTULO_STATUS[chave] || status || "";
+  return Object.prototype.hasOwnProperty.call(CLASSE_STATUS, chave) ? window.t(rotulo) : rotulo;
 }
 
 function corCampoEntrada(campo) {
@@ -66,7 +68,7 @@ const ICONES_POR_EQUIPAMENTO_ATUADOR = 1;
 const ICONES_POR_SENSOR = 1;
 
 function rotuloIntensidade(intensidade) {
-  const rotulos = { baixa: "baixa", media: "m\u00e9dia", maxima: "m\u00e1xima" };
+  const rotulos = { baixa: window.t("baixa"), media: window.t("média"), maxima: window.t("máxima") };
   return rotulos[intensidade] || intensidade;
 }
 
@@ -311,10 +313,12 @@ function chavesCronologicas(historicosPorIndice) {
 function descreverGrafico(canvas, configuracao) {
   const titulo =
     canvas.closest(".grafico-bloco, .painel, section")?.querySelector(".grafico-titulo")?.textContent.trim() ||
-    "Gráfico";
+    window.t("Gráfico");
   const series = (configuracao.data?.datasets || []).map((dataset) => dataset.label).filter(Boolean);
   canvas.setAttribute("role", "img");
-  canvas.setAttribute("aria-label", titulo + (series.length ? ". Séries: " + series.join(", ") + "." : "."));
+  canvas.setAttribute("aria-label", series.length
+    ? window.t("%(titulo)s. Séries: %(series)s.", { titulo, series: series.join(", ") })
+    : window.t("%(titulo)s.", { titulo }));
 }
 
 // O eixo direito só existe para quem tem série nele; sem dado, o Chart.js o
@@ -373,14 +377,14 @@ function rotulosHistorico(leituras) {
 }
 
 function textoLegendaPeriodo(leituras) {
-  if (!leituras || !leituras.length) return "Sem leituras no período selecionado.";
+  if (!leituras || !leituras.length) return window.t("Sem leituras no período selecionado.");
   const inicio = leituras[0].criado_em;
   const fim = leituras[leituras.length - 1].criado_em;
   const dias = [...new Set(leituras.map((leitura) => formatarDataCurta(leitura.criado_em)))];
   const periodo = dias.length === 1
     ? dias[0]
-    : formatarDataCurta(inicio) + " a " + formatarDataCurta(fim);
-  return "Período exibido: " + periodo + ". Clique em uma barra ou ponto para cruzar a leitura nos gráficos.";
+    : window.t("%(inicio)s a %(fim)s", { inicio: formatarDataCurta(inicio), fim: formatarDataCurta(fim) });
+  return window.t("Período exibido: %(periodo)s. Clique em uma barra ou ponto para cruzar a leitura nos gráficos.", { periodo });
 }
 
 function removerLegendaGraficoHistorico(containerId) {
@@ -579,7 +583,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     await carregarConfiguracaoInterface();
   } catch (erro) {
     console.error("Nao foi possivel carregar a configuracao da interface:", erro);
-    mostrarErro("Nao foi possivel carregar a configuracao da interface.");
+    mostrarErro(window.t("Nao foi possivel carregar a configuracao da interface."));
     return;
   }
 

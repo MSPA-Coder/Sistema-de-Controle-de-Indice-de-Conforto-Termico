@@ -1,11 +1,12 @@
 {% extends "_layout_auth.html" %}
-{% block titulo %}{{ "Novo usuário" if modo == "criar" else "Editar usuário" }} · Conforto Térmico{% endblock %}
+{% block idioma_html %}{{ idioma_atual }}{% endblock %}
+{% block titulo %}{{ traduzir('Novo usuário') if modo == 'criar' else traduzir('Editar usuário') }} · {{ traduzir('Conforto Térmico') }}{% endblock %}
 {% block conteudo %}
 <div class="admin-pagina">
   <header class="admin-topo">
     <div>
-      <a class="botao--texto admin-voltar" href="{{ url_for('usuarios.pagina_usuarios') }}">&larr; Voltar aos usuários</a>
-      <h1 class="admin-titulo">{{ "Novo usuário" if modo == "criar" else "Editar " + usuario.nome }}</h1>
+      <a class="botao--texto admin-voltar" href="{{ url_for('usuarios.pagina_usuarios') }}">&larr; {{ traduzir('Voltar aos usuários') }}</a>
+      <h1 class="admin-titulo">{{ traduzir('Novo usuário') if modo == 'criar' else traduzir('Editar %(nome)s') % {'nome': usuario.nome} }}</h1>
     </div>
   </header>
 
@@ -17,33 +18,33 @@
     <form method="post" class="campos-config admin-form">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <div class="campo-config">
-        <label for="campo-nome">Nome</label>
+        <label for="campo-nome">{{ traduzir('Nome') }}</label>
         <input type="text" id="campo-nome" name="nome" value="{{ usuario.nome }}" required>
       </div>
       <div class="campo-config">
-        <label for="campo-login">Login</label>
+        <label for="campo-login">{{ traduzir('Login') }}</label>
         <input type="text" id="campo-login" name="login" value="{{ usuario.login }}" autocomplete="off" required>
       </div>
       <div class="campo-config">
-        <label for="campo-perfil">Perfil</label>
+        <label for="campo-perfil">{{ traduzir('Perfil') }}</label>
         <select id="campo-perfil" name="perfil">
           {% for perfil in perfis %}
           <option value="{{ perfil }}" {{ "selected" if usuario.perfil == perfil else "" }}>
-            {{ perfil_label.get(perfil, perfil) }}
+            {{ traduzir(perfil_label.get(perfil, perfil)) }}
           </option>
           {% endfor %}
         </select>
       </div>
       {% if modo == "criar" %}
       <div class="campo-config">
-        <label for="campo-senha">Senha</label>
+        <label for="campo-senha">{{ traduzir('Senha') }}</label>
         <input type="password" id="campo-senha" name="senha" autocomplete="new-password"
                minlength="{{ senha_tamanho_minimo }}" required aria-describedby="dica-senha">
-        <small id="dica-senha" class="admin-subtitulo">Mínimo de {{ senha_tamanho_minimo }} caracteres.</small>
+        <small id="dica-senha" class="admin-subtitulo">{{ traduzir('Mínimo de %(minimo)s caracteres.') % {'minimo': senha_tamanho_minimo} }}</small>
       </div>
       <label class="check">
         <input type="checkbox" data-mostrar-senha>
-        <span>Mostrar a senha digitada</span>
+        <span>{{ traduzir('Mostrar a senha digitada') }}</span>
       </label>
       {% else %}
       {# A edicao nao mexe mais em senha. Para redefinir, a acao "Redefinir
@@ -51,23 +52,24 @@
          aqui seria o caminho pelo qual um administrador continuaria
          escolhendo, e sabendo, a senha de outra pessoa. #}
       <p class="admin-subtitulo">
-        Para redefinir a senha desta conta, use <strong>Redefinir senha</strong>
-        na lista de usuários.
+        {{ traduzir('Para redefinir a senha desta conta, use Redefinir senha na lista de usuários.') }}
       </p>
       {% endif %}
       <label class="check admin-check-ativo">
         <input type="checkbox" name="ativo" {{ "checked" if usuario.ativo else "" }}>
-        <span>Conta ativa (permite login)</span>
+        <span>{{ traduzir('Conta ativa (permite login)') }}</span>
       </label>
 
       <div class="admin-form-acoes">
         <button type="submit" class="botao botao--primario"
-                data-sa-confirmar="{{ 'Criar este usuário?' if modo == 'criar' else 'Salvar as alterações deste usuário?' }}"
-                data-sa-titulo="{{ 'Criar usuário' if modo == 'criar' else 'Salvar usuário' }}"
+                data-sa-confirmar="{{ traduzir('Criar este usuário?') if modo == 'criar' else traduzir('Salvar as alterações deste usuário?') }}"
+                data-sa-titulo="{{ traduzir('Criar usuário') if modo == 'criar' else traduzir('Salvar usuário') }}"
+                data-sa-cancelar="{{ traduzir('Cancelar') }}"
+                data-sa-ok="{{ traduzir('Criar usuário') if modo == 'criar' else traduzir('Salvar alterações') }}"
                 data-sa-severidade="warning">
-          {{ "Criar usuário" if modo == "criar" else "Salvar alterações" }}
+          {{ traduzir('Criar usuário') if modo == 'criar' else traduzir('Salvar alterações') }}
         </button>
-        <a class="botao botao--fantasma" href="{{ url_for('usuarios.pagina_usuarios') }}">Cancelar</a>
+        <a class="botao botao--fantasma" href="{{ url_for('usuarios.pagina_usuarios') }}">{{ traduzir('Cancelar') }}</a>
       </div>
     </form>
   </div>

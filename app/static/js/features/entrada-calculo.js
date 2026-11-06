@@ -88,7 +88,7 @@ export function criarEntradaCalculo({
       input.step = meta.passo;
       input.min = meta.min;
       input.max = meta.max;
-      input.placeholder = "Ex.: " + (((meta.min + meta.max) / 2).toFixed(1));
+      input.placeholder = window.t("Ex.: %(valor)s", { valor: ((meta.min + meta.max) / 2).toFixed(1) });
       input.addEventListener("input", atualizarCamposCalculados);
 
       wrap.appendChild(label);
@@ -105,7 +105,7 @@ export function criarEntradaCalculo({
     container.textContent = "";
 
     if (!zona) {
-      container.textContent = "Nenhuma zona ativa selecionada.";
+      container.textContent = window.t("Nenhuma zona ativa selecionada.");
       return;
     }
 
@@ -245,7 +245,7 @@ export function criarEntradaCalculo({
     }
     input.setAttribute("aria-invalid", "true");
     const rotulo = documento.querySelector('label[for="' + id + '"]')?.textContent.trim() || id;
-    return rotulo + ": informe um valor entre " + minimo + " e " + maximo + ".";
+    return window.t("%(rotulo)s: informe um valor entre %(minimo)s e %(maximo)s.", { rotulo, minimo, maximo });
   }
 
   function problemasDasConfiguracoes() {
@@ -301,19 +301,19 @@ export function criarEntradaCalculo({
     // dizer é SE ela está configurada -- nunca editá-la nem exibi-la.
     if (estadoSenha) {
       estadoSenha.textContent = smtpSenhaJaConfigurada
-        ? "Configurada no servidor."
-        : "Não configurada no servidor -- defina SMTP_PASS para habilitar o envio real.";
+        ? window.t("Configurada no servidor.")
+        : window.t("Não configurada no servidor -- defina SMTP_PASS para habilitar o envio real.");
     }
 
     if (!status) return;
     if (!host) {
       status.textContent =
-        "Sem host SMTP configurado, o envio funciona em modo simulado (o e-mail é montado e mostrado na tela, mas nada é enviado de fato).";
+        window.t("Sem host SMTP configurado, o envio funciona em modo simulado (o e-mail é montado e mostrado na tela, mas nada é enviado de fato).");
     } else if (smtpSenhaJaConfigurada) {
-      status.textContent = "SMTP configurado (" + host + ").";
+      status.textContent = window.t("SMTP configurado (%(host)s).", { host });
     } else {
       status.textContent =
-        "Host SMTP definido, mas a senha ainda não está configurada no servidor. Peça ao administrador para definir SMTP_PASS.";
+        window.t("Host SMTP definido, mas a senha ainda não está configurada no servidor. Peça ao administrador para definir SMTP_PASS.");
     }
   }
 
@@ -375,7 +375,7 @@ export function criarEntradaCalculo({
     const problemas = problemasDasConfiguracoes();
     if (problemas.length) {
       if (avisarFalha) {
-        avisar({ mensagem: "Não salvo. " + problemas.join(" "), severidade: "warning" });
+        avisar({ mensagem: window.t("Não salvo. %(problemas)s", { problemas: problemas.join(" ") }), severidade: "warning" });
       }
       return false;
     }
@@ -389,7 +389,7 @@ export function criarEntradaCalculo({
         const corpo = await resposta.json().catch(() => ({}));
         if (avisarFalha) {
           avisar({
-            mensagem: corpo.erro || "Não foi possível salvar as configurações.",
+            mensagem: window.traduzirErro(corpo.erro || "Não foi possível salvar as configurações."),
             severidade: "error",
           });
         }
@@ -399,13 +399,13 @@ export function criarEntradaCalculo({
       smtpSenhaJaConfigurada = !!salvo.smtpSenhaConfigurada;
       refletirStatusSmtp();
       if (avisarResultado === true) {
-        avisar({ mensagem: "Configurações salvas.", severidade: "success" });
+        avisar({ mensagem: window.t("Configurações salvas."), severidade: "success" });
       }
       return true;
     } catch (erro) {
       console.error("Nao foi possivel salvar configuracoes:", erro);
       if (avisarFalha) {
-        avisar({ mensagem: "Falha de comunicação ao salvar as configurações.", severidade: "error" });
+        avisar({ mensagem: window.t("Falha de comunicação ao salvar as configurações."), severidade: "error" });
       }
       return false;
     }
@@ -425,12 +425,13 @@ export function criarEntradaCalculo({
     esconderErro();
     const zona = obterZonaPrincipal();
     if (!zona) {
-      mostrarErro("Selecione uma zona ativa antes de calcular.");
+      mostrarErro(window.t("Selecione uma zona ativa antes de calcular."));
       return;
     }
     const confirmado = await confirmar({
-      mensagem: "Salvar as configurações atuais e executar o cálculo desta zona?",
-      titulo: "Executar cálculo",
+      mensagem: window.t("Salvar as configurações atuais e executar o cálculo desta zona?"),
+      titulo: window.t("Executar cálculo"),
+      ok: window.t("Confirmar"), cancelar: window.t("Cancelar"),
       severidade: "warning",
     });
     if (!confirmado) return;
@@ -453,14 +454,12 @@ export function criarEntradaCalculo({
       try {
         corpo = await resposta.json();
       } catch (erroJson) {
-        throw new Error(
-          "O servidor respondeu com status " + resposta.status +
-          ", mas não em formato JSON. Veja o terminal onde o Flask está rodando para o erro completo."
-        );
+        throw new Error(window.t("O servidor respondeu com status %(status)s, mas não em formato JSON. Veja o terminal onde o Flask está rodando para o erro completo.", { status: resposta.status }));
       }
       if (!resposta.ok) {
-        atualizarErroLinhaZonaPrincipal(zona, corpo.erro || "Não foi possível calcular. Confira os dados informados.");
-        mostrarErro(corpo.erro || "Não foi possível calcular. Confira os dados informados.");
+        const mensagem = window.traduzirErro(corpo.erro || "Não foi possível calcular. Confira os dados informados.");
+        atualizarErroLinhaZonaPrincipal(zona, mensagem);
+        mostrarErro(mensagem);
         return;
       }
       dados = corpo;
@@ -472,7 +471,7 @@ export function criarEntradaCalculo({
       mostrarErro(
         erro && erro.message && erro.message.includes("Flask")
           ? erro.message
-          : "Falha de comunicação com o ICT. Verifique os contêineres com docker compose ps."
+          : window.t("Falha de comunicação com o ICT. Verifique os contêineres com docker compose ps.")
       );
       return;
     }
@@ -489,14 +488,17 @@ export function criarEntradaCalculo({
       const resposta = await fetch("/api/manutencao/atualizar-agregados-historicos", { method: "POST" });
       const corpo = await resposta.json().catch(() => ({}));
       if (!resposta.ok || !corpo.ok) {
-        avisar({ mensagem: corpo.erro || "Não foi possível atualizar os agregados.", severidade: "error" });
+        avisar({ mensagem: window.traduzirErro(corpo.erro || "Não foi possível atualizar os agregados."), severidade: "error" });
         return;
       }
       const total = Array.isArray(corpo.resultados) ? corpo.resultados.length : 0;
-      avisar({ mensagem: `Agregados atualizados para ${total} zona(s), sem alterar medições.`, severidade: "success" });
+      const mensagem = total === 1
+        ? window.t("Agregados atualizados para %(total)s zona, sem alterar medições.", { total })
+        : window.t("Agregados atualizados para %(total)s zonas, sem alterar medições.", { total });
+      avisar({ mensagem, severidade: "success" });
     } catch (erro) {
       console.error("Erro ao consolidar histórico:", erro);
-      avisar({ mensagem: "Falha de comunicação ao atualizar os agregados.", severidade: "error" });
+      avisar({ mensagem: window.t("Falha de comunicação ao atualizar os agregados."), severidade: "error" });
     } finally {
       if (botao) botao.disabled = false;
     }

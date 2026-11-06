@@ -68,9 +68,9 @@ export function criarHistorico({
   let historicoScrollTimeoutId = null;
   const zonasConsolidadasNestaSessao = new Set();
   const RESOLUCOES_TENDENCIA = [
-    { valor: "bruto", texto: "Tempo real (leitura bruta)" },
-    { valor: "15min", texto: "Agregado de 15 em 15 min" },
-    { valor: "hora", texto: "Resumo por hora" },
+    { valor: "bruto", texto: window.t("Tempo real (leitura bruta)") },
+    { valor: "15min", texto: window.t("Agregado de 15 em 15 min") },
+    { valor: "hora", texto: window.t("Resumo por hora") },
   ];
   let resolucaoTendencia = "bruto";
   let graficoTendenciaResolucao = null;
@@ -181,7 +181,7 @@ export function criarHistorico({
 
         const titulo = document.createElement("p");
         titulo.className = "grafico-titulo";
-        titulo.textContent = "Valor do " + indice + " no histórico";
+        titulo.textContent = window.t("Valor do %(indice)s no histórico", { indice });
 
         const legenda = document.createElement("p");
         legenda.className = "grafico-legenda";
@@ -229,7 +229,7 @@ export function criarHistorico({
       const dados = await resposta.json();
       return {
         pontos: dados.map(leituraTendenciaAgregada15min),
-        legenda: `Média, mínimo e máximo a cada 15 min — últimas ${dados.length} janelas (até 24h).`,
+        legenda: window.t(dados.length === 1 ? "Média, mínimo e máximo a cada 15 min — última %(total)s janela (até 24h)." : "Média, mínimo e máximo a cada 15 min — últimas %(total)s janelas (até 24h).", { total: dados.length }),
       };
     }
     if (resolucaoTendencia === "hora") {
@@ -238,7 +238,7 @@ export function criarHistorico({
       const dados = await resposta.json();
       return {
         pontos: dados.map(leituraTendenciaHoraria),
-        legenda: `Média horária (status calculado a partir da média) — últimas ${dados.length} horas (até 7 dias).`,
+        legenda: window.t(dados.length === 1 ? "Média horária (status calculado a partir da média) — última %(total)s hora (até 7 dias)." : "Média horária (status calculado a partir da média) — últimas %(total)s horas (até 7 dias).", { total: dados.length }),
       };
     }
     const resposta = await fetch(`/api/zonas/${zonaId}/historico?limite=200`);
@@ -246,7 +246,7 @@ export function criarHistorico({
     const dados = await resposta.json();
     return {
       pontos: dados.map(leituraTendenciaBruta),
-      legenda: `Leitura bruta, uma a cada ciclo do coletor — últimas ${dados.length} leituras.`,
+      legenda: window.t(dados.length === 1 ? "Leitura bruta, uma a cada ciclo do coletor — última %(total)s leitura." : "Leitura bruta, uma a cada ciclo do coletor — últimas %(total)s leituras.", { total: dados.length }),
     };
   }
 
@@ -261,7 +261,7 @@ export function criarHistorico({
         graficoTendenciaResolucao.destroy();
         graficoTendenciaResolucao = null;
       }
-      if (legendaEl) legendaEl.textContent = "Selecione uma zona no filtro acima para ver a tendência.";
+      if (legendaEl) legendaEl.textContent = window.t("Selecione uma zona no filtro acima para ver a tendência.");
       return;
     }
 
@@ -273,7 +273,7 @@ export function criarHistorico({
     } catch (erro) {
       if (carregamentoId !== tendenciaResolucaoCarregamentoId) return;
       console.error("Nao foi possivel carregar a tendencia da zona:", erro);
-      if (legendaEl) legendaEl.textContent = "Não foi possível carregar os dados desta resolução agora.";
+      if (legendaEl) legendaEl.textContent = window.t("Não foi possível carregar os dados desta resolução agora.");
       return;
     }
     if (carregamentoId !== tendenciaResolucaoCarregamentoId) return;
@@ -281,7 +281,7 @@ export function criarHistorico({
     if (legendaEl) {
       legendaEl.textContent = pontos.length
         ? legenda
-        : "Sem dados consolidados nesta resolução ainda (aguarde o coletor rodar mais alguns ciclos).";
+        : window.t("Sem dados consolidados nesta resolução ainda (aguarde o coletor rodar mais alguns ciclos).");
     }
 
     const temFaixa = resolucaoTendencia !== "bruto";
@@ -289,7 +289,7 @@ export function criarHistorico({
     const datasets = [];
     if (temFaixa) {
       datasets.push({
-        label: "Máximo",
+        label: window.t("Máximo"),
         data: pontos.map((ponto) => ponto.maximo),
         borderWidth: 0,
         pointRadius: 0,
@@ -299,7 +299,7 @@ export function criarHistorico({
         order: 2,
       });
       datasets.push({
-        label: "Mínimo",
+        label: window.t("Mínimo"),
         data: pontos.map((ponto) => ponto.minimo),
         borderWidth: 0,
         pointRadius: 0,
@@ -310,7 +310,7 @@ export function criarHistorico({
       });
     }
     datasets.push({
-      label: "Média",
+      label: window.t("Média"),
       data: pontos.map((ponto) => ponto.valor),
       borderColor: corLinha,
       backgroundColor: pontos.map((ponto) => ponto.cor || corLinha),
@@ -424,7 +424,7 @@ export function criarHistorico({
     select.innerHTML = "";
     const todos = document.createElement("option");
     todos.value = "";
-    todos.textContent = "Todos";
+    todos.textContent = window.t("Todos");
     select.appendChild(todos);
 
     opcoes.forEach((opcao) => {
@@ -474,7 +474,7 @@ export function criarHistorico({
       if (!obterZonas().length) {
         const option = document.createElement("option");
         option.value = "";
-        option.textContent = "Nenhuma zona cadastrada";
+        option.textContent = window.t("Nenhuma zona cadastrada");
         selectZona.appendChild(option);
       }
       selectZona.disabled = !obterZonas().length;
@@ -486,15 +486,15 @@ export function criarHistorico({
       selectValor.textContent = "";
       const optionTodos = document.createElement("option");
       optionTodos.value = "";
-      optionTodos.textContent = "Todos";
+      optionTodos.textContent = window.t("Todos");
       selectValor.appendChild(optionTodos);
 
       if (Number.isFinite(filtroHistoricoValorReferencia)) {
         const optionReferencia = document.createElement("option");
         optionReferencia.value = String(filtroHistoricoValorReferencia);
         const tipo = filtroHistoricoValorTipo
-          ? (ROTULO_TIPO_VALOR_HISTORICO[filtroHistoricoValorTipo] || "Valor") + ": "
-          : "Próximo de ";
+          ? (ROTULO_TIPO_VALOR_HISTORICO[filtroHistoricoValorTipo] || window.t("Valor")) + ": "
+          : window.t("Próximo de ");
         const encontrados = filtroHistoricoValoresEncontrados.length
           ? " → " + filtroHistoricoValoresEncontrados.map(formatarValorFiltroHistorico).join(" / ")
           : "";
@@ -565,9 +565,10 @@ export function criarHistorico({
       return;
     }
     if (inicio.data && fim.data && inicio.data > fim.data) {
-      definirStatusPeriodoHistorico("A data inicial não pode ser posterior à data final.");
+      definirStatusPeriodoHistorico(window.t("A data inicial não pode ser posterior à data final."));
       return;
     }
+
     filtroHistoricoDataInicio = inicio.data;
     filtroHistoricoDataFim = fim.data;
     definirStatusPeriodoHistorico("");
@@ -587,8 +588,8 @@ export function criarHistorico({
     if (!historicoLeiturasAtuais.length) {
       tabela.classList.add("oculto");
       vazio.textContent = historicoLeiturasBase.length
-        ? "Nenhuma leitura encontrada para os filtros selecionados."
-        : "Nenhuma leitura registrada ainda no banco para os filtros selecionados.";
+        ? window.t("Nenhuma leitura encontrada para os filtros selecionados.")
+        : window.t("Nenhuma leitura registrada ainda no banco para os filtros selecionados.");
       vazio.classList.remove("oculto");
       if (paginacao) paginacao.classList.remove("oculto");
       atualizarControleHistoricoScroll();
@@ -648,11 +649,11 @@ export function criarHistorico({
     if (btnProximo) btnProximo.disabled = !temLeituras || historicoDeslocamento >= maximo;
     if (info) {
       if (!temLeituras) {
-        info.textContent = "Sem leituras";
+        info.textContent = window.t("Sem leituras");
       } else {
         const inicio = historicoDeslocamento + 1;
         const fim = Math.min(historicoDeslocamento + historicoLeiturasBase.length, historicoTotalLeituras);
-        info.textContent = `Leituras ${inicio}-${fim} de ${historicoTotalLeituras}`;
+        info.textContent = window.t("Leituras %(inicio)s-%(fim)s de %(total)s", { inicio, fim, total: historicoTotalLeituras });
       }
     }
   }
@@ -745,7 +746,7 @@ export function criarHistorico({
 
     const expandido = corpo.classList.toggle("oculto");
     const aberto = !expandido;
-    botao.textContent = aberto ? "Recolher" : "Expandir";
+    botao.textContent = aberto ? window.t("Recolher") : window.t("Expandir");
     botao.setAttribute("aria-expanded", aberto ? "true" : "false");
   }
 
@@ -788,7 +789,7 @@ export function criarHistorico({
       label.className = "historico-filtro";
       label.setAttribute("for", "filtro-historico-zona");
       const span = document.createElement("span");
-      span.textContent = "Zona";
+      span.textContent = window.t("Zona");
       const select = document.createElement("select");
       select.id = "filtro-historico-zona";
       label.append(span, select);
@@ -799,15 +800,15 @@ export function criarHistorico({
       label.className = "historico-filtro";
       label.setAttribute("for", "filtro-historico-valor");
       const span = document.createElement("span");
-      span.textContent = "Valor do índice";
+      span.textContent = window.t("Valor do índice");
       const select = document.createElement("select");
       select.id = "filtro-historico-valor";
       label.append(span, select);
       filtros.appendChild(label);
     }
     if (filtros && !document.getElementById("filtro-historico-de")) {
-      filtros.appendChild(criarFiltroPeriodoHistorico("de", "De"));
-      filtros.appendChild(criarFiltroPeriodoHistorico("ate", "Até"));
+      filtros.appendChild(criarFiltroPeriodoHistorico("de", window.t("De")));
+      filtros.appendChild(criarFiltroPeriodoHistorico("ate", window.t("Até")));
       const statusPeriodo = document.createElement("p");
       statusPeriodo.id = "historico-filtro-periodo-status";
       statusPeriodo.className = "historico-periodo-status mensagem-erro oculto";
@@ -820,7 +821,7 @@ export function criarHistorico({
       label.className = "historico-filtro";
       label.setAttribute("for", "filtro-historico-resolucao");
       const span = document.createElement("span");
-      span.textContent = "Resolução";
+      span.textContent = window.t("Resolução");
       const select = document.createElement("select");
       select.id = "filtro-historico-resolucao";
       RESOLUCOES_TENDENCIA.forEach((opcao) => {
@@ -852,8 +853,8 @@ export function criarHistorico({
     }
     const btnAnterior = document.getElementById("btn-historico-anterior");
     const btnProximo = document.getElementById("btn-historico-proximo");
-    if (btnAnterior) btnAnterior.textContent = "Retroceder";
-    if (btnProximo) btnProximo.textContent = "Avançar";
+    if (btnAnterior) btnAnterior.textContent = window.t("Retroceder");
+    if (btnProximo) btnProximo.textContent = window.t("Avançar");
     if (paginacao && btnAnterior && btnProximo && btnAnterior.nextElementSibling !== btnProximo) {
       paginacao.insertBefore(btnAnterior, btnProximo);
     }

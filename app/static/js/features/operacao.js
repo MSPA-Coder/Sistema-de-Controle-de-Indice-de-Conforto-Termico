@@ -46,8 +46,8 @@ export function criarOperacao({
   }
 
   function rotuloEstadoAtuador(valor) {
-    if (valor === null || valor === undefined) return "sem confirmação";
-    return valor ? "ligado" : "desligado";
+    if (valor === null || valor === undefined) return window.t("sem confirmação");
+    return valor ? window.t("ligado") : window.t("desligado");
   }
 
   function falhaDoEquipamentoOperacao(equipamento, falhas) {
@@ -60,19 +60,21 @@ export function criarOperacao({
 
   function descricaoConexaoOperacao(equipamento) {
     if (equipamento.modo_conexao === "rtu") {
-      return "RTU · " + (equipamento.porta_serial || "porta não informada") +
-        " · unidade " + equipamento.unidade_id;
+      return window.t("RTU · %(porta)s · unidade %(unidade)s", {
+        porta: equipamento.porta_serial || window.t("porta não informada"), unidade: equipamento.unidade_id,
+      });
     }
-    return "TCP · " + (equipamento.host || "host não informado") +
-      (equipamento.porta ? ":" + equipamento.porta : "") +
-      " · unidade " + equipamento.unidade_id;
+    return window.t("TCP · %(host)s · unidade %(unidade)s", {
+      host: (equipamento.host || window.t("host não informado")) + (equipamento.porta ? ":" + equipamento.porta : ""),
+      unidade: equipamento.unidade_id,
+    });
   }
 
   function adicionarDadoEquipamentoOperacao(container, rotulo, valor) {
     const linha = document.createElement("div");
     linha.className = "operacao-equipamento-dado";
     const etiqueta = document.createElement("span");
-    etiqueta.textContent = rotulo;
+    etiqueta.textContent = window.t(rotulo);
     const conteudo = document.createElement("strong");
     conteudo.textContent = valor;
     linha.append(etiqueta, conteudo);
@@ -98,11 +100,11 @@ export function criarOperacao({
       const campo = equipamento.campo_medido;
       const valor = campo ? entradas[campo] : null;
       const possuiValor = valor !== undefined && valor !== null && valor !== "";
-      status.textContent = falha ? "Falha" : possuiValor ? "Com leitura" : "Sem leitura";
+      status.textContent = falha ? window.t("Falha") : possuiValor ? window.t("Com leitura") : window.t("Sem leitura");
       status.classList.add(falha ? "status--falha" : possuiValor ? "status--ok" : "status--neutro");
     } else {
       const confirmado = zonaEstado?.confirmado?.[equipamento.tipo];
-      status.textContent = falha ? "Falha" : rotuloEstadoAtuador(confirmado);
+      status.textContent = falha ? window.t("Falha") : rotuloEstadoAtuador(confirmado);
       status.classList.add(falha ? "status--falha" : confirmado === true ? "status--ativo" : "status--neutro");
     }
     cabecalho.append(nome, status);
@@ -110,7 +112,7 @@ export function criarOperacao({
 
     if (equipamento.tipo === "sensor") {
       const campo = equipamento.campo_medido;
-      const meta = CONFIG_APP.campoMetadados[campo] || { label: campo || "Não definido", unidade: "" };
+      const meta = CONFIG_APP.campoMetadados[campo] || { label: campo || window.t("Não definido"), unidade: "" };
       const valor = campo ? entradas[campo] : null;
       const sensoresDoCampo = obterEquipamentosDaZona(zona, "sensor").filter(
         (sensor) => sensor.campo_medido === campo
@@ -118,7 +120,7 @@ export function criarOperacao({
       const valorFormatado = valor === undefined || valor === null || valor === ""
         ? "--"
         : window.regional.formatPlain(valor) + (meta.unidade ? " " + meta.unidade : "");
-      adicionarDadoEquipamentoOperacao(cartao, "Campo", meta.label);
+      adicionarDadoEquipamentoOperacao(cartao, "Campo", window.t(meta.label || ""));
       adicionarDadoEquipamentoOperacao(
         cartao,
         sensoresDoCampo > 1 ? "Média do campo no ciclo" : "Valor processado no ciclo",
@@ -141,7 +143,7 @@ export function criarOperacao({
     adicionarDadoEquipamentoOperacao(
       cartao,
       "Registrador",
-      String(equipamento.tipo_registrador || "--") + " · endereço " + equipamento.endereco_registrador
+      window.t("%(tipo)s · endereço %(endereco)s", { tipo: String(equipamento.tipo_registrador || "--"), endereco: equipamento.endereco_registrador })
     );
     if (falha) adicionarDadoEquipamentoOperacao(cartao, "Diagnóstico", falha);
     return cartao;
@@ -153,7 +155,7 @@ export function criarOperacao({
     container.textContent = "";
 
     if (!zona) {
-      container.textContent = "Nenhuma zona ativa selecionada.";
+      container.textContent = window.t("Nenhuma zona ativa selecionada.");
       return;
     }
 
@@ -170,7 +172,7 @@ export function criarOperacao({
       const cabecalho = document.createElement("div");
       cabecalho.className = "operacao-equipamento-grupo-cabecalho";
       const nome = document.createElement("h4");
-      nome.textContent = titulo;
+      nome.textContent = window.t(titulo);
       const quantidade = document.createElement("span");
       quantidade.textContent = String(equipamentos.length);
       cabecalho.append(nome, quantidade);
@@ -181,7 +183,7 @@ export function criarOperacao({
       if (!equipamentos.length) {
         const vazio = document.createElement("p");
         vazio.className = "operacao-equipamento-vazio";
-        vazio.textContent = "Nenhum equipamento deste tipo cadastrado.";
+        vazio.textContent = window.t("Nenhum equipamento deste tipo cadastrado.");
         grade.appendChild(vazio);
       } else {
         equipamentos.forEach((equipamento) => {
@@ -198,7 +200,7 @@ export function criarOperacao({
     if (!container) return;
     container.textContent = "";
     if (!Array.isArray(eventos) || !eventos.length) {
-      container.textContent = "Nenhum evento operacional registrado para esta zona.";
+      container.textContent = window.t("Nenhum evento operacional registrado para esta zona.");
       return;
     }
     eventos.forEach((evento) => {
@@ -218,8 +220,8 @@ export function criarOperacao({
     atualizarAtualidadeZonas(payload?.zonas || []);
     const coletor = payload?.coletor || {};
     const textoColetor = coletor.online
-      ? "Coletor online · heartbeat " + formatarHora(coletor.heartbeat_em)
-      : "Coletor " + String(coletor.status || "offline").replaceAll("_", " ");
+      ? window.t("Coletor online · heartbeat %(hora)s", { hora: formatarHora(coletor.heartbeat_em) })
+      : window.t("Coletor %(status)s", { status: window.t(String(coletor.status || "offline").replaceAll("_", " ")) });
     ["dashboard-coletor-status", "operacao-coletor-status"].forEach((id) => {
       const elemento = document.getElementById(id);
       if (elemento) {
@@ -268,14 +270,18 @@ export function criarOperacao({
     const estadoEl = document.getElementById("operacao-estado-atuadores");
     if (estadoEl) {
       const falhas = zonaEstado.falhas?.length
-        ? " · Falhas: " + zonaEstado.falhas.join(", ")
+        ? window.t(" · Falhas: %(falhas)s", { falhas: zonaEstado.falhas.join(", ") })
         : "";
-      estadoEl.textContent =
-        "Desejado — ventilador: " + rotuloEstadoAtuador(zonaEstado.desejado?.ventilador) +
-        ", nebulizador: " + rotuloEstadoAtuador(zonaEstado.desejado?.nebulizador) +
-        " | Confirmado — ventilador: " + rotuloEstadoAtuador(zonaEstado.confirmado?.ventilador) +
-        ", nebulizador: " + rotuloEstadoAtuador(zonaEstado.confirmado?.nebulizador) +
-        " · Qualidade: " + zonaEstado.qualidade + falhas;
+      estadoEl.textContent = window.t(
+        "Desejado — ventilador: %(dv)s, nebulizador: %(dn)s | Confirmado — ventilador: %(cv)s, nebulizador: %(cn)s · Qualidade: %(qualidade)s%(falhas)s",
+        {
+          dv: rotuloEstadoAtuador(zonaEstado.desejado?.ventilador),
+          dn: rotuloEstadoAtuador(zonaEstado.desejado?.nebulizador),
+          cv: rotuloEstadoAtuador(zonaEstado.confirmado?.ventilador),
+          cn: rotuloEstadoAtuador(zonaEstado.confirmado?.nebulizador),
+          qualidade: window.t(String(zonaEstado.qualidade ?? "")), falhas,
+        }
+      );
     }
 
     const manual = zonaEstado.modo === "manual";
@@ -357,9 +363,9 @@ export function criarOperacao({
         }),
       });
       const corpo = await resposta.json().catch(() => ({}));
-      if (!resposta.ok) mostrarErro(corpo.erro || "Não foi possível alterar o modo operacional.");
+      if (!resposta.ok) mostrarErro(window.traduzirErro(corpo.erro || "Não foi possível alterar o modo operacional."));
     } catch (erro) {
-      mostrarErro("Falha de comunicação ao alterar o modo operacional.");
+      mostrarErro(window.t("Falha de comunicação ao alterar o modo operacional."));
     } finally {
       atualizandoControleOperacao = false;
       await carregarEstadoOperacional();
@@ -372,8 +378,9 @@ export function criarOperacao({
     const tipo = botao.dataset.comandoTipo;
     const ligar = botao.dataset.comandoLigar === "true";
     const confirmado = await window.sharedauth.confirmar({
-      mensagem: (ligar ? "Ligar " : "Desligar ") + tipo + " nesta zona?",
-      titulo: "Confirmar comando operacional",
+      mensagem: window.t(ligar ? "Ligar %(tipo)s nesta zona?" : "Desligar %(tipo)s nesta zona?", { tipo: window.t(tipo) }),
+      titulo: window.t("Confirmar comando operacional"),
+      ok: window.t("Confirmar"), cancelar: window.t("Cancelar"),
       severidade: "warning",
     });
     if (!confirmado) return;
@@ -385,9 +392,9 @@ export function criarOperacao({
         body: JSON.stringify({ tipo, ligar }),
       });
       const corpo = await resposta.json().catch(() => ({}));
-      if (!resposta.ok) mostrarErro(corpo.erro || "Não foi possível executar o comando.");
+      if (!resposta.ok) mostrarErro(window.traduzirErro(corpo.erro || "Não foi possível executar o comando."));
     } catch (erro) {
-      mostrarErro("Falha de comunicação ao executar o comando.");
+      mostrarErro(window.t("Falha de comunicação ao executar o comando."));
     } finally {
       await carregarEstadoOperacional();
     }

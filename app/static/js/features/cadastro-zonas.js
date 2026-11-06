@@ -51,7 +51,7 @@ export function criarCadastroZonas({
     if (!zonasFiltradas.length) {
       const option = document.createElement("option");
       option.value = "";
-      option.textContent = obterZonas().length ? "Nenhuma zona neste filtro" : "Nenhuma zona cadastrada";
+      option.textContent = obterZonas().length ? window.t("Nenhuma zona neste filtro") : window.t("Nenhuma zona cadastrada");
       select.appendChild(option);
       select.disabled = true;
       return;
@@ -61,7 +61,7 @@ export function criarCadastroZonas({
     zonasFiltradas.forEach((zona) => {
       const option = document.createElement("option");
       option.value = String(zona.id);
-      option.textContent = zona.nome + (zona.ativa ? "" : " (inativa)");
+      option.textContent = zona.nome + (zona.ativa ? "" : " " + window.t("(inativa)"));
       select.appendChild(option);
     });
     select.value = String(zonaCadastroSelecionadaId);
@@ -93,8 +93,8 @@ export function criarCadastroZonas({
     const zona = zonaCadastroSelecionada();
     vazio.classList.toggle("oculto", !!zona);
     vazio.textContent = obterZonas().length
-      ? "Nenhuma zona encontrada para o filtro selecionado."
-      : "Nenhuma zona cadastrada ainda.";
+      ? window.t("Nenhuma zona encontrada para o filtro selecionado.")
+      : window.t("Nenhuma zona cadastrada ainda.");
 
     if (zona) {
       lista.appendChild(construirCartaoZona(zona));
@@ -125,7 +125,7 @@ export function criarCadastroZonas({
     if (!zona.ativa) {
       const badgeInativa = document.createElement("span");
       badgeInativa.className = "zona-badge zona-badge--inativa";
-      badgeInativa.textContent = "INATIVA";
+      badgeInativa.textContent = window.t("INATIVA");
       tituloGrupo.appendChild(badgeInativa);
     }
     cabecalho.appendChild(tituloGrupo);
@@ -136,14 +136,14 @@ export function criarCadastroZonas({
     const btnEditar = document.createElement("button");
     btnEditar.type = "button";
     btnEditar.className = "botao botao--fantasma botao--compacto";
-    btnEditar.textContent = "Editar";
+    btnEditar.textContent = window.t("Editar");
     btnEditar.addEventListener("click", () => abrirDialogZona(zona));
     acoes.appendChild(btnEditar);
 
     const btnExcluir = document.createElement("button");
     btnExcluir.type = "button";
     btnExcluir.className = "botao botao--texto";
-    btnExcluir.textContent = "Excluir";
+    btnExcluir.textContent = window.t("Excluir");
     btnExcluir.addEventListener("click", () => excluirZona(zona));
     acoes.appendChild(btnExcluir);
 
@@ -169,13 +169,13 @@ export function criarCadastroZonas({
     const titulo = document.createElement("div");
     titulo.className = "zona-equip-grupo-titulo";
     const rotulo = document.createElement("span");
-    rotulo.textContent = ROTULOS_TIPO_EQUIPAMENTO[tipo] + " (" + equipamentosDoTipo.length + ")";
+    rotulo.textContent = window.t("%(tipo)s (%(total)s)", { tipo: window.t(ROTULOS_TIPO_EQUIPAMENTO[tipo]), total: equipamentosDoTipo.length });
     titulo.appendChild(rotulo);
 
     const btnAdicionar = document.createElement("button");
     btnAdicionar.type = "button";
     btnAdicionar.className = "botao botao--texto";
-    btnAdicionar.textContent = "+ adicionar";
+    btnAdicionar.textContent = window.t("+ adicionar");
     btnAdicionar.addEventListener("click", () => abrirDialogEquipamento(zona.id, null, tipo));
     titulo.appendChild(btnAdicionar);
     grupo.appendChild(titulo);
@@ -186,7 +186,7 @@ export function criarCadastroZonas({
     if (equipamentosDoTipo.length === 0) {
       const vazio = document.createElement("p");
       vazio.className = "zona-equip-vazio";
-      vazio.textContent = "Nenhum cadastrado.";
+      vazio.textContent = window.t("Nenhum cadastrado.");
       listaEquip.appendChild(vazio);
     } else {
       equipamentosDoTipo.forEach((equipamento) => {
@@ -235,14 +235,14 @@ export function criarCadastroZonas({
     const btnEditar = document.createElement("button");
     btnEditar.type = "button";
     btnEditar.className = "botao botao--fantasma botao--compacto";
-    btnEditar.textContent = "Editar";
+    btnEditar.textContent = window.t("Editar");
     btnEditar.addEventListener("click", () => abrirDialogEquipamento(zonaId, equipamento));
     acoes.appendChild(btnEditar);
 
     const btnExcluir = document.createElement("button");
     btnExcluir.type = "button";
     btnExcluir.className = "botao botao--texto";
-    btnExcluir.textContent = "Excluir";
+    btnExcluir.textContent = window.t("Excluir");
     btnExcluir.addEventListener("click", () => excluirEquipamento(zonaId, equipamento));
     acoes.appendChild(btnExcluir);
 
@@ -297,7 +297,7 @@ export function criarCadastroZonas({
   function mostrarErroDialog(id, mensagem, campoId = null) {
     const el = document.getElementById(id);
     limparCamposInvalidos(id);
-    el.textContent = mensagem;
+    el.textContent = window.t(mensagem);
     el.classList.remove("oculto");
     const campo = campoId ? document.getElementById(campoId) : null;
     if (!campo) return;
@@ -322,10 +322,10 @@ export function criarCadastroZonas({
   }
 
   function mensagemDaResposta(resposta, dados, padrao) {
-    if (dados.erro) return dados.erro;
-    if (resposta.status === 429) return "Muitas requisições em pouco tempo. Aguarde um instante e tente de novo.";
-    if (resposta.status === 403) return "Seu perfil não tem permissão para esta ação.";
-    return padrao;
+    if (dados.erro) return window.traduzirErro(dados.erro);
+    if (resposta.status === 429) return window.t("Muitas requisições em pouco tempo. Aguarde um instante e tente de novo.");
+    if (resposta.status === 403) return window.t("Seu perfil não tem permissão para esta ação.");
+    return window.t(padrao);
   }
 
   function popularSelectEspecieZona() {
@@ -357,7 +357,7 @@ export function criarCadastroZonas({
 
   function abrirDialogZona(zona = null) {
     zonaEmEdicaoId = zona ? zona.id : null;
-    document.getElementById("dialog-zona-titulo").textContent = zona ? "Editar zona" : "Nova zona";
+    document.getElementById("dialog-zona-titulo").textContent = zona ? window.t("Editar zona") : window.t("Nova zona");
     popularSelectEspecieZona();
 
     document.getElementById("zona-nome").value = zona ? zona.nome : "";
@@ -416,12 +416,9 @@ export function criarCadastroZonas({
     // agregados da zona. Leituras brutas permanecem no banco com a referencia
     // da zona anulada; por isso a confirmacao descreve ambos os efeitos.
     const confirmado = await confirmar({
-      mensagem:
-        'Excluir a zona "' + zona.nome + '"? Saem junto os equipamentos cadastrados, ' +
-        "o modo e as travas de operação, e o histórico consolidado desta zona " +
-        "(tendências de 15 min e por hora). As leituras brutas já gravadas continuam " +
-        "no banco, mas perdem o vínculo com a zona.",
-      titulo: "Excluir zona",
+      mensagem: window.t('Excluir a zona "%(nome)s"? Saem junto os equipamentos cadastrados, o modo e as travas de operação, e o histórico consolidado desta zona (tendências de 15 min e por hora). As leituras brutas já gravadas continuam no banco, mas perdem o vínculo com a zona.', { nome: zona.nome }),
+      titulo: window.t("Excluir zona"),
+      ok: window.t("Confirmar"), cancelar: window.t("Cancelar"),
       severidade: "error",
     });
     if (!confirmado) return;
@@ -440,7 +437,7 @@ export function criarCadastroZonas({
       await recarregarZonas();
     } catch (erro) {
       console.error("Falha ao excluir zona:", erro);
-      avisar({ mensagem: "Falha de comunicação ao excluir a zona.", severidade: "error" });
+      avisar({ mensagem: window.t("Falha de comunicação ao excluir a zona."), severidade: "error" });
     }
   }
 
@@ -497,8 +494,8 @@ export function criarCadastroZonas({
   function abrirDialogEquipamento(zonaId, equipamento = null, tipoSugerido = "sensor") {
     equipamentoEmEdicao = { zonaId, equipamentoId: equipamento ? equipamento.id : null };
     document.getElementById("dialog-equipamento-titulo").textContent = equipamento
-      ? "Editar equipamento"
-      : "Novo equipamento";
+      ? window.t("Editar equipamento")
+      : window.t("Novo equipamento");
     popularSelectCampoMedido();
 
     document.getElementById("equip-tipo").value = equipamento ? equipamento.tipo : tipoSugerido;
@@ -587,8 +584,9 @@ export function criarCadastroZonas({
 
   async function excluirEquipamento(zonaId, equipamento) {
     const confirmado = await confirmar({
-      mensagem: 'Excluir o equipamento "' + equipamento.nome + '"? Esta ação não pode ser desfeita.',
-      titulo: "Excluir equipamento",
+      mensagem: window.t('Excluir o equipamento "%(nome)s"? Esta ação não pode ser desfeita.', { nome: equipamento.nome }),
+      titulo: window.t("Excluir equipamento"),
+      ok: window.t("Confirmar"), cancelar: window.t("Cancelar"),
       severidade: "error",
     });
     if (!confirmado) return;
@@ -608,7 +606,7 @@ export function criarCadastroZonas({
       await recarregarZonas();
     } catch (erro) {
       console.error("Falha ao excluir equipamento:", erro);
-      avisar({ mensagem: "Falha de comunicação ao excluir o equipamento.", severidade: "error" });
+      avisar({ mensagem: window.t("Falha de comunicação ao excluir o equipamento."), severidade: "error" });
     }
   }
 
@@ -616,11 +614,11 @@ export function criarCadastroZonas({
     const { zonaId, equipamentoId } = equipamentoEmEdicao;
     const resultado = document.getElementById("equipamento-teste-resultado");
     if (!equipamentoId) {
-      resultado.textContent = "Salve o equipamento primeiro para poder testar a conexão.";
+      resultado.textContent = window.t("Salve o equipamento primeiro para poder testar a conexão.");
       resultado.classList.remove("oculto");
       return;
     }
-    resultado.textContent = "Testando conexão...";
+    resultado.textContent = window.t("Testando conexão...");
     resultado.classList.remove("oculto");
     try {
       const resposta = await fetch(
@@ -629,15 +627,15 @@ export function criarCadastroZonas({
       );
       const dados = await resposta.json();
       resultado.textContent = dados.conectado
-        ? "Conexão bem-sucedida."
-        : dados.aviso || "Não foi possível conectar a este equipamento.";
+        ? window.t("Conexão bem-sucedida.")
+        : window.t(dados.aviso || "Não foi possível conectar a este equipamento.");
       if (dados.aviso) {
         const banner = document.getElementById("zonas-aviso-pymodbus");
-        banner.textContent = dados.aviso;
+        banner.textContent = window.t(dados.aviso);
         banner.classList.remove("oculto");
       }
     } catch (erro) {
-      resultado.textContent = "Falha de comunicação com o servidor.";
+      resultado.textContent = window.t("Falha de comunicação com o servidor.");
     }
   }
 

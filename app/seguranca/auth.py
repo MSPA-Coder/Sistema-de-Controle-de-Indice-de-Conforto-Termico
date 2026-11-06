@@ -63,7 +63,10 @@ from flask import (
 from sharedauth.access import url_proximo_seguro
 from sharedauth.passwords import (
     MIN_PASSWORD_LENGTH,
+    ConfirmacaoNaoConfereError,
+    SenhaAtualIncorretaError,
     SenhaMuitoCurtaError,
+    SenhaNovaIgualAAtualError,
     gerar_senha_temporaria,
     validar_tamanho,
     validar_troca,
@@ -78,7 +81,7 @@ from sharedauth.session import marca_de_sessao, marcas_conferem
 
 from .. import database as db
 from ..models import fuso_local, parsear_timestamp
-from ..nucleo import regional
+from ..nucleo import idioma, regional
 from . import tokens as _tokens
 
 if TYPE_CHECKING:
@@ -508,6 +511,24 @@ def registrar_carregamento_usuario(app: Flask) -> None:
         return None
 
     @app.before_request
+    def _ativar_idioma() -> None:
+        usuario = getattr(g, "usuario", None)
+        escolhido = (
+            idioma.normalizar(usuario.get("idioma"))
+            if usuario else idioma.do_navegador(request.accept_languages)
+        )
+        g.token_idioma = idioma.ativar(escolhido)
+
+    @app.teardown_request
+    def _desativar_idioma(_exc: BaseException | None) -> None:
+        token = g.pop("token_idioma", None)
+        if token is not None:
+            try:
+                idioma.desativar(token)
+            except ValueError:
+                idioma.ativar(idioma.IDIOMA_PADRAO)
+
+    @app.before_request
     def _ativar_formato_regional() -> None:
         """Formato de datas e números do usuário, só para a apresentação.
 
@@ -534,6 +555,14 @@ def registrar_carregamento_usuario(app: Flask) -> None:
     @app.context_processor
     def _contexto_regional() -> dict[str, str]:
         return {"regional_format": regional.formato_ativo()}
+
+    @app.context_processor
+    def _contexto_idioma() -> dict:
+        return {
+            "traduzir": idioma.traduzir,
+            "idioma_atual": idioma.ativo(),
+            "textos_js": idioma.catalogo_javascript(),
+        }
 
     @app.template_filter("data_hora_regional")
     def _filtro_data_hora_regional(valor: object) -> str:
@@ -673,7 +702,7 @@ def login() -> ResponseReturnValue:
                 motivo = "usuario_inativo"
 
             log_login_falha(login_digitado, motivo, conta_existe=usuario is not None)
-            erro = "Login ou senha inválidos."
+            erro = idioma.traduzir("Login ou senha inválidos.")
         else:
             session.clear()
             session["usuario_id"] = usuario["id"]
@@ -749,9 +778,18 @@ def trocar_senha() -> ResponseReturnValue:
                 senha_nova=request.form.get("senha_nova", ""),
                 confirmacao=request.form.get("senha_confirmacao", ""),
             )
+        except SenhaAtualIncorretaError:
+            erro = idioma.traduzir("Senha atual inválida.")
+        except ConfirmacaoNaoConfereError:
+            erro = idioma.traduzir("A confirmação da senha não confere.")
+        except SenhaNovaIgualAAtualError:
+            erro = idioma.traduzir("A nova senha deve ser diferente da senha atual.")
+        except SenhaMuitoCurtaError:
+            erro = idioma.traduzir("A senha deve ter pelo menos %(minimo)s caracteres.") % {
+                "minimo": SENHA_TAMANHO_MINIMO,
+            }
         except ValueError as recusa:
-            # Todas as recusas de `validar_troca` sao `ValueError`, e a
-            # mensagem de cada uma ja e adequada a pessoa.
+            # Preserva a recusa de validações novas da biblioteca compartilhada.
             erro = str(recusa)
         else:
             novo_hash = gerar_hash_senha(request.form.get("senha_nova", ""))
@@ -897,8 +935,10 @@ def criar_usuario_rota() -> ResponseReturnValue:
         senha = request.form.get("senha", "")
         try:
             validar_tamanho(senha)
-        except SenhaMuitoCurtaError as erro_senha:
-            erro = str(erro_senha)
+        except SenhaMuitoCurtaError:
+            erro = idioma.traduzir("A senha deve ter pelo menos %(minimo)s caracteres.") % {
+                "minimo": SENHA_TAMANHO_MINIMO,
+            }
         else:
             try:
                 criado = db.criar_usuario({**valores, "senha_hash": gerar_hash_senha(senha)})
@@ -911,7 +951,7 @@ def criar_usuario_rota() -> ResponseReturnValue:
                 )
                 return redirect(url_for("usuarios.pagina_usuarios"))
             except db.UsuarioInvalidoError as erro_validacao:
-                erro = str(erro_validacao)
+                erro = idioma.traduzir(str(erro_validacao))
 
     return render_template(
         "usuario_form.html",
@@ -942,7 +982,7 @@ def editar_usuario_rota(usuario_id: int) -> ResponseReturnValue:
         # administrador ainda existe (o que passaria pela trava de
         # "ultimo administrador" em database.py sem ser barrado).
         if editando_a_si_mesmo and (perfil_novo != "administrador" or not ativo_novo):
-            erro = (
+            erro = idioma.traduzir(
                 "Você não pode remover seu próprio acesso de administrador "
                 "enquanto estiver logado. Peça para outro administrador "
                 "fazer essa alteração."
@@ -972,7 +1012,7 @@ def editar_usuario_rota(usuario_id: int) -> ResponseReturnValue:
                     )
                     return redirect(url_for("usuarios.pagina_usuarios"))
                 except db.UsuarioInvalidoError as erro_validacao:
-                    erro = str(erro_validacao)
+                    erro = idioma.traduzir(str(erro_validacao))
             usuario = {**usuario, **valores}
 
     return render_template(
@@ -996,7 +1036,7 @@ def zonas_usuario_rota(usuario_id: int) -> ResponseReturnValue:
     """
     usuario = db.obter_usuario(usuario_id)
     if usuario is None:
-        flash("Conta não encontrada.", "erro")
+        flash(idioma.traduzir("Conta não encontrada."), "erro")
         return redirect(url_for("usuarios.pagina_usuarios"))
 
     zonas = db.listar_zonas()
@@ -1024,12 +1064,12 @@ def zonas_usuario_rota(usuario_id: int) -> ResponseReturnValue:
                 concedidas=novas,
                 revogadas=removidas,
             )
-        flash(
-            f"Zonas de {usuario['nome']} atualizadas."
+        texto = (
+            idioma.traduzir("Zonas de %(nome)s atualizadas.")
             if novas or removidas
-            else f"Nenhuma mudança nas zonas de {usuario['nome']}.",
-            "ok",
+            else idioma.traduzir("Nenhuma mudança nas zonas de %(nome)s.")
         )
+        flash(texto % {"nome": usuario["nome"]}, "ok")
         return redirect(url_for("usuarios.pagina_usuarios"))
 
     return render_template(
@@ -1048,13 +1088,13 @@ def excluir_usuario_rota(usuario_id: int) -> ResponseReturnValue:
         # Mesma logica do bloqueio em editar_usuario_rota: excluir a
         # propria conta enquanto logado nela e sempre um auto-lockout,
         # mesmo quando outro administrador existe.
-        flash("Você não pode excluir sua própria conta enquanto estiver logado.", "erro")
+        flash(idioma.traduzir("Você não pode excluir sua própria conta enquanto estiver logado."), "erro")
         return redirect(url_for("usuarios.pagina_usuarios"))
     try:
         db.excluir_usuario(usuario_id)
         _auditar("USUARIO_EXCLUIDO", "Excluiu conta", usuario_id=usuario_id)
     except db.UltimoAdministradorError as erro:
-        flash(str(erro), "erro")
+        flash(idioma.traduzir(str(erro)), "erro")
     return redirect(url_for("usuarios.pagina_usuarios"))
 
 

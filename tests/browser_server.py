@@ -17,6 +17,7 @@ from app.app_factory import AppConfig, criar_app_ict
 from app.dados_entrada import db as dados_db
 from app.dados_entrada import gerador_dados
 from app.dados_entrada.cidades import CIDADES_POR_ESPECIE
+from app.database.usuarios import atualizar_idioma
 from app.seguranca import auth
 
 weather_release = Event()
@@ -65,10 +66,10 @@ def main():
     command.upgrade(Config("alembic.ini"), "head")
     if db.listar_usuarios():
         raise RuntimeError("Banco browser precisa nascer vazio; recrie a pilha.")
-    for region, role in (("br", "administrador"), ("us", "administrador"), ("denied", "operador")):
+    for region, role in (("br", "administrador"), ("us", "administrador"), ("en", "administrador"), ("denied", "operador")):
         user = db.criar_usuario(
             {
-                "nome": f"Browser {region}",
+                "nome": "Browser <denied> \"O'Connor\"" if region == "denied" else f"Browser {region}",
                 "login": f"browser-{region}",
                 "perfil": role,
                 "senha_hash": auth.gerar_hash_senha("Synthetic-browser-only-2026!"),
@@ -76,6 +77,8 @@ def main():
             exigir_troca=False,
         )
         db.atualizar_formato_regional(user["id"], "us" if region == "us" else "br")
+        if region == "en":
+            atualizar_idioma(user["id"], "en")
     zones = [
         db.criar_zona({"nome": f"Zona sintética {i}", "especie": "frangos", "indice": "ITU"})
         for i in (1, 2)

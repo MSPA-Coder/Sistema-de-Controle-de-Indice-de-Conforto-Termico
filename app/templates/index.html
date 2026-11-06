@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="csrf-token" content="{{ csrf_token() }}">
-<title>Conforto Térmico</title>
+<title>{{ traduzir('Conforto Térmico') }}</title>
 {# As IBM Plex vinham do Google Fonts e nunca chegaram a carregar: a CSP
    deste projeto e `style-src 'self'` desde sempre, entao o navegador
    bloqueava a folha e registrava erro no console a cada pagina. O que se ve
@@ -20,22 +20,22 @@
 
 <div class="app-shell">
 
-  <h1 class="so-leitor">Conforto Térmico</h1>
+  <h1 class="so-leitor">{{ traduzir('Conforto Térmico') }}</h1>
 
   <!-- Identificacao da sessao e atalhos de administracao. -->
   <header class="app-topo-sessao">
     <span class="app-topo-sessao-usuario">
-      Logado como <strong>{{ usuario_atual.nome }}</strong>
-      ({{ perfil_label.get(usuario_atual.perfil, usuario_atual.perfil) }})
+      {{ traduzir('Logado como') }} <strong>{{ usuario_atual.nome }}</strong>
+      ({{ traduzir(perfil_label.get(usuario_atual.perfil, usuario_atual.perfil)) }})
     </span>
     <span class="app-topo-sessao-acoes">
       {% if "usuarios" in areas_permitidas %}
-      <a href="{{ url_for('usuarios.pagina_usuarios') }}" class="botao botao--texto">Gerenciar usuários</a>
+      <a href="{{ url_for('usuarios.pagina_usuarios') }}" class="botao botao--texto">{{ traduzir('Gerenciar usuários') }}</a>
       {% endif %}
-      <a href="{{ url_for('auth.preferencias') }}" class="botao botao--texto">Preferências</a>
+      <a href="{{ url_for('auth.preferencias') }}" class="botao botao--texto">{{ traduzir('Preferências') }}</a>
       <form method="post" action="{{ url_for('auth.logout') }}" class="app-topo-sessao-logout">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-        <button type="submit" class="botao botao--texto">Sair</button>
+        <button type="submit" class="botao botao--texto">{{ traduzir('Sair') }}</button>
       </form>
     </span>
   </header>
@@ -46,46 +46,46 @@
   <!-- botoes continuam `role="tab"`, preservando a arvore de acessibilidade. -->
   <!-- Cada botão exige a área correspondente em `areas_permitidas`. Essa é
   -- a metade visual; a autorização real também é aplicada pelo servidor. -->
-  <nav class="abas-app" role="tablist" aria-label="Navegação do app">
+  <nav class="abas-app" role="tablist" aria-label="{{ traduzir('Navegação do app') }}">
     <div class="abas-grupo" role="presentation">
-      <span class="abas-grupo-rotulo">Monitoramento</span>
+      <span class="abas-grupo-rotulo">{{ traduzir('Monitoramento') }}</span>
       {% if "dashboard" in areas_permitidas %}
       <button class="aba-botao{{ ' ativo' if aba_inicial == 'principal' else '' }}" type="button" role="tab" data-aba="principal" aria-controls="aba-principal" aria-selected="{{ 'true' if aba_inicial == 'principal' else 'false' }}">Dashboard</button>
       {% endif %}
       {% if "analises" in areas_permitidas %}
-      <button class="aba-botao{{ ' ativo' if aba_inicial == 'analises' else '' }}" type="button" role="tab" data-aba="analises" aria-controls="aba-analises" aria-selected="{{ 'true' if aba_inicial == 'analises' else 'false' }}">Análises</button>
+      <button class="aba-botao{{ ' ativo' if aba_inicial == 'analises' else '' }}" type="button" role="tab" data-aba="analises" aria-controls="aba-analises" aria-selected="{{ 'true' if aba_inicial == 'analises' else 'false' }}">{{ traduzir('Análises') }}</button>
       {% endif %}
       {% if "historico" in areas_permitidas %}
-      <button class="aba-botao{{ ' ativo' if aba_inicial == 'historico' else '' }}" type="button" role="tab" data-aba="historico" aria-controls="aba-historico" aria-selected="{{ 'true' if aba_inicial == 'historico' else 'false' }}">Histórico</button>
+      <button class="aba-botao{{ ' ativo' if aba_inicial == 'historico' else '' }}" type="button" role="tab" data-aba="historico" aria-controls="aba-historico" aria-selected="{{ 'true' if aba_inicial == 'historico' else 'false' }}">{{ traduzir('Histórico') }}</button>
       {% endif %}
     </div>
     {% if "operacao" in areas_permitidas %}
     <div class="abas-grupo" role="presentation">
-      <span class="abas-grupo-rotulo">Operação</span>
-      <button class="aba-botao{{ ' ativo' if aba_inicial == 'operacao' else '' }}" type="button" role="tab" data-aba="operacao" aria-controls="aba-operacao" aria-selected="{{ 'true' if aba_inicial == 'operacao' else 'false' }}">Operação</button>
+      <span class="abas-grupo-rotulo">{{ traduzir('Operação') }}</span>
+      <button class="aba-botao{{ ' ativo' if aba_inicial == 'operacao' else '' }}" type="button" role="tab" data-aba="operacao" aria-controls="aba-operacao" aria-selected="{{ 'true' if aba_inicial == 'operacao' else 'false' }}">{{ traduzir('Operação') }}</button>
     </div>
     {% endif %}
     {% if "cadastro" in areas_permitidas or "configuracoes" in areas_permitidas or "sistema" in areas_permitidas %}
     <div class="abas-grupo" role="presentation">
-      <span class="abas-grupo-rotulo">Administração</span>
+      <span class="abas-grupo-rotulo">{{ traduzir('Administração') }}</span>
       {% if "cadastro" in areas_permitidas %}
-      <button class="aba-botao{{ ' ativo' if aba_inicial == 'zonas' else '' }}" type="button" role="tab" data-aba="zonas" aria-controls="aba-zonas" aria-selected="{{ 'true' if aba_inicial == 'zonas' else 'false' }}">Cadastro</button>
+      <button class="aba-botao{{ ' ativo' if aba_inicial == 'zonas' else '' }}" type="button" role="tab" data-aba="zonas" aria-controls="aba-zonas" aria-selected="{{ 'true' if aba_inicial == 'zonas' else 'false' }}">{{ traduzir('Cadastro') }}</button>
       {% endif %}
       {% if "configuracoes" in areas_permitidas %}
-      <button class="aba-botao{{ ' ativo' if aba_inicial == 'configuracoes' else '' }}" type="button" role="tab" data-aba="configuracoes" aria-controls="aba-configuracoes" aria-selected="{{ 'true' if aba_inicial == 'configuracoes' else 'false' }}">Configurações</button>
+      <button class="aba-botao{{ ' ativo' if aba_inicial == 'configuracoes' else '' }}" type="button" role="tab" data-aba="configuracoes" aria-controls="aba-configuracoes" aria-selected="{{ 'true' if aba_inicial == 'configuracoes' else 'false' }}">{{ traduzir('Configurações') }}</button>
       {% endif %}
       {% if "sistema" in areas_permitidas %}
-      <button class="aba-botao{{ ' ativo' if aba_inicial == 'sistema' else '' }}" type="button" role="tab" data-aba="sistema" aria-controls="aba-sistema" aria-selected="{{ 'true' if aba_inicial == 'sistema' else 'false' }}">Sistema</button>
+      <button class="aba-botao{{ ' ativo' if aba_inicial == 'sistema' else '' }}" type="button" role="tab" data-aba="sistema" aria-controls="aba-sistema" aria-selected="{{ 'true' if aba_inicial == 'sistema' else 'false' }}">{{ traduzir('Sistema') }}</button>
       {% endif %}
       {% if "auditoria" in areas_permitidas %}
-      <button class="aba-botao{{ ' ativo' if aba_inicial == 'auditoria' else '' }}" type="button" role="tab" data-aba="auditoria" aria-controls="aba-auditoria" aria-selected="{{ 'true' if aba_inicial == 'auditoria' else 'false' }}">Auditoria</button>
+      <button class="aba-botao{{ ' ativo' if aba_inicial == 'auditoria' else '' }}" type="button" role="tab" data-aba="auditoria" aria-controls="aba-auditoria" aria-selected="{{ 'true' if aba_inicial == 'auditoria' else 'false' }}">{{ traduzir('Auditoria') }}</button>
       {% endif %}
     </div>
     {% endif %}
     {% if "dados_entrada" in areas_permitidas %}
     <div class="abas-grupo" role="presentation">
-      <span class="abas-grupo-rotulo">Dados</span>
-      <button class="aba-botao{{ ' ativo' if aba_inicial == 'dados-entrada' else '' }}" type="button" role="tab" data-aba="dados-entrada" aria-controls="aba-dados-entrada" aria-selected="{{ 'true' if aba_inicial == 'dados-entrada' else 'false' }}">Dados de entrada</button>
+      <span class="abas-grupo-rotulo">{{ traduzir('Dados') }}</span>
+      <button class="aba-botao{{ ' ativo' if aba_inicial == 'dados-entrada' else '' }}" type="button" role="tab" data-aba="dados-entrada" aria-controls="aba-dados-entrada" aria-selected="{{ 'true' if aba_inicial == 'dados-entrada' else 'false' }}">{{ traduzir('Dados de entrada') }}</button>
     </div>
     {% endif %}
   </nav>
@@ -95,7 +95,7 @@
     <!-- Valores de entrada ------------------------------------------------->
     <section class="painel entradas-grafico-painel">
       <div class="grafico-bloco grafico-bloco--sem-moldura">
-        <p class="grafico-titulo">Valores de entrada por leitura</p>
+        <p class="grafico-titulo">{{ traduzir("Valores de entrada por leitura") }}</p>
         <div class="grafico-canvas-wrap"><canvas id="grafico-entradas"></canvas></div>
       </div>
     </section>
@@ -104,13 +104,13 @@
     <section class="painel dashboard-status-painel">
       <div class="zona-principal-linha">
         <div class="campo-config">
-          <label for="zona-dashboard">Zona monitorada</label>
+          <label for="zona-dashboard">{{ traduzir("Zona monitorada") }}</label>
           <select id="zona-dashboard"></select>
         </div>
-        <div id="dashboard-coletor-status" class="coletor-status">Coletor: aguardando heartbeat</div>
+        <div id="dashboard-coletor-status" class="coletor-status">{{ traduzir("Coletor: aguardando heartbeat") }}</div>
       </div>
       <div class="dashboard-entradas-bloco">
-        <p class="grafico-titulo">Dados de entrada da última leitura</p>
+        <p class="grafico-titulo">{{ traduzir("Dados de entrada da última leitura") }}</p>
         <div id="campos-entrada-dashboard" class="campos-entrada campos-entrada--somente-leitura"></div>
       </div>
     </section>
@@ -126,37 +126,37 @@
     <!-- Historico em tabela ------------------------------------------------------------------>
     <section class="painel tabela-painel">
       <div id="historico-acoes" class="tabela-cabecalho">
-        <p class="grafico-titulo">Histórico de leituras</p>
-        <div class="historico-filtros" aria-label="Filtros do historico">
+        <p class="grafico-titulo">{{ traduzir("Histórico de leituras") }}</p>
+        <div class="historico-filtros" aria-label="{{ traduzir('Filtros do histórico') }}">
           <label class="historico-filtro" for="filtro-historico-status">
-            <span>Status</span>
+            <span>{{ traduzir("Status") }}</span>
             <select id="filtro-historico-status">
-              <option value="">Todos</option>
-              <option value="Conforto">Conforto</option>
-              <option value="Alerta">Alerta</option>
-              <option value="Perigo">Perigo</option>
-              <option value="Emergencia">Emergência</option>
+              <option value="">{{ traduzir("Todos") }}</option>
+              <option value="Conforto">{{ traduzir("Conforto") }}</option>
+              <option value="Alerta">{{ traduzir("Alerta") }}</option>
+              <option value="Perigo">{{ traduzir("Perigo") }}</option>
+              <option value="Emergencia">{{ traduzir("Emergência") }}</option>
             </select>
           </label>
         </div>
-        <button id="btn-toggle-historico" class="botao botao--fantasma botao--compacto" type="button" aria-expanded="false">Expandir</button>
+        <button id="btn-toggle-historico" class="botao botao--fantasma botao--compacto" type="button" aria-expanded="false">{{ traduzir("Expandir") }}</button>
       </div>
       <div id="historico-corpo" class="historico-corpo oculto">
       <div class="tabela-scroll">
         <table id="tabela-historico">
           <thead>
-            <tr><th>Data e hora</th><th>Índice</th><th>Entradas</th><th>Valor</th><th>Status</th></tr>
+            <tr><th>{{ traduzir("Data e hora") }}</th><th>{{ traduzir("Índice") }}</th><th>{{ traduzir("Entradas") }}</th><th>{{ traduzir("Valor") }}</th><th>{{ traduzir("Status") }}</th></tr>
           </thead>
           <tbody></tbody>
         </table>
       </div>
         <div id="historico-paginacao" class="historico-paginacao">
-          <button id="btn-historico-anterior" class="botao botao--fantasma botao--compacto" type="button">Anterior</button>
-          <span id="historico-pagina-info" class="historico-pagina-info">Página 1 de 1</span>
-          <button id="btn-historico-proximo" class="botao botao--fantasma botao--compacto" type="button">Próxima</button>
+          <button id="btn-historico-anterior" class="botao botao--fantasma botao--compacto" type="button">{{ traduzir("Anterior") }}</button>
+          <span id="historico-pagina-info" class="historico-pagina-info">{{ traduzir("Página 1 de 1") }}</span>
+          <button id="btn-historico-proximo" class="botao botao--fantasma botao--compacto" type="button">{{ traduzir("Próxima") }}</button>
         </div>
       </div>
-      <p id="tabela-vazia" class="tabela-vazia">Nenhuma leitura registrada ainda para esta zona.</p>
+      <p id="tabela-vazia" class="tabela-vazia">{{ traduzir("Nenhuma leitura registrada ainda para esta zona.") }}</p>
     </section>
 
   </main>
@@ -165,74 +165,74 @@
     <section class="painel operacao-painel">
       <div class="operacao-cabecalho">
         <div>
-          <h2 class="painel-titulo">Supervisão e operação</h2>
-          <p class="dashboard-somente-leitura">Selecione o modo antes de calcular ou enviar comandos. O ciclo automático roda no backend.</p>
+          <h2 class="painel-titulo">{{ traduzir("Supervisão e operação") }}</h2>
+          <p class="dashboard-somente-leitura">{{ traduzir("Selecione o modo antes de calcular ou enviar comandos. O ciclo automático roda no backend.") }}</p>
         </div>
-        <div id="operacao-coletor-status" class="coletor-status">Coletor: aguardando heartbeat</div>
+        <div id="operacao-coletor-status" class="coletor-status">{{ traduzir("Coletor: aguardando heartbeat") }}</div>
       </div>
 
       <div class="operacao-grade">
         <div class="campo-config">
-          <label for="zona-principal">Zona ativa</label>
+          <label for="zona-principal">{{ traduzir("Zona ativa") }}</label>
           <select id="zona-principal"></select>
         </div>
         <div class="campo-config">
-          <label for="operacao-modo">Modo operacional</label>
+          <label for="operacao-modo">{{ traduzir("Modo operacional") }}</label>
           <select id="operacao-modo">
-            <option value="desligado">Desligado</option>
-            <option value="manual">Manual</option>
-            <option value="automatico">Automático</option>
-            <option value="manutencao">Manutenção</option>
+            <option value="desligado">{{ traduzir("Desligado") }}</option>
+            <option value="manual">{{ traduzir('Manual') }}</option>
+            <option value="automatico">{{ traduzir("Automático") }}</option>
+            <option value="manutencao">{{ traduzir("Manutenção") }}</option>
           </select>
         </div>
       </div>
 
       <div class="config-grade operacao-travas">
-        <label class="check"><input type="checkbox" id="cfg-equipamentos"><span>Permitir acionamento físico global</span></label>
-        <label class="check"><input type="checkbox" id="operacao-acionamento-zona"><span>Permitir acionamento físico desta zona</span></label>
-        <label class="check"><input type="checkbox" id="cfg-coletar"><span>Usar sensores remotos no ciclo manual</span></label>
-        <label class="check oculto"><input type="checkbox" id="cfg-sons"><span>Habilitar sons de alerta</span></label>
-        <label class="check oculto"><input type="checkbox" id="cfg-emails"><span>Enviar e-mails de aviso</span></label>
+        <label class="check"><input type="checkbox" id="cfg-equipamentos"><span>{{ traduzir("Permitir acionamento físico global") }}</span></label>
+        <label class="check"><input type="checkbox" id="operacao-acionamento-zona"><span>{{ traduzir("Permitir acionamento físico desta zona") }}</span></label>
+        <label class="check"><input type="checkbox" id="cfg-coletar"><span>{{ traduzir("Usar sensores remotos no ciclo manual") }}</span></label>
+        <label class="check oculto"><input type="checkbox" id="cfg-sons"><span>{{ traduzir("Habilitar sons de alerta") }}</span></label>
+        <label class="check oculto"><input type="checkbox" id="cfg-emails"><span>{{ traduzir("Enviar e-mails de aviso") }}</span></label>
       </div>
 
       <section class="operacao-ciclo-manual" aria-labelledby="operacao-ciclo-manual-titulo">
-        <h3 id="operacao-ciclo-manual-titulo" class="grafico-titulo">Dados processados do ciclo</h3>
-        <p class="operacao-ajuda">No modo manual, estes valores alimentam o cálculo da zona. No automático, mostram os últimos valores processados.</p>
+        <h3 id="operacao-ciclo-manual-titulo" class="grafico-titulo">{{ traduzir("Dados processados do ciclo") }}</h3>
+        <p class="operacao-ajuda">{{ traduzir("No modo manual, estes valores alimentam o cálculo da zona. No automático, mostram os últimos valores processados.") }}</p>
         <div id="campos-entrada" class="campos-entrada"></div>
       </section>
 
       <section class="operacao-equipamentos-secao" aria-labelledby="operacao-equipamentos-titulo">
         <div class="operacao-secao-cabecalho">
-          <h3 id="operacao-equipamentos-titulo" class="grafico-titulo">Equipamentos da zona</h3>
-          <span class="operacao-ajuda">Identificação e estado de cada equipamento cadastrado</span>
+          <h3 id="operacao-equipamentos-titulo" class="grafico-titulo">{{ traduzir("Equipamentos da zona") }}</h3>
+          <span class="operacao-ajuda">{{ traduzir("Identificação e estado de cada equipamento cadastrado") }}</span>
         </div>
         <div id="operacao-equipamentos" class="operacao-equipamentos"></div>
       </section>
 
       <div class="acao-linha operacao-acoes operacao-acoes--ciclo">
-        <button id="btn-calcular" class="botao botao--primario" type="button">Executar ciclo manual</button>
+        <button id="btn-calcular" class="botao botao--primario" type="button">{{ traduzir("Executar ciclo manual") }}</button>
       </div>
       <div class="operacao-comandos-grupo">
-        <p class="grafico-titulo">Comandos coletivos da zona</p>
-        <p class="operacao-ajuda">Cada comando mantém o comportamento atual e atua em todos os equipamentos do tipo selecionado.</p>
+        <p class="grafico-titulo">{{ traduzir("Comandos coletivos da zona") }}</p>
+        <p class="operacao-ajuda">{{ traduzir("Cada comando mantém o comportamento atual e atua em todos os equipamentos do tipo selecionado.") }}</p>
         <div class="acao-linha operacao-acoes">
-        <button class="botao botao--fantasma" type="button" data-comando-tipo="ventilador" data-comando-ligar="true">Ligar ventilador</button>
-        <button class="botao botao--fantasma" type="button" data-comando-tipo="ventilador" data-comando-ligar="false">Desligar ventilador</button>
-        <button class="botao botao--fantasma" type="button" data-comando-tipo="nebulizador" data-comando-ligar="true">Ligar nebulizador</button>
-        <button class="botao botao--fantasma" type="button" data-comando-tipo="nebulizador" data-comando-ligar="false">Desligar nebulizador</button>
+        <button class="botao botao--fantasma" type="button" data-comando-tipo="ventilador" data-comando-ligar="true">{{ traduzir("Ligar ventilador") }}</button>
+        <button class="botao botao--fantasma" type="button" data-comando-tipo="ventilador" data-comando-ligar="false">{{ traduzir("Desligar ventilador") }}</button>
+        <button class="botao botao--fantasma" type="button" data-comando-tipo="nebulizador" data-comando-ligar="true">{{ traduzir("Ligar nebulizador") }}</button>
+        <button class="botao botao--fantasma" type="button" data-comando-tipo="nebulizador" data-comando-ligar="false">{{ traduzir("Desligar nebulizador") }}</button>
         </div>
       </div>
-      <div id="operacao-estado-atuadores" class="operacao-estado-atuadores">Sem estado operacional registrado.</div>
+      <div id="operacao-estado-atuadores" class="operacao-estado-atuadores">{{ traduzir("Sem estado operacional registrado.") }}</div>
       <p id="mensagem-erro" class="mensagem-erro oculto" role="alert"></p>
     </section>
 
     <section class="painel tabela-painel">
-      <div class="tabela-cabecalho"><p class="grafico-titulo">Eventos recentes de operação</p></div>
+      <div class="tabela-cabecalho"><p class="grafico-titulo">{{ traduzir("Eventos recentes de operação") }}</p></div>
       <div id="operacao-eventos" class="operacao-eventos"></div>
     </section>
 
     <div id="wrap-email-destino" class="campo-email-destino oculto">
-      <label for="email-destino">Enviar avisos para</label>
+      <label for="email-destino">{{ traduzir("Enviar avisos para") }}</label>
       <input type="email" id="email-destino" placeholder="alertas@example.invalid" value="alertas@example.invalid">
     </div>
   </section>
@@ -241,11 +241,11 @@
   <section id="aba-auditoria" class="grade aba-conteudo{{ '' if aba_inicial == 'auditoria' else ' oculto' }}" data-aba-conteudo="auditoria" role="tabpanel">
     <section class="painel tabela-painel">
       <div class="tabela-cabecalho">
-        <div><h2 class="painel-titulo">Trilha de auditoria</h2><p class="texto-ajuda">Registra mudanças administrativas e de dados; visualizações não entram na trilha.</p></div>
-        <button id="btn-atualizar-auditoria" class="botao botao--fantasma botao--compacto" type="button">Atualizar</button>
+        <div><h2 class="painel-titulo">{{ traduzir("Trilha de auditoria") }}</h2><p class="texto-ajuda">{{ traduzir("Registra mudanças administrativas e de dados; visualizações não entram na trilha.") }}</p></div>
+        <button id="btn-atualizar-auditoria" class="botao botao--fantasma botao--compacto" type="button">{{ traduzir("Atualizar") }}</button>
       </div>
-      <div class="tabela-scroll"><table id="tabela-auditoria"><thead><tr><th>Quando</th><th>Ator</th><th>Ação</th><th>Contexto</th></tr></thead><tbody></tbody></table></div>
-      <p id="auditoria-vazia" class="texto-ajuda oculto">Nenhum evento auditável registrado ainda.</p>
+      <div class="tabela-scroll"><table id="tabela-auditoria"><thead><tr><th>{{ traduzir("Quando") }}</th><th>{{ traduzir("Ator") }}</th><th>{{ traduzir("Ação") }}</th><th>{{ traduzir("Contexto") }}</th></tr></thead><tbody></tbody></table></div>
+      <p id="auditoria-vazia" class="texto-ajuda oculto">{{ traduzir("Nenhum evento auditável registrado ainda.") }}</p>
     </section>
   </section>
   {% endif %}
@@ -253,51 +253,51 @@
   <section id="aba-analises" class="grade aba-conteudo{{ '' if aba_inicial == 'analises' else ' oculto' }}" data-aba-conteudo="analises" role="tabpanel">
     <section class="painel tabela-painel executivo-painel">
       <div class="tabela-cabecalho">
-        <p class="grafico-titulo">Painel executivo por zona</p>
+        <p class="grafico-titulo">{{ traduzir("Painel executivo por zona") }}</p>
         <div class="campo-config executivo-zona-filtro">
-          <label for="zona-executivo">Zona monitorada</label>
+          <label for="zona-executivo">{{ traduzir("Zona monitorada") }}</label>
           <select id="zona-executivo"></select>
         </div>
       </div>
       <div id="executivo-lista" class="executivo-lista"></div>
-      <p id="executivo-vazio" class="tabela-vazia oculto">Nenhuma zona cadastrada ainda.</p>
+      <p id="executivo-vazio" class="tabela-vazia oculto">{{ traduzir("Nenhuma zona cadastrada ainda.") }}</p>
     </section>
 
     <section class="painel tabela-painel">
       <div class="tabela-cabecalho">
-        <p class="grafico-titulo">Percentual de tempo em cada condição térmica</p>
+        <p class="grafico-titulo">{{ traduzir("Percentual de tempo em cada condição térmica") }}</p>
       </div>
       <div class="tabela-scroll">
         <table id="tabela-analise-percentuais" class="tabela-clicavel">
           <thead>
-            <tr><th>Zona</th><th>Conforto</th><th>Alerta</th><th>Perigo</th><th>Emergência</th></tr>
+            <tr><th>{{ traduzir("Zona") }}</th><th>{{ traduzir("Conforto") }}</th><th>{{ traduzir("Alerta") }}</th><th>{{ traduzir("Perigo") }}</th><th>{{ traduzir("Emergência") }}</th></tr>
           </thead>
           <tbody></tbody>
         </table>
       </div>
-      <p id="analise-percentuais-vazio" class="tabela-vazia oculto">Nenhuma zona cadastrada ainda.</p>
+      <p id="analise-percentuais-vazio" class="tabela-vazia oculto">{{ traduzir("Nenhuma zona cadastrada ainda.") }}</p>
     </section>
 
     <section class="painel tabela-painel">
       <div class="tabela-cabecalho">
-        <p class="grafico-titulo">Índice mínimo, médio e máximo por zona</p>
+        <p class="grafico-titulo">{{ traduzir("Índice mínimo, médio e máximo por zona") }}</p>
       </div>
       <div class="tabela-scroll">
         <table id="tabela-analise-indices" class="tabela-clicavel">
           <thead>
-            <tr><th>Zona</th><th>Índice</th><th>Índice mínimo</th><th>Índice médio</th><th>Índice máximo</th></tr>
+            <tr><th>{{ traduzir("Zona") }}</th><th>{{ traduzir("Índice") }}</th><th>{{ traduzir("Índice mínimo") }}</th><th>{{ traduzir("Índice médio") }}</th><th>{{ traduzir("Índice máximo") }}</th></tr>
           </thead>
           <tbody></tbody>
         </table>
       </div>
-      <p id="analise-indices-vazio" class="tabela-vazia oculto">Nenhuma zona cadastrada ainda.</p>
+      <p id="analise-indices-vazio" class="tabela-vazia oculto">{{ traduzir("Nenhuma zona cadastrada ainda.") }}</p>
     </section>
   </section>
 
   <section id="aba-historico" class="grade grade-historico aba-conteudo{{ '' if aba_inicial == 'historico' else ' oculto' }}" data-aba-conteudo="historico" role="tabpanel">
     <section id="historico-filtros-card" class="painel historico-filtros-painel">
       <div class="tabela-cabecalho">
-        <p class="grafico-titulo">Filtros do histórico</p>
+        <p class="grafico-titulo">{{ traduzir("Filtros do histórico") }}</p>
         <div id="historico-filtros-slot"></div>
         <div id="historico-controle-cabecalho" class="historico-controle-cabecalho"></div>
       </div>
@@ -306,7 +306,7 @@
     <section class="painel entradas-grafico-painel historico-grafico-tendencia">
       <div class="grafico-bloco grafico-bloco--sem-moldura">
         <div class="tabela-cabecalho">
-          <p class="grafico-titulo">Tendência do índice por resolução</p>
+          <p class="grafico-titulo">{{ traduzir("Tendência do índice por resolução") }}</p>
           <div id="historico-resolucao-slot"></div>
         </div>
         <div class="grafico-canvas-wrap"><canvas id="grafico-tendencia-resolucao"></canvas></div>
@@ -316,7 +316,7 @@
 
     <section class="painel entradas-grafico-painel historico-grafico-entradas">
       <div class="grafico-bloco grafico-bloco--sem-moldura">
-        <p class="grafico-titulo">Valores de entrada no histórico</p>
+        <p class="grafico-titulo">{{ traduzir("Valores de entrada no histórico") }}</p>
         <div class="grafico-canvas-wrap"><canvas id="grafico-historico-entradas"></canvas></div>
       </div>
     </section>
@@ -330,44 +330,41 @@
 
   <section id="aba-dados-entrada" class="grade grade-dados-entrada aba-conteudo{{ '' if aba_inicial == 'dados-entrada' else ' oculto' }}" data-aba-conteudo="dados-entrada" role="tabpanel">
     <section class="painel dados-entrada-apresentacao">
-      <h2 class="painel-titulo">Gerador de dados de entrada</h2>
+      <h2 class="painel-titulo">{{ traduzir("Gerador de dados de entrada") }}</h2>
       <p class="dados-entrada-ajuda">
-        Gera uma série somente para as zonas ativas em um banco independente.
-        TBS, umidade, vento e demais variáveis externas vêm da reanálise histórica
-        ERA5 via Open-Meteo. Pontos menores que uma hora são interpolados e marcados
-        como derivados; ponto de orvalho, bulbo úmido e índices são calculados.
+        {{ traduzir('Gera uma série somente para as zonas ativas em um banco independente. TBS, umidade, vento e demais variáveis externas vêm da reanálise histórica ERA5 via Open-Meteo. Pontos menores que uma hora são interpolados e marcados como derivados; ponto de orvalho, bulbo úmido e índices são calculados.') }}
       </p>
       <p class="dados-entrada-fonte">
-        Banco de destino: PostgreSQL, schema <code>dados_entrada</code> ·
-        <a href="https://open-meteo.com/en/docs/historical-weather-api" target="_blank" rel="noreferrer">documentação da fonte meteorológica</a>
-        · rankings municipais: PPM 2024/IBGE-SIDRA
+        {{ traduzir('Banco de destino: PostgreSQL, schema') }} <code>dados_entrada</code> ·
+        <a href="https://open-meteo.com/en/docs/historical-weather-api" target="_blank" rel="noreferrer">{{ traduzir("documentação da fonte meteorológica") }}</a>
+        · {{ traduzir('rankings municipais: PPM 2024/IBGE-SIDRA') }}
       </p>
     </section>
 
     <section class="painel dados-entrada-parametros">
-      <h3 class="grafico-titulo">Período e resolução</h3>
+      <h3 class="grafico-titulo">{{ traduzir("Período e resolução") }}</h3>
       <form id="form-dados-entrada-gerar">
         <div class="campos-config dados-entrada-form-grade">
           <div class="campo-config">
-            <label for="dados-entrada-dias">Número de dias</label>
+            <label for="dados-entrada-dias">{{ traduzir("Número de dias") }}</label>
             <input type="number" id="dados-entrada-dias" min="1" max="366" step="1" value="30" required>
           </div>
           <div class="campo-config">
-            <label for="dados-entrada-intervalo">Intervalo entre dados (minutos)</label>
+            <label for="dados-entrada-intervalo">{{ traduzir("Intervalo entre dados (minutos)") }}</label>
             <input type="number" id="dados-entrada-intervalo" min="1" max="1440" step="1" value="5" required>
           </div>
           <div class="campo-config">
-            <label for="dados-entrada-data-final">Último dia (opcional)</label>
+            <label for="dados-entrada-data-final">{{ traduzir("Último dia (opcional)") }}</label>
             <input type="date" id="dados-entrada-data-final">
           </div>
           <div class="campo-config">
-            <label for="dados-entrada-semente">Semente da simulação animal</label>
+            <label for="dados-entrada-semente">{{ traduzir("Semente da simulação animal") }}</label>
             <input type="number" id="dados-entrada-semente" step="1" value="20260718" required>
           </div>
         </div>
-        <p class="dados-entrada-ajuda">Sem data final, serão usados os dados consolidados até oito dias atrás. Períodos com horas ausentes no ERA5 são recusados, sem repetir valores. Exemplo: 30 dias a cada 5 minutos geram 8.640 registros por zona.</p>
+        <p class="dados-entrada-ajuda">{{ traduzir('Sem data final, serão usados os dados consolidados até oito dias atrás. Períodos com horas ausentes no ERA5 são recusados, sem repetir valores. Exemplo: 30 dias a cada 5 minutos geram 8.640 registros por zona.') }}</p>
         <div class="acao-linha">
-          <button id="btn-gerar-dados-entrada" class="botao botao--primario" type="submit">Gerar dados para as zonas ativas</button>
+          <button id="btn-gerar-dados-entrada" class="botao botao--primario" type="submit">{{ traduzir("Gerar dados para as zonas ativas") }}</button>
         </div>
       </form>
       <p id="dados-entrada-status" class="smtp-status oculto" role="status"></p>
@@ -376,30 +373,28 @@
     <section class="painel dados-entrada-zonas-painel">
       <div class="tabela-cabecalho">
         <div>
-          <h3 class="grafico-titulo">Localização e lote animal por zona</h3>
-          <p class="dados-entrada-ajuda">Somente zonas ativas aparecem aqui. Informe a área útil e escolha o nível de lotação; a densidade e a quantidade de animais serão calculadas pela espécie e pelo peso. Cenários acima da média representam maior pressão de lotação, não recomendação de manejo.</p>
+          <h3 class="grafico-titulo">{{ traduzir("Localização e lote animal por zona") }}</h3>
+          <p class="dados-entrada-ajuda">{{ traduzir('Somente zonas ativas aparecem aqui. Informe a área útil e escolha o nível de lotação; a densidade e a quantidade de animais serão calculadas pela espécie e pelo peso. Cenários acima da média representam maior pressão de lotação, não recomendação de manejo.') }}</p>
         </div>
-        <button id="btn-salvar-config-dados-entrada" class="botao botao--fantasma botao--compacto" type="button">Salvar parâmetros das zonas</button>
+        <button id="btn-salvar-config-dados-entrada" class="botao botao--fantasma botao--compacto" type="button">{{ traduzir("Salvar parâmetros das zonas") }}</button>
       </div>
       <div id="dados-entrada-zonas" class="dados-entrada-zonas"></div>
-      <p id="dados-entrada-zonas-vazio" class="tabela-vazia oculto">Nenhuma zona ativa cadastrada.</p>
+      <p id="dados-entrada-zonas-vazio" class="tabela-vazia oculto">{{ traduzir("Nenhuma zona ativa cadastrada.") }}</p>
     </section>
 
     <section class="painel dados-entrada-arquivo-painel">
-      <h3 class="grafico-titulo">Transferência para o banco histórico</h3>
+      <h3 class="grafico-titulo">{{ traduzir("Transferência para o banco histórico") }}</h3>
       <p class="dados-entrada-ajuda">
-        Use a ação “Copiar para histórico” em uma geração concluída. Os dados
-        saem do schema <code>dados_entrada</code> e são inseridos no schema
-        <code>historico</code>; repetições não duplicam medições.
+        {{ traduzir('Use a ação “Copiar para histórico” em uma geração concluída. Os dados saem do schema dados_entrada e são inseridos no schema historico; repetições não duplicam medições.') }}
       </p>
       <div class="dados-entrada-arquivo-controles">
         <div class="campo-config">
-          <label for="dados-entrada-confirmacao-historico">Confirmação para exclusão</label>
-          <input type="text" id="dados-entrada-confirmacao-historico" placeholder="Digite APAGAR">
+          <label for="dados-entrada-confirmacao-historico">{{ traduzir("Confirmação para exclusão") }}</label>
+          <input type="text" id="dados-entrada-confirmacao-historico" placeholder="{{ traduzir('Digite APAGAR') }}">
         </div>
       </div>
       <div class="acao-linha">
-        <button id="btn-apagar-historico-direto" class="botao botao--perigo botao--compacto" type="button">Apagar medições do histórico</button>
+        <button id="btn-apagar-historico-direto" class="botao botao--perigo botao--compacto" type="button">{{ traduzir("Apagar medições do histórico") }}</button>
       </div>
       {# O resultado da cópia/exclusão é exibido por toast
          (`window.sharedauth.avisar`) em dados-entrada.js. #}
@@ -408,23 +403,23 @@
     <section class="painel dados-entrada-execucoes-painel">
       <div class="tabela-cabecalho">
         <div>
-          <h3 class="grafico-titulo">Gerações realizadas</h3>
+          <h3 class="grafico-titulo">{{ traduzir("Gerações realizadas") }}</h3>
           <p id="dados-entrada-resumo-banco" class="dados-entrada-ajuda"></p>
         </div>
         <div class="acao-linha">
-          <a class="botao botao--fantasma botao--compacto" href="/api/dados-entrada/exportar.csv">Exportar todas em CSV</a>
-          <button id="btn-apagar-dados-gerados" class="botao botao--perigo botao--compacto" type="button">Apagar dados gerados</button>
+          <a class="botao botao--fantasma botao--compacto" href="/api/dados-entrada/exportar.csv">{{ traduzir("Exportar todas em CSV") }}</a>
+          <button id="btn-apagar-dados-gerados" class="botao botao--perigo botao--compacto" type="button">{{ traduzir("Apagar dados gerados") }}</button>
         </div>
       </div>
       <div class="tabela-scroll">
         <table id="tabela-dados-entrada-execucoes">
           <thead>
-            <tr><th>ID</th><th>Período</th><th>Intervalo</th><th>Zonas</th><th>Medições</th><th>No histórico</th><th>Status</th><th>Ações</th></tr>
+            <tr><th>ID</th><th>{{ traduzir("Período") }}</th><th>{{ traduzir("Intervalo") }}</th><th>{{ traduzir("Zonas") }}</th><th>{{ traduzir("Medições") }}</th><th>{{ traduzir("No histórico") }}</th><th>{{ traduzir("Status") }}</th><th>{{ traduzir("Ações") }}</th></tr>
           </thead>
           <tbody></tbody>
         </table>
       </div>
-      <p id="dados-entrada-execucoes-vazio" class="tabela-vazia oculto">Nenhuma geração realizada.</p>
+      <p id="dados-entrada-execucoes-vazio" class="tabela-vazia oculto">{{ traduzir("Nenhuma geração realizada.") }}</p>
     </section>
   </section>
 
@@ -435,7 +430,7 @@
   <!-- aba Sistema logo abaixo -- ver README.md. -->
   <section id="aba-configuracoes" class="grade grade-configuracoes-enxuta aba-conteudo{{ '' if aba_inicial == 'configuracoes' else ' oculto' }}" data-aba-conteudo="configuracoes" role="tabpanel">
     <section class="painel configuracoes-painel configuracoes-painel--app">
-      <h2 class="painel-titulo">Preferências do app</h2>
+      <h2 class="painel-titulo">{{ traduzir("Preferências do app") }}</h2>
       <div id="configuracoes-app" class="configuracoes-bloco"></div>
     </section>
 
@@ -444,22 +439,22 @@
     <!-- credenciais do servidor SMTP em si (host/porta/usuario/senha) -->
     <!-- ficam na aba Sistema, junto do resto da configuracao tecnica. -->
     <section class="painel configuracoes-painel configuracoes-painel--email">
-      <h2 class="painel-titulo">Alertas por e-mail</h2>
+      <h2 class="painel-titulo">{{ traduzir("Alertas por e-mail") }}</h2>
       <div id="configuracoes-email" class="configuracoes-bloco"></div>
 
       <div class="campos-config">
         <div class="campo-config">
-          <label for="cfg-status-minimo-email">Enviar a partir do status</label>
+          <label for="cfg-status-minimo-email">{{ traduzir("Enviar a partir do status") }}</label>
           <select id="cfg-status-minimo-email">
-            <option value="conforto">Conforto</option>
-            <option value="alerta">Alerta</option>
-            <option value="perigo">Perigo</option>
-            <option value="emergencia">Emergência</option>
+            <option value="conforto">{{ traduzir("Conforto") }}</option>
+            <option value="alerta">{{ traduzir("Alerta") }}</option>
+            <option value="perigo">{{ traduzir("Perigo") }}</option>
+            <option value="emergencia">{{ traduzir("Emergência") }}</option>
           </select>
         </div>
       </div>
       <p id="smtp-status" class="smtp-status">
-        Sem host SMTP configurado, o envio funciona em modo simulado (o e-mail é montado e mostrado na tela, mas nada é enviado de fato). Configure o servidor SMTP na aba Sistema.
+        {{ traduzir('Sem host SMTP configurado, o envio funciona em modo simulado (o e-mail é montado e mostrado na tela, mas nada é enviado de fato). Configure o servidor SMTP na aba Sistema.') }}
       </p>
     </section>
   </section>
@@ -471,55 +466,55 @@
   <section id="aba-sistema" class="grade grade-configuracoes aba-conteudo{{ '' if aba_inicial == 'sistema' else ' oculto' }}" data-aba-conteudo="sistema" role="tabpanel">
     <div class="configuracoes-coluna">
       <section class="painel configuracoes-painel configuracoes-painel--sensores">
-        <h2 class="painel-titulo">Sensores</h2>
+        <h2 class="painel-titulo">{{ traduzir("Sensores") }}</h2>
         <div id="configuracoes-sensores" class="configuracoes-bloco">
           <div class="config-grade">
             <label class="check">
               <input type="checkbox" id="cfg-zonas-simulado" checked>
-              <span>Modo simulado (sem hardware Modbus real)</span>
+              <span>{{ traduzir("Modo simulado (sem hardware Modbus real)") }}</span>
             </label>
           </div>
         </div>
       </section>
 
       <section class="painel configuracoes-painel configuracoes-painel--banco">
-        <h2 class="painel-titulo">Banco de dados</h2>
+        <h2 class="painel-titulo">{{ traduzir("Banco de dados") }}</h2>
 
         <div class="campos-config">
           <div class="campo-config">
-            <label for="cfg-intervalo-leitura">Intervalo entre leituras (segundos)</label>
+            <label for="cfg-intervalo-leitura">{{ traduzir("Intervalo entre leituras (segundos)") }}</label>
             <input type="number" id="cfg-intervalo-leitura" min="1" max="3600" step="1" value="1">
           </div>
           <div class="campo-config">
-            <label for="cfg-intervalo-gravacao">Gravar no banco a cada (minutos)</label>
+            <label for="cfg-intervalo-gravacao">{{ traduzir("Gravar no banco a cada (minutos)") }}</label>
             <input type="number" id="cfg-intervalo-gravacao" min="0" max="1440" step="1" value="1">
           </div>
           <div class="campo-config">
-            <label for="cfg-ponto-orvalho">Ponto de orvalho</label>
+            <label for="cfg-ponto-orvalho">{{ traduzir("Ponto de orvalho") }}</label>
             <select id="cfg-ponto-orvalho">
-              <option value="medido">Medido</option>
-              <option value="calculado">Calculado por tbs/tbu</option>
+              <option value="medido">{{ traduzir("Medido") }}</option>
+              <option value="calculado">{{ traduzir("Calculado por tbs/tbu") }}</option>
             </select>
           </div>
           <div class="campo-config">
-            <label for="cfg-umidade-relativa">Umidade relativa do ar</label>
+            <label for="cfg-umidade-relativa">{{ traduzir("Umidade relativa do ar") }}</label>
             <select id="cfg-umidade-relativa">
-              <option value="calculado">Calculada por tbs/tbu</option>
-              <option value="medido">Medida</option>
+              <option value="calculado">{{ traduzir("Calculada por tbs/tbu") }}</option>
+              <option value="medido">{{ traduzir("Medida") }}</option>
             </select>
           </div>
           <div class="campo-config">
-            <label for="cfg-altitude">Altitude local (m)</label>
+            <label for="cfg-altitude">{{ traduzir("Altitude local (m)") }}</label>
             <input type="number" id="cfg-altitude" min="-500" max="9000" step="1" value="0">
           </div>
           <div class="campo-config">
-            <label for="cfg-limite-umidade-nebulizador">Limite UR nebulizador (%)</label>
+            <label for="cfg-limite-umidade-nebulizador">{{ traduzir("Limite UR nebulizador (%)") }}</label>
             <input type="number" id="cfg-limite-umidade-nebulizador" min="0" max="100" step="1" value="70">
           </div>
         </div>
         <div id="configuracoes-historico" class="configuracoes-bloco configuracoes-bloco--acoes">
-          <button id="btn-consolidar-historico" class="botao botao--fantasma botao--compacto" type="button">Atualizar agregados pendentes</button>
-          <p class="texto-ajuda">Manutenção segura: recalcula apenas agregados de 15 minutos e horários pendentes, sem apagar medições.</p>
+          <button id="btn-consolidar-historico" class="botao botao--fantasma botao--compacto" type="button">{{ traduzir("Atualizar agregados pendentes") }}</button>
+          <p class="texto-ajuda">{{ traduzir("Manutenção segura: recalcula apenas agregados de 15 minutos e horários pendentes, sem apagar medições.") }}</p>
         </div>
         {# O resultado da consolidação é exibido por toast
            (`window.sharedauth.avisar`) em entrada-calculo.js. #}
@@ -536,29 +531,29 @@
       <!-- a partir de qual status" fica na aba Configuracoes, perto de quem -->
       <!-- decide o limiar de alerta. -->
       <section class="painel configuracoes-painel configuracoes-painel--smtp">
-        <h2 class="painel-titulo">Servidor SMTP</h2>
+        <h2 class="painel-titulo">{{ traduzir("Servidor SMTP") }}</h2>
         <div class="campos-config">
           <div class="campo-config">
-            <label for="cfg-smtp-host">Servidor SMTP (host)</label>
+            <label for="cfg-smtp-host">{{ traduzir("Servidor SMTP (host)") }}</label>
             <input type="text" id="cfg-smtp-host" placeholder="smtp.seuservidor.com" autocomplete="off">
           </div>
           <div class="campo-config">
-            <label for="cfg-smtp-porta">Porta SMTP</label>
+            <label for="cfg-smtp-porta">{{ traduzir("Porta SMTP") }}</label>
             <input type="number" id="cfg-smtp-porta" min="1" max="65535" step="1" value="587">
           </div>
           <div class="campo-config">
-            <label for="cfg-smtp-usuario">Usuário SMTP</label>
+            <label for="cfg-smtp-usuario">{{ traduzir("Usuário SMTP") }}</label>
             <input type="text" id="cfg-smtp-usuario" placeholder="usuario@seudominio.com" autocomplete="off">
           </div>
           <div class="campo-config">
-            <label>Senha SMTP</label>
-            <p id="cfg-smtp-senha-estado" class="campo-config-ajuda">Definida pelo administrador do servidor, fora desta tela.</p>
+            <label>{{ traduzir("Senha SMTP") }}</label>
+            <p id="cfg-smtp-senha-estado" class="campo-config-ajuda">{{ traduzir("Definida pelo administrador do servidor, fora desta tela.") }}</p>
           </div>
         </div>
       </section>
 
       <section class="painel configuracoes-painel configuracoes-painel--calculos">
-        <h2 class="painel-titulo">C&aacute;lculos dos par&acirc;metros</h2>
+        <h2 class="painel-titulo">{{ traduzir('Cálculos dos parâmetros') }}</h2>
         <div id="configuracoes-calculos" class="configuracoes-bloco"></div>
       </section>
     </div>
@@ -569,80 +564,80 @@
     <section class="painel zonas-controles-painel">
       <div class="zonas-controles">
         <div class="campo-config">
-          <label for="filtro-zona-cadastro">Filtro de zonas</label>
+          <label for="filtro-zona-cadastro">{{ traduzir("Filtro de zonas") }}</label>
           <select id="filtro-zona-cadastro">
-            <option value="todas" selected>Todas as zonas</option>
-            <option value="ativas">Somente ativas</option>
-            <option value="inativas">Somente inativas</option>
+            <option value="todas" selected>{{ traduzir("Todas as zonas") }}</option>
+            <option value="ativas">{{ traduzir("Somente ativas") }}</option>
+            <option value="inativas">{{ traduzir("Somente inativas") }}</option>
           </select>
         </div>
         <div class="campo-config">
-          <label for="zona-cadastro">Zona cadastrada</label>
+          <label for="zona-cadastro">{{ traduzir("Zona cadastrada") }}</label>
           <select id="zona-cadastro"></select>
         </div>
-        <button id="btn-nova-zona" class="botao botao--primario" type="button">+ Nova zona</button>
+        <button id="btn-nova-zona" class="botao botao--primario" type="button">{{ traduzir("+ Nova zona") }}</button>
       </div>
       <p id="zonas-aviso-pymodbus" class="smtp-status oculto"></p>
     </section>
 
     <div id="zonas-lista" class="zonas-lista"></div>
-    <p id="zonas-vazio" class="tabela-vazia oculto">Nenhuma zona cadastrada ainda.</p>
+    <p id="zonas-vazio" class="tabela-vazia oculto">{{ traduzir("Nenhuma zona cadastrada ainda.") }}</p>
   </section>
 
 </div>
 
 <dialog id="dialog-zona" class="dialog-app">
   <form id="form-zona" method="dialog" novalidate>
-    <h3 id="dialog-zona-titulo" class="painel-titulo">Nova zona</h3>
+    <h3 id="dialog-zona-titulo" class="painel-titulo">{{ traduzir("Nova zona") }}</h3>
     <div class="campos-config">
       <div class="campo-config">
-        <label for="zona-nome">Nome da zona <span class="obrigatorio" aria-hidden="true">*</span></label>
-        <input type="text" id="zona-nome" maxlength="255" placeholder="Ex.: Aviário 1 - Galpão A" required>
+        <label for="zona-nome">{{ traduzir("Nome da zona") }} <span class="obrigatorio" aria-hidden="true">*</span></label>
+        <input type="text" id="zona-nome" maxlength="255" placeholder="{{ traduzir('Ex.: Aviário 1 - Galpão A') }}" required>
       </div>
       <div class="campo-config">
-        <label for="zona-especie">Espécie</label>
+        <label for="zona-especie">{{ traduzir("Espécie") }}</label>
         <select id="zona-especie"></select>
       </div>
       <div class="campo-config">
-        <label for="zona-ciclos-expiracao-leitura">Expirar leitura após</label>
-        <select id="zona-ciclos-expiracao-leitura"><option value="2">2 ciclos de coleta</option><option value="3">3 ciclos de coleta (padrão)</option></select>
+        <label for="zona-ciclos-expiracao-leitura">{{ traduzir("Expirar leitura após") }}</label>
+        <select id="zona-ciclos-expiracao-leitura"><option value="2">{{ traduzir("2 ciclos de coleta") }}</option><option value="3">{{ traduzir("3 ciclos de coleta (padrão)") }}</option></select>
       </div>
       <div class="campo-config">
-        <label for="zona-indice">Índice</label>
+        <label for="zona-indice">{{ traduzir("Índice") }}</label>
         <select id="zona-indice"></select>
       </div>
     </div>
-    <label class="check"><input type="checkbox" id="zona-ativa" checked><span>Zona ativa</span></label>
+    <label class="check"><input type="checkbox" id="zona-ativa" checked><span>{{ traduzir("Zona ativa") }}</span></label>
     <p id="zona-form-erro" class="mensagem-erro oculto" role="alert"></p>
     <div class="acao-linha">
-      <button type="button" class="botao botao--fantasma" id="btn-cancelar-zona">Cancelar</button>
-      <button type="submit" class="botao botao--primario" id="btn-salvar-zona">Salvar zona</button>
+      <button type="button" class="botao botao--fantasma" id="btn-cancelar-zona">{{ traduzir("Cancelar") }}</button>
+      <button type="submit" class="botao botao--primario" id="btn-salvar-zona">{{ traduzir("Salvar zona") }}</button>
     </div>
   </form>
 </dialog>
 
 <dialog id="dialog-equipamento" class="dialog-app">
   <form id="form-equipamento" method="dialog" novalidate>
-    <h3 id="dialog-equipamento-titulo" class="painel-titulo">Novo equipamento</h3>
+    <h3 id="dialog-equipamento-titulo" class="painel-titulo">{{ traduzir("Novo equipamento") }}</h3>
     <div class="campos-config">
       <div class="campo-config">
-        <label for="equip-tipo">Tipo</label>
+        <label for="equip-tipo">{{ traduzir("Tipo") }}</label>
         <select id="equip-tipo">
-          <option value="sensor">Sensor</option>
-          <option value="ventilador">Ventilador</option>
-          <option value="nebulizador">Nebulizador</option>
+          <option value="sensor">{{ traduzir("Sensor") }}</option>
+          <option value="ventilador">{{ traduzir("Ventilador") }}</option>
+          <option value="nebulizador">{{ traduzir("Nebulizador") }}</option>
         </select>
       </div>
       <div class="campo-config">
-        <label for="equip-nome">Nome / identificação <span class="obrigatorio" aria-hidden="true">*</span></label>
-        <input type="text" id="equip-nome" maxlength="255" placeholder="Ex.: Sensor TBS 1" required>
+        <label for="equip-nome">{{ traduzir("Nome / identificação") }} <span class="obrigatorio" aria-hidden="true">*</span></label>
+        <input type="text" id="equip-nome" maxlength="255" placeholder="{{ traduzir('Ex.: Sensor TBS 1') }}" required>
       </div>
       <div class="campo-config" id="wrap-equip-campo-medido">
-        <label for="equip-campo-medido">Campo medido</label>
+        <label for="equip-campo-medido">{{ traduzir("Campo medido") }}</label>
         <select id="equip-campo-medido"></select>
       </div>
       <div class="campo-config">
-        <label for="equip-modo-conexao">Conexão</label>
+        <label for="equip-modo-conexao">{{ traduzir("Conexão") }}</label>
         <select id="equip-modo-conexao">
           <option value="tcp">Modbus TCP</option>
           <option value="rtu">Modbus RTU (serial / RS-485)</option>
@@ -653,51 +648,53 @@
         <input type="text" id="equip-host" placeholder="192.168.0.10" required>
       </div>
       <div class="campo-config" id="wrap-equip-porta">
-        <label for="equip-porta">Porta</label>
+        <label for="equip-porta">{{ traduzir("Porta") }}</label>
         <input type="number" id="equip-porta" min="1" max="65535" value="502">
       </div>
       <div class="campo-config oculto" id="wrap-equip-porta-serial">
-        <label for="equip-porta-serial">Porta serial <span class="obrigatorio" aria-hidden="true">*</span></label>
-        <input type="text" id="equip-porta-serial" placeholder="/dev/ttyUSB0 ou COM3">
+        <label for="equip-porta-serial">{{ traduzir("Porta serial") }} <span class="obrigatorio" aria-hidden="true">*</span></label>
+        <input type="text" id="equip-porta-serial" placeholder="{{ traduzir('/dev/ttyUSB0 ou COM3') }}">
       </div>
       <div class="campo-config oculto" id="wrap-equip-baud-rate">
         <label for="equip-baud-rate">Baud rate</label>
         <input type="number" id="equip-baud-rate" min="300" max="921600" value="9600">
       </div>
       <div class="campo-config">
-        <label for="equip-unidade-id">ID do dispositivo (slave/unit)</label>
+        <label for="equip-unidade-id">{{ traduzir('ID do dispositivo (slave/unit)') }}</label>
         <input type="number" id="equip-unidade-id" min="1" max="247" value="1">
       </div>
       <div class="campo-config">
-        <label for="equip-tipo-registrador">Tipo de registrador</label>
+        <label for="equip-tipo-registrador">{{ traduzir("Tipo de registrador") }}</label>
         <select id="equip-tipo-registrador"></select>
       </div>
       <div class="campo-config">
-        <label for="equip-endereco-registrador">Endereço do registrador</label>
+        <label for="equip-endereco-registrador">{{ traduzir("Endereço do registrador") }}</label>
         <input type="number" id="equip-endereco-registrador" min="0" max="65535" value="0">
       </div>
       <div class="campo-config" id="wrap-equip-tipo-dado">
-        <label for="equip-tipo-dado">Tipo de dado</label>
+        <label for="equip-tipo-dado">{{ traduzir("Tipo de dado") }}</label>
         <select id="equip-tipo-dado">
-          <option value="int16">int16 (com sinal)</option>
-          <option value="uint16">uint16 (sem sinal)</option>
+          <option value="int16">{{ traduzir("int16 (com sinal)") }}</option>
+          <option value="uint16">{{ traduzir("uint16 (sem sinal)") }}</option>
         </select>
       </div>
       <div class="campo-config" id="wrap-equip-fator-escala">
-        <label for="equip-fator-escala">Fator de escala</label>
+        <label for="equip-fator-escala">{{ traduzir("Fator de escala") }}</label>
         <input type="number" id="equip-fator-escala" step="0.001" value="1">
       </div>
     </div>
     <p id="equipamento-teste-resultado" class="smtp-status oculto"></p>
     <p id="equipamento-form-erro" class="mensagem-erro oculto" role="alert"></p>
     <div class="acao-linha">
-      <button type="button" class="botao botao--fantasma" id="btn-testar-conexao-equipamento">Testar conexão</button>
-      <button type="button" class="botao botao--fantasma" id="btn-cancelar-equipamento">Cancelar</button>
-      <button type="submit" class="botao botao--primario" id="btn-salvar-equipamento">Salvar equipamento</button>
+      <button type="button" class="botao botao--fantasma" id="btn-testar-conexao-equipamento">{{ traduzir("Testar conexão") }}</button>
+      <button type="button" class="botao botao--fantasma" id="btn-cancelar-equipamento">{{ traduzir("Cancelar") }}</button>
+      <button type="submit" class="botao botao--primario" id="btn-salvar-equipamento">{{ traduzir("Salvar equipamento") }}</button>
     </div>
   </form>
 </dialog>
 
+<script id="i18n-js" type="application/json">{{ textos_js|tojson }}</script>
+<script src="{{ url_for('static', filename='js/core/i18n.js') }}"></script>
 <script src="{{ url_for('static', filename='js/vendor/chart.umd.js') }}"></script>
 {# `defer` já bastaria sozinho: `app.js` só toca `window.sharedauth` dentro do
    handler de DOMContentLoaded (nunca no topo do módulo), e todo script com

@@ -38,7 +38,7 @@ export function criarAuditoria({ documento = document, requisitar = (...args) =>
       });
     } catch (erro) {
       console.error("Não foi possível carregar a auditoria:", erro);
-      corpo.textContent = ""; vazio.textContent = "Não foi possível carregar a trilha de auditoria."; vazio.classList.remove("oculto");
+      corpo.textContent = ""; vazio.textContent = window.t("Não foi possível carregar a trilha de auditoria."); vazio.classList.remove("oculto");
     }
   }
   function inicializar() { document.getElementById("btn-atualizar-auditoria")?.addEventListener("click", carregar); }

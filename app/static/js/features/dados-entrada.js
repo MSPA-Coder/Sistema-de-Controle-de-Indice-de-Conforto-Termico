@@ -41,7 +41,7 @@ export function criarDadosEntrada({
     } catch (_erro) {
       dados = {};
     }
-    if (!resposta.ok) throw new Error(dados.erro || "A operação não pôde ser concluída.");
+    if (!resposta.ok) throw new Error(window.traduzirErro(dados.erro || "A operação não pôde ser concluída."));
     return dados;
   }
 
@@ -51,7 +51,7 @@ export function criarDadosEntrada({
     const label = documento.createElement("label");
     const id = "dados-zona-" + config.zona_id + "-" + nome;
     label.htmlFor = id;
-    label.textContent = rotulo;
+    label.textContent = window.t(rotulo);
     grupo.appendChild(label);
     const input = documento.createElement("input");
     input.id = id;
@@ -63,7 +63,7 @@ export function criarDadosEntrada({
     if (opcoes.min !== undefined) input.min = opcoes.min;
     if (opcoes.max !== undefined) input.max = opcoes.max;
     if (opcoes.somenteLeitura) input.readOnly = true;
-    input.placeholder = opcoes.placeholder || "";
+    input.placeholder = window.t(opcoes.placeholder || "");
     const valor = config[nome];
     input.value = valor === null || valor === undefined ? "" : valor;
     grupo.appendChild(input);
@@ -76,7 +76,7 @@ export function criarDadosEntrada({
     const label = documento.createElement("label");
     const id = "dados-zona-" + config.zona_id + "-densidade_categoria";
     label.htmlFor = id;
-    label.textContent = "Nível de lotação";
+    label.textContent = window.t("Nível de lotação");
     grupo.appendChild(label);
     const select = documento.createElement("select");
     select.id = id;
@@ -85,7 +85,7 @@ export function criarDadosEntrada({
     (referencias.lotacao?.categorias || []).forEach((categoria) => {
       const option = documento.createElement("option");
       option.value = categoria.valor;
-      option.textContent = categoria.rotulo;
+      option.textContent = window.t(categoria.rotulo);
       option.selected = categoria.valor === (config.densidade_categoria || "media");
       select.appendChild(option);
     });
@@ -130,7 +130,7 @@ export function criarDadosEntrada({
     if (campoDensidade) campoDensidade.value = Number(densidadeReal.toFixed(6));
     if (campoQuantidade) campoQuantidade.value = quantidade;
     const modelo = referencias.lotacao?.modelos?.[cartao.dataset.especie];
-    if (campoDensidade && modelo?.fonte) campoDensidade.title = modelo.fonte;
+    if (campoDensidade && modelo?.fonte) campoDensidade.title = window.t(modelo.fonte);
   }
 
   function campoCidade(config) {
@@ -139,7 +139,7 @@ export function criarDadosEntrada({
     const label = documento.createElement("label");
     const id = "dados-zona-" + config.zona_id + "-cidade_codigo_ibge";
     label.htmlFor = id;
-    label.textContent = "Cidade de referência (PPM 2024/IBGE)";
+    label.textContent = window.t("Cidade de referência (PPM 2024/IBGE)");
     grupo.appendChild(label);
     const select = documento.createElement("select");
     select.id = id;
@@ -147,15 +147,16 @@ export function criarDadosEntrada({
     select.dataset.zonaId = config.zona_id;
     const inicial = documento.createElement("option");
     inicial.value = "";
-    inicial.textContent = "Selecione uma cidade";
+    inicial.textContent = window.t("Selecione uma cidade");
     select.appendChild(inicial);
     const cidades = referencias.cidades_por_especie[config.especie] || [];
     cidades.forEach((cidade, indice) => {
       const option = documento.createElement("option");
       option.value = cidade.codigo_ibge;
-      option.textContent =
-        indice + 1 + "º · " + cidade.nome + "/" + cidade.uf + " · " +
-        window.regional.formatNumber(Number(cidade.efetivo_2024), 0) + " animais";
+      option.textContent = window.t("%(ordem)sº · %(cidade)s/%(uf)s · %(total)s animais", {
+        ordem: indice + 1, cidade: cidade.nome, uf: cidade.uf,
+        total: window.regional.formatNumber(Number(cidade.efetivo_2024), 0),
+      });
       option.selected = cidade.codigo_ibge === config.cidade_codigo_ibge;
       select.appendChild(option);
     });
@@ -203,7 +204,7 @@ export function criarDadosEntrada({
       cabecalho.appendChild(titulo);
       const status = documento.createElement("span");
       status.className = "dados-entrada-zona-status";
-      status.textContent = config.configurada ? "configurada" : "dados pendentes";
+      status.textContent = config.configurada ? window.t("configurada") : window.t("dados pendentes");
       cabecalho.appendChild(status);
       cartao.appendChild(cabecalho);
 
@@ -287,7 +288,7 @@ export function criarDadosEntrada({
       const pesoEstimado = referencias.peso_medio_estimado_kg[config.especie];
       if (peso && !peso.value && pesoEstimado) peso.value = pesoEstimado;
       const pesoLabel = peso?.closest(".campo-config")?.querySelector("label");
-      if (pesoLabel) pesoLabel.textContent = "Peso médio estimado (kg)";
+      if (pesoLabel) pesoLabel.textContent = window.t("Peso médio estimado (kg)");
       if (config.especie !== "bovinos") {
         grade.querySelector('[name="producao_leite_kg_dia"]')?.closest(".campo-config")?.remove();
         grade.querySelector('[name="ordenhas_dia"]')?.closest(".campo-config")?.remove();
@@ -348,7 +349,7 @@ export function criarDadosEntrada({
     // `mostrarStatus=false` quando chamado de dentro de `gerar()`: a
     // geracao ja tem a propria mensagem de resultado, um toast a mais aqui
     // seria ruido duplicado para a mesma acao do usuario.
-    if (mostrarStatus) avisar({ mensagem: "Parâmetros das zonas salvos.", severidade: "success" });
+    if (mostrarStatus) avisar({ mensagem: window.t("Parâmetros das zonas salvos."), severidade: "success" });
     return configuracoes;
   }
 
@@ -368,23 +369,21 @@ export function criarDadosEntrada({
       (soma, item) => soma + Number(item.medicoes_copiadas || 0),
       0
     );
-    resumo.textContent =
-      window.regional.formatNumber(totalGerado, 0) +
-      " medições geradas em " +
-      (payload.destino || "PostgreSQL (schema dados_entrada)") +
-      "; " +
-      window.regional.formatNumber(totalCopiado, 0) +
-      " já copiadas para o histórico.";
+    resumo.textContent = window.t("%(gerado)s medições geradas em %(destino)s; %(copiado)s já copiadas para o histórico.", {
+      gerado: window.regional.formatNumber(totalGerado, 0),
+      destino: payload.destino || "PostgreSQL (schema dados_entrada)",
+      copiado: window.regional.formatNumber(totalCopiado, 0),
+    });
     execucoes.forEach((execucao) => {
       const tr = documento.createElement("tr");
       const valores = [
         execucao.id,
-        execucao.data_inicio + " a " + execucao.data_fim,
+        window.t("%(inicio)s a %(fim)s", { inicio: execucao.data_inicio, fim: execucao.data_fim }),
         execucao.intervalo_minutos + " min",
         execucao.total_zonas,
         execucao.total_medicoes,
         execucao.medicoes_copiadas || 0,
-        execucao.status,
+        window.t(execucao.status),
       ];
       valores.forEach((valor) => {
         const td = documento.createElement("td");
@@ -402,13 +401,13 @@ export function criarDadosEntrada({
           const copiar = documento.createElement("button");
           copiar.type = "button";
           copiar.className = "botao botao--primario botao--compacto";
-          copiar.textContent = "Copiar para histórico";
+          copiar.textContent = window.t("Copiar para histórico");
           copiar.addEventListener("click", () => copiarExecucaoParaHistorico(execucao.id, copiar));
           acoes.appendChild(copiar);
         }
       } else if (execucao.erro) {
         acoes.title = execucao.erro;
-        acoes.textContent = "Ver erro";
+        acoes.textContent = window.t("Ver erro");
       }
       tr.appendChild(acoes);
       tbody.appendChild(tr);
@@ -420,8 +419,9 @@ export function criarDadosEntrada({
     // alerta usa "warning" porque nao existe uma operacao isolada para
     // desfazer apenas os registros copiados para o historico.
     const confirmado = await confirmar({
-      mensagem: "Copiar as medições da geração " + execucaoId + " para o histórico?",
-      titulo: "Copiar para o histórico",
+      mensagem: window.t("Copiar as medições da geração %(id)s para o histórico?", { id: execucaoId }),
+      titulo: window.t("Copiar para o histórico"),
+      ok: window.t("Confirmar"), cancelar: window.t("Cancelar"),
       severidade: "warning",
     });
     if (!confirmado) return;
@@ -433,7 +433,7 @@ export function criarDadosEntrada({
         body: JSON.stringify({ execucao_id: execucaoId }),
       });
       avisar({
-        mensagem: resultado.novas_copiadas + " novas medições copiadas para o histórico.",
+        mensagem: window.t(resultado.novas_copiadas === 1 ? "%(total)s nova medição copiada para o histórico." : "%(total)s novas medições copiadas para o histórico.", { total: resultado.novas_copiadas }),
         severidade: "success",
       });
       await carregarExecucoes();
@@ -473,8 +473,9 @@ export function criarDadosEntrada({
   async function gerar(evento) {
     evento.preventDefault();
     const confirmado = await confirmar({
-      mensagem: "Salvar os parâmetros e gerar dados históricos para as zonas ativas?",
-      titulo: "Gerar dados de entrada",
+      mensagem: window.t("Salvar os parâmetros e gerar dados históricos para as zonas ativas?"),
+      titulo: window.t("Gerar dados de entrada"),
+      ok: window.t("Confirmar"), cancelar: window.t("Cancelar"),
       severidade: "warning",
     });
     if (!confirmado) return;
@@ -482,7 +483,7 @@ export function criarDadosEntrada({
     botao.disabled = true;
     definirStatus(
       "dados-entrada-status",
-      "Validando as zonas e baixando o clima histórico. Aguarde..."
+      window.t("Validando as zonas e baixando o clima histórico. Aguarde...")
     );
     try {
       await salvarConfiguracoes(false);
@@ -501,15 +502,15 @@ export function criarDadosEntrada({
       // um toast não serve para progresso, só para o resultado final. Limpa
       // o banner e mostra o resultado como toast.
       definirStatus("dados-entrada-status", "");
+      const umaMedicao = resultado.total_medicoes === 1;
+      const umaZona = resultado.total_zonas === 1;
+      const textoResultado = umaMedicao
+        ? (umaZona ? "Geração %(id)s concluída: %(medicoes)s medição em %(zonas)s zona." : "Geração %(id)s concluída: %(medicoes)s medição em %(zonas)s zonas.")
+        : (umaZona ? "Geração %(id)s concluída: %(medicoes)s medições em %(zonas)s zona." : "Geração %(id)s concluída: %(medicoes)s medições em %(zonas)s zonas.");
       avisar({
-        mensagem:
-          "Geração " +
-          resultado.execucao_id +
-          " concluída: " +
-          resultado.total_medicoes +
-          " medições em " +
-          resultado.total_zonas +
-          " zonas.",
+        mensagem: window.t(textoResultado, {
+          id: resultado.execucao_id, medicoes: resultado.total_medicoes, zonas: resultado.total_zonas,
+        }),
         severidade: "success",
       });
       await carregarExecucoes();
@@ -527,8 +528,9 @@ export function criarDadosEntrada({
     // `dados_entrada_rotas.py`). O modal não substitui a digitação.
     const confirmacao = documento.getElementById("dados-entrada-confirmacao-historico").value;
     const confirmado = await confirmar({
-      mensagem: "Apagar definitivamente todas as medições do histórico?",
-      titulo: "Apagar histórico",
+      mensagem: window.t("Apagar definitivamente todas as medições do histórico?"),
+      titulo: window.t("Apagar histórico"),
+      ok: window.t("Confirmar"), cancelar: window.t("Cancelar"),
       severidade: "error",
     });
     if (!confirmado) return;
@@ -539,7 +541,7 @@ export function criarDadosEntrada({
         body: JSON.stringify({ confirmacao }),
       });
       avisar({
-        mensagem: resultado.medicoes_apagadas + " medições apagadas do histórico.",
+        mensagem: window.t(resultado.medicoes_apagadas === 1 ? "%(total)s medição apagada do histórico." : "%(total)s medições apagadas do histórico.", { total: resultado.medicoes_apagadas }),
         severidade: "success",
       });
       await recarregarHistorico({ manterJanelaFinal: false });
@@ -555,12 +557,13 @@ export function criarDadosEntrada({
     // mesma: o modal decide, o texto digitado continua sendo a confirmação
     // forte que o servidor valida.
     const confirmado = await confirmar({
-      mensagem: "Apagar todas as séries geradas? As medições já copiadas para o histórico serão preservadas.",
-      titulo: "Apagar dados gerados",
+      mensagem: window.t("Apagar todas as séries geradas? As medições já copiadas para o histórico serão preservadas."),
+      titulo: window.t("Apagar dados gerados"),
+      ok: window.t("Confirmar"), cancelar: window.t("Cancelar"),
       severidade: "error",
     });
     if (!confirmado) return;
-    const confirmacao = solicitar("Digite APAGAR para confirmar:", "");
+    const confirmacao = solicitar(window.t("Digite APAGAR para confirmar:"), "");
     if (confirmacao === null) return;
     try {
       const resultado = await respostaJson("/api/dados-entrada/medicoes", {
@@ -569,7 +572,7 @@ export function criarDadosEntrada({
         body: JSON.stringify({ confirmacao }),
       });
       avisar({
-        mensagem: resultado.medicoes_apagadas + " medições geradas foram apagadas.",
+        mensagem: window.t(resultado.medicoes_apagadas === 1 ? "%(total)s medição gerada foi apagada." : "%(total)s medições geradas foram apagadas.", { total: resultado.medicoes_apagadas }),
         severidade: "success",
       });
       await carregarExecucoes();
@@ -584,8 +587,9 @@ export function criarDadosEntrada({
       .getElementById("btn-salvar-config-dados-entrada")
       ?.addEventListener("click", async () => {
         const confirmado = await confirmar({
-          mensagem: "Salvar os parâmetros das zonas?",
-          titulo: "Salvar parâmetros",
+          mensagem: window.t("Salvar os parâmetros das zonas?"),
+          titulo: window.t("Salvar parâmetros"),
+          ok: window.t("Confirmar"), cancelar: window.t("Cancelar"),
           severidade: "warning",
         });
         if (!confirmado) return;

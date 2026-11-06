@@ -1,23 +1,23 @@
 {% extends "_layout_auth.html" %}
-{% block titulo %}Usuários · Conforto Térmico{% endblock %}
+{% block idioma_html %}{{ idioma_atual }}{% endblock %}
+{% block titulo %}{{ traduzir('Usuários') }} · {{ traduzir('Conforto Térmico') }}{% endblock %}
 {% block conteudo %}
 <div class="admin-pagina">
   <header class="admin-topo">
     <div>
-      <a class="botao--texto admin-voltar" href="{{ url_for('comum.index') }}">&larr; Voltar ao sistema</a>
-      <h1 class="admin-titulo">Usuários</h1>
+      <a class="botao--texto admin-voltar" href="{{ url_for('comum.index') }}">&larr; {{ traduzir('Voltar ao sistema') }}</a>
+      <h1 class="admin-titulo">{{ traduzir('Usuários') }}</h1>
       <p class="admin-subtitulo">
-        Cada perfil libera um conjunto diferente de abas. Contas que não são
-        administradoras também precisam ter zonas liberadas (botão Zonas).
+        {{ traduzir('Cada perfil libera um conjunto diferente de abas. Contas que não são administradoras também precisam ter zonas liberadas (botão Zonas).') }}
       </p>
     </div>
     <div class="admin-sessao">
-      Logado como <strong>{{ usuario_atual.nome }}</strong>
-      ({{ perfil_label.get(usuario_atual.perfil, usuario_atual.perfil) }})
-      <a class="botao--texto" href="{{ url_for('auth.trocar_senha') }}">Minha senha</a>
+      {{ traduzir('Logado como') }} <strong>{{ usuario_atual.nome }}</strong>
+      ({{ traduzir(perfil_label.get(usuario_atual.perfil, usuario_atual.perfil)) }})
+      <a class="botao--texto" href="{{ url_for('auth.trocar_senha') }}">{{ traduzir('Minha senha') }}</a>
       <form method="post" action="{{ url_for('auth.logout') }}" class="admin-logout-form">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-        <button type="submit" class="botao botao--texto">Sair</button>
+        <button type="submit" class="botao botao--texto">{{ traduzir('Sair') }}</button>
       </form>
     </div>
   </header>
@@ -37,32 +37,31 @@
      senha, e `flash()` a guardaria no cookie de sessao -- assinado, nao
      cifrado. Ver `_render_usuarios` em `app/seguranca/auth.py`. #}
   <div class="painel admin-painel senha-temporaria" role="status">
-    <h2 class="painel-titulo">Senha temporária de {{ senha_de }}</h2>
+    <h2 class="painel-titulo">{{ traduzir('Senha temporária de %(nome)s') % {'nome': senha_de} }}</h2>
     <p><code class="senha-temporaria-valor">{{ senha_temporaria }}</code></p>
     <p class="admin-subtitulo">
-      Anote agora: ela não será mostrada de novo. Quem entrar com ela terá de
-      trocá-la antes de usar o sistema.
+      {{ traduzir('Anote agora: ela não será mostrada de novo. Quem entrar com ela terá de trocá-la antes de usar o sistema.') }}
     </p>
   </div>
   {% endif %}
 
   <div class="painel admin-painel">
     <div class="admin-painel-cabecalho">
-      <h2 class="painel-titulo">Contas cadastradas</h2>
-      <a class="botao botao--primario botao--compacto" href="{{ url_for('usuarios.criar_usuario_rota') }}">Novo usuário</a>
+      <h2 class="painel-titulo">{{ traduzir('Contas cadastradas') }}</h2>
+      <a class="botao botao--primario botao--compacto" href="{{ url_for('usuarios.criar_usuario_rota') }}">{{ traduzir('Novo usuário') }}</a>
     </div>
 
     <div class="tabela-scroll">
       <table>
         <thead>
           <tr>
-            <th>Nome</th>
-            <th>Login</th>
-            <th>Perfil</th>
-            <th>Status</th>
-            <th>Zonas</th>
-            <th>Último acesso</th>
-            <th>Ações</th>
+            <th>{{ traduzir('Nome') }}</th>
+            <th>{{ traduzir('Login') }}</th>
+            <th>{{ traduzir('Perfil') }}</th>
+            <th>{{ traduzir('Status') }}</th>
+            <th>{{ traduzir('Zonas') }}</th>
+            <th>{{ traduzir('Último acesso') }}</th>
+            <th>{{ traduzir('Ações') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -70,18 +69,18 @@
           <tr>
             <td>{{ usuario.nome }}</td>
             <td>{{ usuario.login }}</td>
-            <td>{{ perfil_label.get(usuario.perfil, usuario.perfil) }}</td>
-            <td>{{ "Ativo" if usuario.ativo else "Inativo" }}</td>
+            <td>{{ traduzir(perfil_label.get(usuario.perfil, usuario.perfil)) }}</td>
+            <td>{{ traduzir('Ativo') if usuario.ativo else traduzir('Inativo') }}</td>
             <td>
-              {% if usuario.zonas_liberadas is none %}Todas
-              {% elif usuario.zonas_liberadas == 0 %}<span class="admin-aviso">Nenhuma</span>
-              {% else %}{{ usuario.zonas_liberadas }} de {{ total_zonas }}{% endif %}
+              {% if usuario.zonas_liberadas is none %}{{ traduzir('Todas') }}
+              {% elif usuario.zonas_liberadas == 0 %}<span class="admin-aviso">{{ traduzir('Nenhuma') }}</span>
+              {% else %}{{ traduzir('%(liberadas)s de %(total)s') % {'liberadas': usuario.zonas_liberadas, 'total': total_zonas} }}{% endif %}
             </td>
-            <td>{{ (usuario.ultimo_login_em | data_hora_regional) or "Nunca" }}</td>
+            <td>{{ (usuario.ultimo_login_em | data_hora_regional) or traduzir('Nunca') }}</td>
             <td class="admin-acoes">
-              <a class="botao botao--fantasma botao--compacto" href="{{ url_for('usuarios.editar_usuario_rota', usuario_id=usuario.id) }}">Editar</a>
+              <a class="botao botao--fantasma botao--compacto" href="{{ url_for('usuarios.editar_usuario_rota', usuario_id=usuario.id) }}">{{ traduzir('Editar') }}</a>
               {% if usuario.perfil != "administrador" %}
-              <a class="botao botao--fantasma botao--compacto" href="{{ url_for('usuarios.zonas_usuario_rota', usuario_id=usuario.id) }}">Zonas</a>
+              <a class="botao botao--fantasma botao--compacto" href="{{ url_for('usuarios.zonas_usuario_rota', usuario_id=usuario.id) }}">{{ traduzir('Zonas') }}</a>
               {% endif %}
               {# Sem campo de senha: quem administra nao escolhe mais a senha de
                  outra pessoa. O sistema sorteia, mostra uma vez, e o dono e
@@ -90,10 +89,11 @@
                     class="admin-excluir-form">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="botao botao--fantasma botao--compacto"
-                        data-sa-confirmar="Redefinir a senha de {{ usuario.nome }}? O sistema vai gerar uma senha temporária, mostrada uma única vez."
-                        data-sa-titulo="Redefinir senha"
+                        data-sa-confirmar="{{ traduzir('Redefinir a senha de %(nome)s? O sistema vai gerar uma senha temporária, mostrada uma única vez.') % {'nome': usuario.nome} }}"
+                        data-sa-titulo="{{ traduzir('Redefinir senha') }}"
                         data-sa-severidade="warning"
-                        data-sa-ok="Redefinir">Redefinir senha</button>
+                        data-sa-cancelar="{{ traduzir('Cancelar') }}"
+                        data-sa-ok="{{ traduzir('Redefinir') }}">{{ traduzir('Redefinir senha') }}</button>
               </form>
               {% if usuario.id != usuario_atual.id %}
               {# O `onsubmit="return confirm(...)"` que estava aqui NUNCA
@@ -111,16 +111,17 @@
                     class="admin-excluir-form">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="botao botao--perigo botao--compacto"
-                        data-sa-confirmar="Excluir o usuário {{ usuario.nome }}? Esta ação não pode ser desfeita."
-                        data-sa-titulo="Excluir usuário"
+                        data-sa-confirmar="{{ traduzir('Excluir o usuário %(nome)s? Esta ação não pode ser desfeita.') % {'nome': usuario.nome} }}"
+                        data-sa-titulo="{{ traduzir('Excluir usuário') }}"
                         data-sa-severidade="error"
-                        data-sa-ok="Excluir">Excluir</button>
+                        data-sa-cancelar="{{ traduzir('Cancelar') }}"
+                        data-sa-ok="{{ traduzir('Excluir') }}">{{ traduzir('Excluir') }}</button>
               </form>
               {% endif %}
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="7" class="tabela-vazia">Nenhum usuário cadastrado ainda.</td></tr>
+          <tr><td colspan="7" class="tabela-vazia">{{ traduzir('Nenhum usuário cadastrado ainda.') }}</td></tr>
           {% endfor %}
         </tbody>
       </table>

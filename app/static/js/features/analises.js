@@ -47,7 +47,7 @@ function formatarMinutosDuracao(minutos) {
   return horas > 0 ? horas + "h" + String(resto).padStart(2, "0") + "min" : resto + " min";
 }
 
-const ROTULO_TENDENCIA_EXECUTIVO = { subindo: "Subindo", estavel: "Estável", descendo: "Descendo" };
+const ROTULO_TENDENCIA_EXECUTIVO = { subindo: window.t("Subindo"), estavel: window.t("Estável"), descendo: window.t("Descendo") };
 // Subir = pior (mais estresse termico), descer = melhor -- mesma logica de
 // cor do restante da interface (verde = conforto, vermelho = perigo).
 const CLASSE_TENDENCIA_EXECUTIVO = { subindo: "cor-perigo", estavel: "", descendo: "cor-conforto" };
@@ -58,7 +58,7 @@ function linhaTendenciaExecutivo(rotuloJanela, tendencia) {
   rotulo.textContent = rotuloJanela + ": ";
   linha.appendChild(rotulo);
   const valor = document.createElement("span");
-  valor.textContent = tendencia ? ROTULO_TENDENCIA_EXECUTIVO[tendencia] : "sem dados";
+  valor.textContent = tendencia ? ROTULO_TENDENCIA_EXECUTIVO[tendencia] : window.t("sem dados");
   if (tendencia && CLASSE_TENDENCIA_EXECUTIVO[tendencia]) {
     valor.className = CLASSE_TENDENCIA_EXECUTIVO[tendencia];
   }
@@ -71,7 +71,7 @@ function construirMetricaExecutivo(rotulo, montarValor) {
   caixa.className = "executivo-metrica";
   const rotuloEl = document.createElement("p");
   rotuloEl.className = "executivo-metrica-rotulo";
-  rotuloEl.textContent = rotulo;
+  rotuloEl.textContent = window.t(rotulo);
   caixa.appendChild(rotuloEl);
   const valorEl = document.createElement("p");
   valorEl.className = "executivo-metrica-valor";
@@ -86,11 +86,11 @@ function construirMetricaExecutivo(rotulo, montarValor) {
 // textContent), nunca via innerHTML com dado vindo do servidor.
 function descreverIdade(segundos) {
   const total = Number(segundos);
-  if (!Number.isFinite(total)) return "tempo indeterminado";
+  if (!Number.isFinite(total)) return window.t("tempo indeterminado");
   const dias = Math.floor(total / 86400);
-  if (dias >= 1) return dias + (dias === 1 ? " dia" : " dias");
+  if (dias >= 1) return window.t(dias === 1 ? "%(total)s dia" : "%(total)s dias", { total: dias });
   const horas = Math.floor(total / 3600);
-  if (horas >= 1) return horas + (horas === 1 ? " hora" : " horas");
+  if (horas >= 1) return window.t(horas === 1 ? "%(total)s hora" : "%(total)s horas", { total: horas });
   return Math.max(1, Math.floor(total / 60)) + " min";
 }
 
@@ -121,14 +121,14 @@ function construirCartaoExecutivoZona(zona) {
     // Mesmo critério do Dashboard: status de uma leitura antiga não é o
     // estado de agora, e "CONFORTO" ali enganava (leitura de agosto em outubro).
     badgeStatus.className = "faixa-status executivo-status-badge faixa-status--vazio";
-    badgeStatus.textContent = "DADO DESATUALIZADO";
-    badgeStatus.title = "Última leitura há " + descreverIdade(zona.idade_leitura_segundos) + ".";
+    badgeStatus.textContent = window.t("DADO DESATUALIZADO");
+    badgeStatus.title = window.t("Última leitura há %(idade)s.", { idade: descreverIdade(zona.idade_leitura_segundos) });
   } else if (zona.status_atual) {
     badgeStatus.className = "faixa-status executivo-status-badge faixa-" + classeStatus(zona.status_atual);
     badgeStatus.textContent = rotuloStatus(zona.status_atual).toUpperCase();
   } else {
     badgeStatus.className = "faixa-status executivo-status-badge faixa-status--vazio";
-    badgeStatus.textContent = "SEM LEITURA";
+    badgeStatus.textContent = window.t("SEM LEITURA");
   }
   tituloGrupo.appendChild(badgeStatus);
   cabecalho.appendChild(tituloGrupo);
@@ -159,7 +159,7 @@ function construirCartaoExecutivoZona(zona) {
     construirMetricaExecutivo("Conforto nas últimas 24h", (valorEl) => {
       valorEl.textContent =
         zona.percentual_conforto_24h === null
-          ? "Sem leituras no período"
+          ? window.t("Sem leituras no período")
           : window.regional.formatPlain(zona.percentual_conforto_24h) + "%";
     })
   );
@@ -173,10 +173,10 @@ function construirCartaoExecutivoZona(zona) {
   metricas.appendChild(
     construirMetricaExecutivo("Maior nível atingido hoje", (valorEl) => {
       if (!zona.nivel_maximo_dia) {
-        valorEl.textContent = "Sem leituras hoje";
+        valorEl.textContent = window.t("Sem leituras hoje");
         return;
       }
-      valorEl.textContent = zona.nivel_maximo_dia;
+      valorEl.textContent = rotuloStatus(zona.nivel_maximo_dia);
       valorEl.classList.add("cor-" + classeStatus(zona.nivel_maximo_dia));
     })
   );
@@ -184,9 +184,9 @@ function construirCartaoExecutivoZona(zona) {
   metricas.appendChild(
     construirMetricaExecutivo("Minutos em perigo / emergência hoje", (valorEl) => {
       const linhaPerigo = document.createElement("span");
-      linhaPerigo.textContent = "Perigo: " + formatarMinutosDuracao(zona.minutos_perigo_dia);
+      linhaPerigo.textContent = window.t("Perigo: %(duracao)s", { duracao: formatarMinutosDuracao(zona.minutos_perigo_dia) });
       const linhaEmergencia = document.createElement("span");
-      linhaEmergencia.textContent = "Emergência: " + formatarMinutosDuracao(zona.minutos_emergencia_dia);
+      linhaEmergencia.textContent = window.t("Emergência: %(duracao)s", { duracao: formatarMinutosDuracao(zona.minutos_emergencia_dia) });
       valorEl.append(linhaPerigo, document.createElement("br"), linhaEmergencia);
     })
   );
@@ -195,17 +195,16 @@ function construirCartaoExecutivoZona(zona) {
     construirMetricaExecutivo("Horário previsto do pico", (valorEl) => {
       const pico = zona.pico_previsto || {};
       if (!pico.horario) {
-        valorEl.textContent = "Dados insuficientes (mín. 2 dias anteriores)";
+        valorEl.textContent = window.t("Dados insuficientes (mín. 2 dias anteriores)");
         return;
       }
       valorEl.append(pico.horario);
       const nota = document.createElement("span");
       nota.className = "executivo-metrica-nota";
-      nota.textContent =
-        (pico.ja_ocorreu ? "já ocorreu hoje · " : "estimativa · ") +
-        "com base em " +
-        pico.dias_amostrados +
-        " dia(s) anteriores";
+      nota.textContent = window.t(
+        pico.ja_ocorreu ? "já ocorreu hoje · com base em %(dias)s dias anteriores" : "estimativa · com base em %(dias)s dias anteriores",
+        { dias: pico.dias_amostrados }
+      );
       valorEl.appendChild(nota);
     })
   );
@@ -213,9 +212,9 @@ function construirCartaoExecutivoZona(zona) {
   metricas.appendChild(
     construirMetricaExecutivo("Sensores indisponíveis", (valorEl) => {
       if (zona.sensores_indisponiveis === null) {
-        valorEl.textContent = "Sem leitura para verificar";
+        valorEl.textContent = window.t("Sem leitura para verificar");
       } else if (zona.sensores_indisponiveis.length === 0) {
-        valorEl.textContent = "Nenhum";
+        valorEl.textContent = window.t("Nenhum");
       } else {
         valorEl.textContent = zona.sensores_indisponiveis.join(", ");
         valorEl.classList.add("cor-perigo");
@@ -232,11 +231,9 @@ function construirCartaoExecutivoZona(zona) {
         nebulizadores_total: 0,
       };
       const linhaVentilador = document.createElement("span");
-      linhaVentilador.textContent =
-        "Ventiladores: " + equipamentos.ventiladores_ligados + " de " + equipamentos.ventiladores_total;
+      linhaVentilador.textContent = window.t("Ventiladores: %(ligados)s de %(total)s", { ligados: equipamentos.ventiladores_ligados, total: equipamentos.ventiladores_total });
       const linhaNebulizador = document.createElement("span");
-      linhaNebulizador.textContent =
-        "Nebulizadores: " + equipamentos.nebulizadores_ligados + " de " + equipamentos.nebulizadores_total;
+      linhaNebulizador.textContent = window.t("Nebulizadores: %(ligados)s de %(total)s", { ligados: equipamentos.nebulizadores_ligados, total: equipamentos.nebulizadores_total });
       valorEl.append(linhaVentilador, document.createElement("br"), linhaNebulizador);
     })
   );
@@ -245,7 +242,7 @@ function construirCartaoExecutivoZona(zona) {
 
   const recomendacao = document.createElement("p");
   recomendacao.className = "executivo-recomendacao";
-  recomendacao.textContent = zona.recomendacao || "";
+  recomendacao.textContent = window.traduzirRecomendacao(zona.recomendacao || "");
   cartao.appendChild(recomendacao);
 
   const rodape = document.createElement("div");
@@ -253,7 +250,7 @@ function construirCartaoExecutivoZona(zona) {
   const btnHistorico = document.createElement("button");
   btnHistorico.type = "button";
   btnHistorico.className = "botao botao--fantasma botao--compacto";
-  btnHistorico.textContent = "Ver histórico";
+  btnHistorico.textContent = window.t("Ver histórico");
   btnHistorico.addEventListener("click", () => abrirHistoricoComZona(zona.zona_id));
   rodape.appendChild(btnHistorico);
   cartao.appendChild(rodape);
@@ -283,7 +280,7 @@ function linhaAnaliseClicavel(zona) {
   const linha = document.createElement("tr");
   linha.tabIndex = 0;
   linha.setAttribute("role", "button");
-  linha.setAttribute("aria-label", "Ver histórico da zona " + zona.nome);
+  linha.setAttribute("aria-label", window.t("Ver histórico da zona %(nome)s", { nome: zona.nome }));
   const abrir = (evento) => {
     const colunaStatus = evento?.target?.closest?.("td[data-status]");
     const colunaValor = evento?.target?.closest?.("td[data-valor-referencia]");
@@ -323,7 +320,7 @@ function renderizarAnalisePercentuais(estatisticas) {
     STATUS_HISTORICO.forEach((status) => {
       const td = document.createElement("td");
       td.dataset.status = status;
-      td.title = "Ver histórico de " + zona.nome + " com status " + rotuloStatus(status);
+      td.title = window.t("Ver histórico de %(nome)s com status %(status)s", { nome: zona.nome, status: rotuloStatus(status) });
       if (zona.percentuais) {
         td.textContent = window.regional.formatFixed(zona.percentuais[status], 1) + "%";
         td.className = "status-" + classeStatus(status);
@@ -351,14 +348,10 @@ function renderizarAnaliseIndices(estatisticas) {
     if (valor === null) return;
     celula.dataset.valorReferencia = String(valor);
     celula.dataset.valorTipo = tipo;
-    const rotuloTipo = ROTULO_TIPO_VALOR_HISTORICO[tipo] || "Valor";
-    celula.title =
-      "Ver histórico de " +
-      zona.nome +
-      " próximo do índice " +
-      rotuloTipo.toLowerCase() +
-      " " +
-      formatarIndice(valor);
+    const rotuloTipo = ROTULO_TIPO_VALOR_HISTORICO[tipo] || window.t("Valor");
+    celula.title = window.t("Ver histórico de %(nome)s próximo do índice %(tipo)s %(valor)s", {
+      nome: zona.nome, tipo: rotuloTipo.toLowerCase(), valor: formatarIndice(valor),
+    });
   };
 
   estatisticas.forEach((zona) => {

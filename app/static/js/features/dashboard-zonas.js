@@ -92,7 +92,7 @@ export function criarDashboardZonas({
   function definirMensagemOrientacao(mensagem, aviso, container) {
     if (!container) return;
     container.textContent = "";
-    container.appendChild(document.createTextNode(mensagem));
+    container.appendChild(document.createTextNode(window.traduzirRecomendacao(mensagem)));
 
     if (aviso) {
       container.appendChild(document.createElement("br"));
@@ -117,13 +117,13 @@ export function criarDashboardZonas({
     const faixa = elementoLinhaZonaPrincipal(zona.id, "faixa-status");
     const faixaTexto = elementoLinhaZonaPrincipal(zona.id, "faixa-status-texto");
     if (faixa) faixa.className = "faixa-status faixa-status--vazio";
-    if (faixaTexto) faixaTexto.textContent = zona.ativa ? "AGUARDANDO CALCULO" : "ZONA INATIVA";
+    if (faixaTexto) faixaTexto.textContent = zona.ativa ? window.t("AGUARDANDO CALCULO") : window.t("ZONA INATIVA");
 
     const mensagem = elementoLinhaZonaPrincipal(zona.id, "mensagem-orientacao");
     if (mensagem) {
       mensagem.textContent = zona.ativa
-        ? "Aguardando leitura desta zona."
-        : "Zona inativa. O historico permanece disponivel, mas ela nao entra no monitoramento automatico.";
+        ? window.t("Aguardando leitura desta zona.")
+        : window.t("Zona inativa. O historico permanece disponivel, mas ela nao entra no monitoramento automatico.");
     }
 
     atualizarEquipamento(null, null, zona);
@@ -143,9 +143,9 @@ export function criarDashboardZonas({
     const faixa = elementoLinhaZonaPrincipal(zona.id, "faixa-status");
     const faixaTexto = elementoLinhaZonaPrincipal(zona.id, "faixa-status-texto");
     if (faixa) faixa.className = "faixa-status faixa-status--vazio";
-    if (faixaTexto) faixaTexto.textContent = "SEM LEITURA";
+    if (faixaTexto) faixaTexto.textContent = window.t("SEM LEITURA");
     const mensagem = elementoLinhaZonaPrincipal(zona.id, "mensagem-orientacao");
-    if (mensagem) mensagem.textContent = mensagemErro || "Não foi possível calcular esta zona.";
+    if (mensagem) mensagem.textContent = window.t(mensagemErro || "Não foi possível calcular esta zona.");
     atualizarEquipamento(null, null, zona);
   }
 
@@ -173,13 +173,13 @@ export function criarDashboardZonas({
       ? "faixa-status faixa-status--vazio"
       : "faixa-status faixa-" + classe;
     if (faixaTexto) faixaTexto.textContent = desatualizada
-      ? "DADO DESATUALIZADO"
+      ? window.t("DADO DESATUALIZADO")
       : rotuloStatus(ultima.status).toUpperCase();
 
     const mensagem = elementoLinhaZonaPrincipal(zona.id, "mensagem-orientacao");
     if (mensagem) mensagem.textContent = desatualizada
-      ? "Última leitura em " + formatarDataHoraCurta(ultima.criado_em) + ". O status térmico não é atual."
-      : "Última leitura registrada às " + formatarHora(ultima.criado_em) + ".";
+      ? window.t("Última leitura em %(data)s. O status térmico não é atual.", { data: formatarDataHoraCurta(ultima.criado_em) })
+      : window.t("Última leitura registrada às %(hora)s.", { hora: formatarHora(ultima.criado_em) });
     if (desatualizada) {
       atualizarEquipamento(null, null, zona);
     } else {
@@ -247,11 +247,9 @@ export function criarDashboardZonas({
       }
     } catch (erro) {
       console.error("Erro ao desenhar os graficos:", erro);
-      mostrarErro(
-        "O valor foi calculado normalmente (" + window.regional.formatFixed(selecionado.valor, 2) +
-        ", " + rotuloStatus(selecionado.status) + "), mas os gráficos não puderam ser desenhados. " +
-        "Detalhes no console do navegador (F12 → Console)."
-      );
+      mostrarErro(window.t("O valor foi calculado normalmente (%(valor)s, %(status)s), mas os gráficos não puderam ser desenhados. Detalhes no console do navegador (F12 → Console).", {
+        valor: window.regional.formatFixed(selecionado.valor, 2), status: rotuloStatus(selecionado.status),
+      }));
     }
 
     obterHistorico().carregar({ manterJanelaFinal: true });
@@ -308,12 +306,13 @@ export function criarDashboardZonas({
       container.appendChild(badge);
     }
 
-    const estadoTexto = ligado
+    const valores = { equipamento: window.t(nomeEquipamento), ativos: quantidadeAtiva, total, intensidade: rotuloIntensidade(intensidade) };
+    const texto = ligado
       ? intensidade
-        ? `ligado (intensidade ${rotuloIntensidade(intensidade)}, ${quantidadeAtiva} de ${total} ativos)`
-        : `ligado (${quantidadeAtiva} de ${total} ativos)`
-      : `desligado, 0 de ${total} ativos`;
-    container.setAttribute("aria-label", `${nomeEquipamento} ${estadoTexto}`);
+        ? "%(equipamento)s ligado (intensidade %(intensidade)s, %(ativos)s de %(total)s ativos)"
+        : "%(equipamento)s ligado (%(ativos)s de %(total)s ativos)"
+      : "%(equipamento)s desligado, 0 de %(total)s ativos";
+    container.setAttribute("aria-label", window.t(texto, valores));
   }
 
   function atualizarEquipamento(equip, status, zona = zonaPrincipalSelecionada()) {
@@ -346,7 +345,7 @@ export function criarDashboardZonas({
 
     const intensidadeValor = elementoLinhaZonaPrincipal(zona?.id, "intensidade-valor");
     if (intensidadeValor) {
-      intensidadeValor.textContent = intensidade ? rotuloIntensidade(intensidade) : "desligado";
+      intensidadeValor.textContent = intensidade ? rotuloIntensidade(intensidade) : window.t("desligado");
     }
   }
 
@@ -378,9 +377,8 @@ export function criarDashboardZonas({
     }
     secao.classList.remove("oculto");
     const status = emailInfo.enviado_de_verdade
-      ? "E-mail enviado de verdade para " + emailInfo.destino + " (SMTP configurado)."
-      : "Modo simulado — nenhum servidor SMTP configurado (variável SMTP_HOST ausente). Pré-visualização do aviso que seria enviado a " +
-        emailInfo.destino + ":";
+      ? window.t("E-mail enviado de verdade para %(destino)s (SMTP configurado).", { destino: emailInfo.destino })
+      : window.t("Modo simulado — nenhum servidor SMTP configurado (variável SMTP_HOST ausente). Pré-visualização do aviso que seria enviado a %(destino)s:", { destino: emailInfo.destino });
     document.getElementById("email-status").textContent = status;
     document.getElementById("email-conteudo").textContent = emailInfo.conteudo;
   }
@@ -570,7 +568,7 @@ export function criarDashboardZonas({
     faixa.dataset.role = "faixa-status";
     const faixaTexto = document.createElement("span");
     faixaTexto.dataset.role = "faixa-status-texto";
-    faixaTexto.textContent = zona.ativa ? "AGUARDANDO CALCULO" : "ZONA INATIVA";
+    faixaTexto.textContent = zona.ativa ? window.t("AGUARDANDO CALCULO") : window.t("ZONA INATIVA");
     faixa.appendChild(faixaTexto);
     leitura.appendChild(faixa);
 
@@ -578,8 +576,8 @@ export function criarDashboardZonas({
     mensagem.className = "mensagem-orientacao";
     mensagem.dataset.role = "mensagem-orientacao";
     mensagem.textContent = zona.ativa
-      ? "Aguardando leitura desta zona."
-      : "Zona inativa. O historico permanece disponivel, mas ela nao entra no monitoramento automatico.";
+      ? window.t("Aguardando leitura desta zona.")
+      : window.t("Zona inativa. O historico permanece disponivel, mas ela nao entra no monitoramento automatico.");
     leitura.appendChild(mensagem);
     linha.appendChild(leitura);
 
@@ -608,16 +606,16 @@ export function criarDashboardZonas({
     equipamentos.className = "painel equipamentos-painel";
     const tituloEquipamentos = document.createElement("h2");
     tituloEquipamentos.className = "painel-titulo";
-    tituloEquipamentos.textContent = "Equipamentos remotos";
+    tituloEquipamentos.textContent = window.t("Equipamentos remotos");
     equipamentos.appendChild(tituloEquipamentos);
     const intensidade = document.createElement("div");
     intensidade.className = "intensidade-info";
     const intensidadeEtiqueta = document.createElement("span");
     intensidadeEtiqueta.className = "intensidade-etiqueta";
-    intensidadeEtiqueta.textContent = "Intensidade";
+    intensidadeEtiqueta.textContent = window.t("Intensidade");
     const intensidadeValor = document.createElement("span");
     intensidadeValor.dataset.role = "intensidade-valor";
-    intensidadeValor.textContent = "desligado";
+    intensidadeValor.textContent = window.t("desligado");
     intensidade.append(intensidadeEtiqueta, intensidadeValor);
     equipamentos.appendChild(intensidade);
 
@@ -632,12 +630,12 @@ export function criarDashboardZonas({
       grupo.className = "lampada-grupo";
       const legenda = document.createElement("span");
       legenda.className = "lampada-legenda";
-      legenda.textContent = rotulo;
+      legenda.textContent = window.t(rotulo);
       const icones = document.createElement("div");
       icones.className = "icones-equipamento";
       icones.dataset.role = papel;
       icones.setAttribute("role", "img");
-      icones.setAttribute("aria-label", rotulo + " desligado");
+      icones.setAttribute("aria-label", window.t("%(equipamento)s desligado", { equipamento: window.t(rotulo) }));
       grupo.append(legenda, icones);
       gradeEquipamentos.appendChild(grupo);
     });
@@ -748,7 +746,7 @@ export function criarDashboardZonas({
       await obterOperacao().carregar();
     } catch (erro) {
       console.error("Não foi possível carregar as zonas:", erro);
-      mostrarErro("Não foi possível carregar as zonas monitoradas. Consulte o console do navegador para detalhes.");
+      mostrarErro(window.t("Não foi possível carregar as zonas monitoradas. Consulte o console do navegador para detalhes."));
     }
   }
   function redimensionarGraficos() {
