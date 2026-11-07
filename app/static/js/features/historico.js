@@ -550,6 +550,19 @@ export function criarHistorico({
   }
 
   function atualizarFiltroHistorico() {
+    const inicio = lerLimitePeriodoHistorico("de");
+    const fim = lerLimitePeriodoHistorico("ate");
+    if (inicio.erro || fim.erro) {
+      definirStatusPeriodoHistorico(inicio.erro || fim.erro);
+      return;
+    }
+    if (inicio.data && fim.data && inicio.data > fim.data) {
+      definirStatusPeriodoHistorico(window.t(
+        "A data inicial não pode ser posterior à data final. Os filtros atuais não foram aplicados; os resultados exibidos são da última consulta válida."
+      ));
+      return;
+    }
+
     filtroHistoricoIndice = "";
     filtroHistoricoStatus = document.getElementById("filtro-historico-status")?.value || "";
     filtroHistoricoZona = document.getElementById("filtro-historico-zona")?.value || "";
@@ -558,17 +571,6 @@ export function criarHistorico({
     if (!Number.isFinite(filtroHistoricoValorReferencia)) filtroHistoricoValorReferencia = null;
     if (filtroHistoricoValorReferencia === null) filtroHistoricoValorTipo = "";
     filtroHistoricoValoresEncontrados = [];
-    const inicio = lerLimitePeriodoHistorico("de");
-    const fim = lerLimitePeriodoHistorico("ate");
-    if (inicio.erro || fim.erro) {
-      definirStatusPeriodoHistorico(inicio.erro || fim.erro);
-      return;
-    }
-    if (inicio.data && fim.data && inicio.data > fim.data) {
-      definirStatusPeriodoHistorico(window.t("A data inicial não pode ser posterior à data final."));
-      return;
-    }
-
     filtroHistoricoDataInicio = inicio.data;
     filtroHistoricoDataFim = fim.data;
     definirStatusPeriodoHistorico("");
@@ -812,6 +814,9 @@ export function criarHistorico({
       const statusPeriodo = document.createElement("p");
       statusPeriodo.id = "historico-filtro-periodo-status";
       statusPeriodo.className = "historico-periodo-status mensagem-erro oculto";
+      statusPeriodo.setAttribute("role", "status");
+      statusPeriodo.setAttribute("aria-live", "polite");
+      statusPeriodo.setAttribute("aria-atomic", "true");
       filtros.appendChild(statusPeriodo);
     }
 

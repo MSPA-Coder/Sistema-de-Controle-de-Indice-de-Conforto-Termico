@@ -122,7 +122,14 @@ def main():
         zones[1]["id"], "frangos", "ITU", 70, "Conforto", {"tbs": 25, "tbu": 20}
     )
     with db.conexao() as conn:
-        conn.execute("UPDATE leituras_recentes_zona SET criado_em='2025-01-01T12:00:00+00:00'")
+        conn.execute(
+            "UPDATE leituras SET criado_em=timestamp_utc WHERE zona_id=?",
+            (zones[1]["id"],),
+        )
+        conn.execute(
+            "UPDATE leituras_recentes_zona SET criado_em='2025-01-01T12:00:00+00:00' WHERE zona_id=?",
+            (zones[1]["id"],),
+        )
     provider = ThreadingHTTPServer(("127.0.0.1", 5110), WeatherProvider)
     Thread(target=provider.serve_forever, daemon=True).start()
     gerador_dados.URL_OPEN_METEO = "http://127.0.0.1:5110/archive"

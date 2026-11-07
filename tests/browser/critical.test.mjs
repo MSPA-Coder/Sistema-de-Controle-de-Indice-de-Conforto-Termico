@@ -177,6 +177,114 @@ test('4xx preservado, 502 visível e zona sem ACL recusada pelo servidor', async
     assert.ok(response.body.erro);
   });
 });
+test('filtros inválidos preservam a última consulta e resposta antiga não sobrescreve a nova', async () => {
+  await logged('br', async page => {
+    await page.getByRole('tab', {name: 'Histórico', exact: true}).click();
+    const historicoUrl = response => {
+      if (!response.url().includes('/api/historico-leituras?')) return null;
+      return new URL(response.url()).searchParams;
+    };
+    const zone = page.locator('#filtro-historico-zona');
+    const zoneResponse = page.waitForResponse(response => {
+      const params = historicoUrl(response);
+      return params?.get('zona_id') === '2' && !params.has('data_inicio') && !params.has('data_fim');
+    });
+    await zone.selectOption({label: 'Zona sintética 2'});
+    assert.equal((await zoneResponse).status(), 200);
+
+    const inicio = page.locator('#filtro-historico-de-regional');
+    const fim = page.locator('#filtro-historico-ate-regional');
+    await inicio.waitFor({state: 'visible'});
+    await fim.waitFor({state: 'visible'});
+    const linhas = page.locator('#tabela-historico tbody tr');
+    const fimValido = page.waitForResponse(response => {
+      const params = historicoUrl(response);
+      return params?.get('zona_id') === '2' && params?.get('data_fim') === '2025-01-01' && !params.has('data_inicio');
+    });
+    await fim.fill('01/01/2025');
+    assert.equal(await fim.inputValue(), '01/01/2025');
+    assert.equal(await page.locator('#filtro-historico-ate').inputValue(), '2025-01-01');
+    await fim.blur();
+    assert.equal((await fimValido).status(), 200);
+    await page.waitForFunction(() => document.querySelectorAll('#tabela-historico tbody tr').length === 1);
+    assert.match(await linhas.first().innerText(), /70,00/);
+
+    let historicoRequests = 0;
+    page.on('request', request => {
+      if (request.url().includes('/api/historico-leituras?')) historicoRequests += 1;
+    });
+    const antesInvalido = historicoRequests;
+    await inicio.fill('02/01/2025');
+    assert.equal(await inicio.inputValue(), '02/01/2025');
+    assert.equal(await page.locator('#filtro-historico-de').inputValue(), '2025-01-02');
+    await inicio.blur();
+    const aviso = page.locator('#historico-filtro-periodo-status');
+    await aviso.getByText('A data inicial não pode ser posterior à data final. Os filtros atuais não foram aplicados; os resultados exibidos são da última consulta válida.', {exact: true}).waitFor();
+    assert.equal(historicoRequests, antesInvalido);
+    assert.equal(await linhas.count(), 1);
+    assert.match(await linhas.first().innerText(), /70,00/);
+
+    const consultaVazia = page.waitForResponse(response => {
+      const params = historicoUrl(response);
+      return params?.get('zona_id') === '2' && params?.get('data_inicio') === '2025-01-02' && !params.has('data_fim');
+    });
+    await fim.fill('');
+    assert.equal(await page.locator('#filtro-historico-ate').inputValue(), '');
+    await fim.blur();
+    const respostaVazia = await consultaVazia;
+    assert.equal(respostaVazia.status(), 200);
+    assert.equal((await respostaVazia.json()).total, 0);
+    await page.waitForFunction(() => document.querySelectorAll('#tabela-historico tbody tr').length === 0);
+
+    let liberarAntiga;
+    let iniciouAntiga;
+    const antigaIniciou = new Promise(resolve => { iniciouAntiga = resolve; });
+    const aguardarLiberacao = new Promise(resolve => { liberarAntiga = resolve; });
+    const padraoHistorico = '**/api/historico-leituras?*';
+    await page.route(padraoHistorico, async route => {
+      const params = new URL(route.request().url()).searchParams;
+      if (params.get('data_inicio') === '2025-01-02' && params.get('data_fim') === '2025-01-03') {
+        iniciouAntiga();
+        await aguardarLiberacao;
+      }
+      await route.continue();
+    });
+    const respostaAntiga = page.waitForResponse(response => {
+      const params = historicoUrl(response);
+      return params?.get('data_inicio') === '2025-01-02' && params?.get('data_fim') === '2025-01-03';
+    });
+    try {
+      await fim.fill('03/01/2025');
+      assert.equal(await page.locator('#filtro-historico-ate').inputValue(), '2025-01-03');
+      await fim.blur();
+      await antigaIniciou;
+
+      const respostaNova = page.waitForResponse(response => {
+        const params = historicoUrl(response);
+        return params?.get('data_fim') === '2025-01-03' && !params.has('data_inicio');
+      });
+      await inicio.fill('');
+      assert.equal(await page.locator('#filtro-historico-de').inputValue(), '');
+      await inicio.blur();
+      const respostaNovaRecebida = await respostaNova;
+      assert.equal(respostaNovaRecebida.status(), 200);
+      assert.equal((await respostaNovaRecebida.json()).total, 1);
+      await page.waitForFunction(() => document.querySelectorAll('#tabela-historico tbody tr').length === 1);
+      assert.match(await linhas.first().innerText(), /70,00/);
+
+      liberarAntiga();
+      const respostaAntigaRecebida = await respostaAntiga;
+      assert.equal(respostaAntigaRecebida.status(), 200);
+      assert.equal((await respostaAntigaRecebida.json()).total, 0);
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      assert.equal(await linhas.count(), 1);
+      assert.match(await linhas.first().innerText(), /70,00/);
+    } finally {
+      liberarAntiga();
+      await page.unroute(padraoHistorico);
+    }
+  });
+});
 test('série pequena publica só ao concluir; staging não exporta nem copia', {timeout: 60000}, async () => {
   await logged('br', async page => {
     await page.getByRole('tab', {name: 'Dados de entrada', exact: true}).click();

@@ -396,6 +396,7 @@
   "Média": "Average",
   "Próximo de ": "Near ",
   "A data inicial não pode ser posterior à data final.": "The start date cannot be after the end date.",
+  "A data inicial não pode ser posterior à data final. Os filtros atuais não foram aplicados; os resultados exibidos são da última consulta válida.": "The start date cannot be after the end date. The current filters were not applied; the results shown are from the last valid query.",
   "Nenhuma leitura encontrada para os filtros selecionados.": "No readings found for the selected filters.",
   "Nenhuma leitura registrada ainda no banco para os filtros selecionados.": "No readings have been recorded in the database for the selected filters yet.",
   "Leituras %(inicio)s-%(fim)s de %(total)s": "Readings %(inicio)s–%(fim)s of %(total)s",
