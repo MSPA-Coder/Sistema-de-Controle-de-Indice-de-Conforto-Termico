@@ -90,6 +90,10 @@
     {% endif %}
   </nav>
 
+  {% if request.args.get("acesso") == "negado" %}
+  <p class="mensagem-erro" role="alert">{{ traduzir("Seu perfil não tem acesso à página solicitada.") }}</p>
+  {% endif %}
+
   <main id="aba-principal" class="grade aba-conteudo{{ '' if aba_inicial == 'principal' else ' oculto' }}" data-aba-conteudo="principal">
 
     <!-- Valores de entrada ------------------------------------------------->
@@ -429,11 +433,6 @@
   <!-- tecnica (sensores, banco, SMTP, parametros de calculo) mudou para a -->
   <!-- aba Sistema logo abaixo -- ver README.md. -->
   <section id="aba-configuracoes" class="grade grade-configuracoes-enxuta aba-conteudo{{ '' if aba_inicial == 'configuracoes' else ' oculto' }}" data-aba-conteudo="configuracoes" role="tabpanel">
-    <section class="painel configuracoes-painel configuracoes-painel--app">
-      <h2 class="painel-titulo">{{ traduzir("Preferências do app") }}</h2>
-      <div id="configuracoes-app" class="configuracoes-bloco"></div>
-    </section>
-
     <!-- E-mail: liga/desliga, destinatario e a partir de qual status -->
     <!-- avisar -- decisao de manejo/alerta, nao de infraestrutura. As -->
     <!-- credenciais do servidor SMTP em si (host/porta/usuario/senha) -->

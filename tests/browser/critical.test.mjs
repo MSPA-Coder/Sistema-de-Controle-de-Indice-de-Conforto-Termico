@@ -324,3 +324,31 @@ test('série pequena publica só ao concluir; staging não exporta nem copia', {
     } finally { await api(page, '/api/__browser__/weather-release', 'POST', {}); }
   });
 });
+test('recusa de página avisa quem foi redirecionado', async () => {
+  await logged('denied', async page => {
+    await page.goto(base + '/usuarios/');
+    await page.waitForURL(url => url.pathname === '/');
+    await page.locator('p[role=alert]').filter({hasText: 'não tem acesso'}).waitFor();
+  });
+});
+test('teste de conexão em modo simulado não se passa por teste real', async () => {
+  await logged('br', async page => {
+    const criado = await api(page, '/api/zonas/1/equipamentos', 'POST', {
+      nome: 'Sensor simulado', tipo: 'sensor', campo_medido: 'tbs', modo_conexao: 'tcp', host: 'sensor.invalid',
+      tipo_registrador: 'holding', endereco_registrador: 1,
+    });
+    assert.equal(criado.status, 201, JSON.stringify(criado.body));
+    try {
+      const resposta = await api(page, `/api/zonas/1/equipamentos/${criado.body.id}/testar-conexao`, 'POST', {});
+      assert.equal(resposta.body.modo_simulado, true);
+      await page.reload();
+      await page.locator('[data-aba=zonas]').click();
+      const item = page.locator('.zona-equip-item').filter({hasText: 'Sensor simulado'});
+      await item.getByRole('button', {name: 'Editar', exact: true}).click();
+      await page.locator('#btn-testar-conexao-equipamento').click();
+      await page.locator('#equipamento-teste-resultado').filter({hasText: 'nenhum equipamento foi contatado'}).waitFor();
+    } finally {
+      await api(page, `/api/zonas/1/equipamentos/${criado.body.id}`, 'DELETE');
+    }
+  });
+});

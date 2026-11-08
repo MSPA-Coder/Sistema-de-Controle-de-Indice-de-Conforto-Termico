@@ -626,9 +626,15 @@ export function criarCadastroZonas({
         { method: "POST" }
       );
       const dados = await resposta.json();
-      resultado.textContent = dados.conectado
-        ? window.t("Conexão bem-sucedida.")
-        : window.t(dados.aviso || "Não foi possível conectar a este equipamento.");
+      if (dados.modo_simulado) {
+        // A simulacao sempre "conecta": nenhum equipamento foi contatado, e a
+        // tela nao pode deixar isso passar por teste real.
+        resultado.textContent = window.t("Modo simulado: nenhum equipamento foi contatado. Este resultado não testa a conexão real.");
+      } else {
+        resultado.textContent = dados.conectado
+          ? window.t("Conexão bem-sucedida.")
+          : window.t(dados.aviso || "Não foi possível conectar a este equipamento.");
+      }
       if (dados.aviso) {
         const banner = document.getElementById("zonas-aviso-pymodbus");
         banner.textContent = window.t(dados.aviso);

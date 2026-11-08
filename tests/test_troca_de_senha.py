@@ -199,7 +199,7 @@ def test_redefinir_exige_a_area_usuarios(app, entrar):
     resposta = cliente.post("/usuarios/2/redefinir-senha", follow_redirects=False)
 
     assert resposta.status_code == 302
-    assert resposta.headers["Location"] == "/"
+    assert resposta.headers["Location"] == "/?acesso=negado"
 
 
 # --- troca feita pelo dono ------------------------------------------------

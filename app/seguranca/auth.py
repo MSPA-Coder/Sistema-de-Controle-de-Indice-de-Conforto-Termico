@@ -464,7 +464,7 @@ def usuario_atual() -> dict | None:
 def _negar_acesso() -> ResponseReturnValue:
     if request.path.startswith("/api/"):
         return jsonify({"erro": "Seu perfil não tem acesso a esta função."}), 403
-    return redirect(url_for("comum.index"))
+    return redirect(url_for("comum.index", acesso="negado"))
 
 
 def registrar_carregamento_usuario(app: Flask) -> None:

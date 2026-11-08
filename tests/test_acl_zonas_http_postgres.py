@@ -53,7 +53,7 @@ def test_concessao_idempotente_e_revogacao_valem_sem_novo_login(operador):
     assert cliente.post(comando, json=dados, headers=operador_headers).status_code == 403
     # A administração fica fora de /api: recusa HTML redireciona à página inicial.
     resposta = cliente.post(acl, json={}, headers=operador_headers)
-    assert resposta.status_code == 302 and resposta.location == "/"
+    assert resposta.status_code == 302 and resposta.location == "/?acesso=negado"
     assert not db.usuario_tem_acesso_zona(uid, zid)
     assert len(db.obter_leituras_recentes_zona(zid)) == 1
 

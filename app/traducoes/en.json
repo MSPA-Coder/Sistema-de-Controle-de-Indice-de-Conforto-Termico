@@ -510,6 +510,8 @@
   "Salve o equipamento primeiro para poder testar a conexão.": "Save the equipment before testing the connection.",
   "Testando conexão...": "Testing connection...",
   "Conexão bem-sucedida.": "Connection successful.",
+  "Modo simulado: nenhum equipamento foi contatado. Este resultado não testa a conexão real.": "Simulated mode: no equipment was contacted. This result does not test the real connection.",
+  "Seu perfil não tem acesso à página solicitada.": "Your profile does not have access to the requested page.",
   "Não foi possível conectar a este equipamento.": "Unable to connect to this equipment.",
   "Falha de comunicação com o servidor.": "Communication with the server failed.",
   "Não foi possível salvar a zona.": "Unable to save the zone.",
