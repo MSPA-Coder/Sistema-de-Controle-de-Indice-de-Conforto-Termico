@@ -26,6 +26,7 @@ from flask_limiter import Limiter
 from sharedauth.access import requer_login, requer_troca_de_senha
 from sharedauth.config import ler_flag
 from sharedauth.csrf import iniciar_csrf
+from sharedauth.estaticos import instalar_versao_de_estaticos
 from sharedauth.health import registrar_health
 from sharedauth.ratelimit import (
     LIMITE_LOGIN_PADRAO,
@@ -399,6 +400,10 @@ def criar_app_ict(config: AppConfig | None = None) -> Flask:
     # com ETag/304 (ver docstring de `sharedauth.ui`). Só o ICT registra: é a
     # única interface com navegador -- o coletor não serve HTML nenhum.
     registrar_ui(app)
+    # `url_for` de estático ganha o hash do conteúdo, e o navegador guarda o
+    # arquivo por um ano. Os módulos que `app.js` importa por caminho relativo
+    # ficam sem versão e continuam revalidando: nunca servem conteúdo antigo.
+    instalar_versao_de_estaticos(app)
 
     def _conferir_banco() -> None:
         """Sonda de persistência do ICT, com o erro registrado antes de subir.

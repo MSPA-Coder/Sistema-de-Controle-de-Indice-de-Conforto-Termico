@@ -40,7 +40,7 @@ dependencies = [
   # O extra `[flask]` e obrigatorio a partir da v0.2.0: o nucleo do pacote
   # deixou de depender de Flask (para o ControleBancario, que e Django, poder
   # instalar so a parte de Python puro) e sem o extra o Flask nao vem junto.
-  "sharedauth[flask] @ git+https://github.com/MSPA-Coder/SharedAuth.git@5f6320b013a6a8be213f49a276b5ec8b7f2656a1",
+  "sharedauth[flask] @ git+https://github.com/MSPA-Coder/SharedAuth.git@551eeeec6a5495300243ef7ad8a35e4f7c08ddbd",
   # CSRF do sharedauth usa Flask-WTF -- substitui a protecao propria em HMAC
   # que este projeto escrevia a mao.
   "Flask-WTF>=1.2.2,<2",
