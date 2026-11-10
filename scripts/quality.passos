@@ -1,1 +1,2 @@
---env-file .env.docker --profile quality run --build --rm quality
+prefixo: --env-file .env.docker --profile quality
+run --build --rm quality

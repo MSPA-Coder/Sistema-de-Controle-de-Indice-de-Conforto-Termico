@@ -1,5 +1,7 @@
 # Chave de sessão
 
+Estado: vigente.
+
 Este caminho é mantido porque mensagens de configuração da aplicação apontam
 para ele. O contrato atual é simples: fora de desenvolvimento e testes, o ICT
 exige uma chave de sessão explícita em `CONFORTO_SECRET_KEY_FILE` ou

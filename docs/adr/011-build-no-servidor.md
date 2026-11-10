@@ -1,5 +1,7 @@
 # Build no servidor a partir do `main`
 
+Estado: vigente.
+
 Decisão: 20/10/2026. Substitui o ADR 010.
 
 A entrega por imagem validada na CI (ADR 010) fazia o deploy depender do

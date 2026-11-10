@@ -1,5 +1,7 @@
 # IGNU segue Buffington et al. (1981), e não a Eq. 6 da dissertação
 
+Estado: vigente.
+
 Decidido pelo mantenedor em 15/09/2026, a partir do laudo dos oito
 repositórios (item 2.1 do plano de ação daquele dia).
 

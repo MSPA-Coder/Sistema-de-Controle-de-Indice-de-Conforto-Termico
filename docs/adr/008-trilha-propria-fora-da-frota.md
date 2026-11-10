@@ -1,5 +1,7 @@
 # Trilha própria: arquitetura livre, contrato operacional preservado
 
+Estado: vigente.
+
 Decidido em 07/09/2026, durante o levantamento em profundidade dos oito
 repositórios (`_manutencao/docs/historico/LEVANTAMENTO_2026-09.md`, achado L13). Registrado
 aqui em 08/09/2026.
