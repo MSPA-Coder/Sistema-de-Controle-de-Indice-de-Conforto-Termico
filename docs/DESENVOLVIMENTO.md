@@ -94,8 +94,13 @@ docker compose --env-file .env.docker logs -f ict coletor
 ## Qualidade
 
 ```powershell
-docker compose --env-file .env.docker --profile quality run --build --rm quality
+.\scripts\quality.ps1
 ```
+
+O script roda
+`docker compose --env-file .env.docker --profile quality run --build --rm quality`,
+uma execução por vez. O que validar em cada tipo de mudança está na seção "Validação" do
+[`AGENTS.md`](../AGENTS.md).
 
 **`--build` não é opcional.** O serviço `quality` não monta o código do
 host: o que ele executa é o que foi copiado para a imagem. `docker compose
@@ -159,21 +164,6 @@ Também não há `rpcbind`, `portmap`, NFS ou serviço equivalente no `compose.y
 Ruído desse tipo pertence ao host/VPS, não a esta composição. Não adicionar,
 remover ou desabilitar pacotes/serviços sem inventário do ambiente e checagem de
 dependências; a decisão atual é não modificar a aplicação.
-
-## Validação proporcional
-
-- documentação: `git diff --check`, links locais e busca por afirmações
-  obsoletas;
-- autenticação, autorização, sessão, CSRF e contratos cobertos: `quality` e
-  exercício manual do fluxo afetado;
-- persistência, dependências ou contêineres: `quality`, rebuild da pilha e
-  `scripts.verificar_postgres`;
-- schema: nova revisão Alembic, `upgrade` e `downgrade` coerentes, bootstrap em
-  PostgreSQL vazio e backup conferido antes de tocar dados existentes;
-- integração externa: teste controlado de falha, timeout e indisponibilidade.
-
-Registre verificações não executadas e o motivo. O projeto valida software; não
-descreva testes automatizados como validação experimental dos índices.
 
 ## Integridade e recuperação de dados
 

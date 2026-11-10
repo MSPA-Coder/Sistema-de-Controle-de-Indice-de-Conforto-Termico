@@ -2,6 +2,9 @@
 
 Decisão: 18/10/2026.
 
+**Substituído em 20/10/2026** pelo ADR 011 (build no servidor a partir do
+`main`). Fica como registro da alternativa.
+
 O rebuild no servidor resolvia novamente base/sistema e não reproduzia a imagem
 exercitada pela CI. Locks de dependências não tornam dois builds idênticos.
 
