@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -573,9 +574,20 @@ def criar_app_coletor(config: AppConfig | None = None) -> Flask:
     return app
 
 
+def _sair_ao_receber_sigterm(_signum: int, _frame: object) -> None:
+    raise SystemExit(0)
+
+
 def _servir(app: Flask, config: AppConfig) -> None:
     _validar_debug(config)
     from waitress import serve
+
+    # `docker stop` e o deploy mandam SIGTERM. Sem manipulador o Python morre na
+    # hora e o `finally` de `executar_coletor` (parar a malha, descarregar a
+    # fila de notificacoes) nunca roda; o `stop_grace_period` do Compose nao
+    # servia de nada. Convertido em `SystemExit`, o waitress sai do laco e a
+    # limpeza roda. Precisa ser a thread principal, que e onde o servidor roda.
+    signal.signal(signal.SIGTERM, _sair_ao_receber_sigterm)
 
     # O `ProxyFix` em `criar_app_ict` NÃO basta aqui, e a razão é o servidor.
     #
