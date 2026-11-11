@@ -12,6 +12,7 @@ import re
 
 import pytest
 from sharedauth.session import marca_de_sessao
+from werkzeug.security import generate_password_hash
 
 from app import models
 from app.dados_entrada import gerador_dados
@@ -245,19 +246,56 @@ def test_ator_da_auditoria_e_o_usuario_autenticado(app):
 # ---------------------------------------------------------------------------
 
 
-def test_login_inexistente_tambem_gasta_o_hash(client, monkeypatch):
+@pytest.mark.parametrize(
+    "usuario",
+    [
+        None,
+        {"id": 9, "ativo": False, "senha_hash": generate_password_hash("Senha-certa-123")},
+        {"id": 9, "ativo": True, "senha_hash": generate_password_hash("Senha-certa-123")},
+    ],
+    ids=["inexistente", "inativa", "ativa_senha_errada"],
+)
+def test_login_recusado_gasta_o_hash_em_todos_os_caminhos(client, monkeypatch, usuario):
+    """O tempo nao pode revelar quais logins existem nem quais estao inativos.
+
+    Conta inexistente respondia em ~13 ms, a existente em ~85 ms; a inativa
+    saia sem hash. Hoje o `sharedauth` confere o hash nos tres caminhos.
+    """
+    import werkzeug.security as seguranca_werkzeug
+
+    original = seguranca_werkzeug.check_password_hash
     chamadas = []
-    monkeypatch.setattr(auth.db, "obter_usuario_por_login", lambda _login: None)
-    monkeypatch.setattr(
-        auth, "conferir_senha", lambda senha, hash_: chamadas.append((senha, hash_)) or False
-    )
+
+    def espiao(hash_, senha):
+        chamadas.append(hash_)
+        return original(hash_, senha)
+
+    monkeypatch.setattr(seguranca_werkzeug, "check_password_hash", espiao)
+    monkeypatch.setattr(auth.db, "obter_usuario_por_login", lambda _login: usuario)
     html = client.get("/login").get_data(as_text=True)
     token = re.search(r'name="_csrf_token"[^>]*value="([^"]+)"', html).group(1)
     resposta = client.post(
-        "/login", data={"login": "ninguem", "senha": "Senha-qualquer-1", "_csrf_token": token}
+        "/login", data={"login": "alguem", "senha": "Senha-errada-12", "_csrf_token": token}
     )
     assert resposta.status_code == 200
-    assert len(chamadas) == 1 and chamadas[0][1]  # verificou contra um hash de verdade
+    assert len(chamadas) == 1 and chamadas[0]  # verificou contra um hash de verdade
+
+
+def test_login_de_conta_inativa_e_recusado_mesmo_com_a_senha_certa(app, client, monkeypatch):
+    app.config["WTF_CSRF_ENABLED"] = False
+    monkeypatch.setattr(
+        auth.db,
+        "obter_usuario_por_login",
+        lambda _login: {
+            "id": 9,
+            "ativo": False,
+            "senha_hash": generate_password_hash("Senha-certa-123"),
+        },
+    )
+    resposta = client.post("/login", data={"login": "alguem", "senha": "Senha-certa-123"})
+    assert resposta.status_code == 200
+    with client.session_transaction() as sessao:
+        assert "usuario_id" not in sessao
 
 
 # ---------------------------------------------------------------------------

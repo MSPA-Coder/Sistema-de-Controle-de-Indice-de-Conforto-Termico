@@ -41,7 +41,6 @@ from __future__ import annotations
 
 import contextlib
 import datetime
-import functools
 import os
 import secrets
 from pathlib import Path
@@ -71,7 +70,7 @@ from sharedauth.passwords import (
     validar_tamanho,
     validar_troca,
 )
-from sharedauth.passwords import conferir_hash as _conferir_hash
+from sharedauth.passwords import conferir_login
 from sharedauth.passwords import gerar_hash as _gerar_hash
 
 # `sharedauth.secrets` (biblioteca), nao o `secrets` da stdlib importado acima
@@ -180,24 +179,6 @@ def _marca_da_senha_em_vigor(usuario_id: int) -> str:
 
 def gerar_hash_senha(senha: str) -> str:
     return _gerar_hash(senha)
-
-
-@functools.cache
-def _hash_de_equiparacao() -> str:
-    """Hash descartável para gastar o mesmo tempo quando o login não existe."""
-    return _gerar_hash(secrets.token_urlsafe(16))
-
-
-def conferir_senha(senha: str, hash_: str) -> bool:
-    if not senha or not hash_:
-        return False
-    try:
-        return _conferir_hash(hash_, senha)
-    except ValueError:
-        # Hash malformado ou de um algoritmo que esta versao do Werkzeug
-        # nao reconhece: trata como senha incorreta em vez de propagar a
-        # excecao ate o cliente HTTP.
-        return False
 
 
 # ---------------------------------------------------------------------------
@@ -682,21 +663,20 @@ def login() -> ResponseReturnValue:
         senha_digitada = request.form.get("senha", "")
 
         usuario = db.obter_usuario_por_login(login_digitado)
-        if usuario is None:
-            # Sem isto a conta inexistente respondia em ~13 ms e a existente em
-            # ~85 ms (o hash so rodava para conta real): o tempo entregava quais
-            # logins existem, mesmo com a mensagem identica.
-            conferir_senha(senha_digitada, _hash_de_equiparacao())
+        # `conferir_login` gasta o hash em todos os caminhos (conta inexistente,
+        # inativa ou ativa): sem isso o tempo entregava quais logins existem e
+        # quais estao inativos, mesmo com a mensagem identica.
+        senha_confere = conferir_login(
+            usuario["senha_hash"] if usuario else None,
+            senha_digitada,
+            ativo=bool(usuario and usuario["ativo"]),
+        )
 
         # Mensagem identica para "login inexistente" e "senha incorreta"
         # de proposito: diferenciar os dois casos permitiria a quem tenta
         # senhas ao acaso descobrir, so pela mensagem, quais logins
         # existem de verdade (enumeracao de contas).
-        if (
-            usuario is None
-            or not usuario["ativo"]
-            or not conferir_senha(senha_digitada, usuario["senha_hash"])
-        ):
+        if usuario is None or not senha_confere:
             motivo = "usuario_inexistente" if usuario is None else "credenciais_invalidas"
             if usuario and not usuario["ativo"]:
                 motivo = "usuario_inativo"

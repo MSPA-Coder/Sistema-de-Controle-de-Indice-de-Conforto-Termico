@@ -59,7 +59,7 @@ def test_login_leva_ao_destino_pedido(app, client, monkeypatch):
         "obter_usuario_por_login",
         lambda login: {"id": 7, "ativo": True, "senha_hash": "hash"},
     )
-    monkeypatch.setattr(auth, "conferir_senha", lambda senha, hash_: True)
+    monkeypatch.setattr(auth, "conferir_login", lambda hash_, senha, *, ativo=True: True)
     monkeypatch.setattr(auth.db, "registrar_login_usuario", lambda usuario_id: None)
 
     resposta = client.post(
@@ -87,7 +87,7 @@ def test_login_ignora_next_externo_e_redireciona_para_inicio(app, client, monkey
         "obter_usuario_por_login",
         lambda login: {"id": 7, "ativo": True, "senha_hash": "hash"},
     )
-    monkeypatch.setattr(auth, "conferir_senha", lambda senha, hash_: True)
+    monkeypatch.setattr(auth, "conferir_login", lambda hash_, senha, *, ativo=True: True)
     monkeypatch.setattr(auth.db, "registrar_login_usuario", lambda usuario_id: None)
 
     resposta = client.post(

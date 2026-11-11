@@ -439,7 +439,7 @@ def test_o_login_grava_a_marca_na_sessao(app, client, monkeypatch):
         "obter_usuario_por_login",
         lambda login: {"id": 7, "ativo": True, "senha_hash": HASH_EM_VIGOR},
     )
-    monkeypatch.setattr(auth, "conferir_senha", lambda senha, hash_: True)
+    monkeypatch.setattr(auth, "conferir_login", lambda hash_, senha, *, ativo=True: True)
     monkeypatch.setattr(auth.db, "registrar_login_usuario", lambda usuario_id: None)
 
     client.post("/login", data={"login": "admin", "senha": "senha-valida"})
