@@ -66,11 +66,11 @@ from sharedauth.passwords import (
     SenhaAtualIncorretaError,
     SenhaMuitoCurtaError,
     SenhaNovaIgualAAtualError,
+    conferir_login,
     gerar_senha_temporaria,
     validar_tamanho,
     validar_troca,
 )
-from sharedauth.passwords import conferir_login
 from sharedauth.passwords import gerar_hash as _gerar_hash
 
 # `sharedauth.secrets` (biblioteca), nao o `secrets` da stdlib importado acima

@@ -103,7 +103,7 @@ def test_email_enviar_usa_a_senha_resolvida_quando_smtp_config_nao_traz(monkeypa
         def __exit__(self, *_):
             return False
 
-        def starttls(self):
+        def starttls(self, *, context=None):
             pass
 
         def login(self, usuario, senha):
