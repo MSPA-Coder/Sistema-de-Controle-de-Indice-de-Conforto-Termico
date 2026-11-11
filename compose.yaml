@@ -161,6 +161,9 @@ services:
       CONFORTO_DEBUG: "0"
       CONFORTO_INTERNO_TOKEN_LEITURA_FILE: /run/secrets/internal_read_token
       CONFORTO_INTERNO_TOKEN_CONTROLE_FILE: /run/secrets/internal_control_token
+      # Quem envia e-mail e o coletor (`Email.enviar` e a fila de notificacoes);
+      # o `ict` recebe a mesma variavel so para a tela dizer se ha senha.
+      SMTP_PASS: ${SMTP_PASS:-}
     secrets:
       - postgres_app_password
       - internal_read_token

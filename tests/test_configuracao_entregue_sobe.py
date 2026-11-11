@@ -105,3 +105,22 @@ def test_a_guarda_continua_recusando_o_que_deve_recusar():
     """Controle negativo: sem ele, os dois acima passariam com a guarda morta."""
     with pytest.raises(RuntimeError, match="CONFORTO_COOKIE_SEGURO"):
         _validar_transporte(_config("0.0.0.0"), False)
+
+
+def _variaveis_do_servico(nome: str) -> set[str]:
+    """Nomes de variavel do `environment:` de um servico do `compose.yaml`."""
+    texto = (RAIZ / "compose.yaml").read_text(encoding="utf-8")
+    bloco = re.search(rf"^  {nome}:\n(.*?)(?=^  [\w-]+:\n|\Z)", texto, re.M | re.S)
+    assert bloco, f"servico {nome} nao encontrado no compose.yaml"
+    return set(re.findall(r"^      ([A-Z][A-Z0-9_]+):", bloco.group(1), re.M))
+
+
+def test_o_servico_que_envia_email_recebe_a_senha_smtp():
+    """Quem envia e-mail e o `coletor` (`Email.enviar` e a fila de notificacoes).
+
+    `SMTP_PASS` so estava no `ict`, que apenas mostra "ha senha configurada":
+    seguir o RUNBOOK deixava a tela dizendo que a senha existia e o coletor
+    tentava `login(usuario, "")`.
+    """
+    assert "SMTP_PASS" in _variaveis_do_servico("coletor")
+    assert "SMTP_PASS" in _variaveis_do_servico("ict")
