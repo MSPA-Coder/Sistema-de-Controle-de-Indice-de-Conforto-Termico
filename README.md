@@ -110,7 +110,7 @@ docker compose --env-file .env.docker --profile quality run --build --rm quality
 monta o código do host, e Compose reconstrói a imagem com o código atual, com
 cache, antes de executar os testes, e a suíte roda em paralelo.
 
-O estágio executa `ruff check . && pytest`. Mudanças de persistência,
+O estágio `quality`, definido no `Dockerfile`, é a verificação. Mudanças de persistência,
 migrações, dependências ou contêineres também exigem a pilha completa e
 `scripts.verificar_postgres`. Veja [Desenvolvimento e validação](docs/DESENVOLVIMENTO.md).
 

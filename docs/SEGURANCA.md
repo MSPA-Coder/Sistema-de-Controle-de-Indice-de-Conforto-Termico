@@ -75,8 +75,9 @@ repetidas, sem alterar a resposta pública nem armazenar segredos.
 
 `constraints.txt` fixa as dependências Python; `SharedAuth` é fixado por commit.
 O `Dockerfile` busca a tag móvel de Python 3.15, atualiza os pacotes Debian e
-as ferramentas de build a cada reconstrução. O Compose busca sempre
-`postgres:17-alpine`. A CI semanal reconstrói essas imagens, roda a qualidade,
+as ferramentas de build a cada reconstrução. O Compose monta
+`mspa-postgres:17-alpine` por `docker/sandbox-postgres/Dockerfile`, a partir de
+`postgres:17-alpine` (`pull_policy: build`). A CI semanal reconstrói essas imagens, roda a qualidade,
 audita dependências Python e varre CVEs corrigíveis na imagem. O Dependabot
 propõe atualizações de dependências, tags e Actions; elas só entram depois dos
 checks passarem. A série principal do PostgreSQL continua em 17 para proteger

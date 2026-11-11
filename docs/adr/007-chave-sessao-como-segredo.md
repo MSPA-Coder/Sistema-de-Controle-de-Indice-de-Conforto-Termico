@@ -10,7 +10,10 @@ exige uma chave de sessão explícita em `CONFORTO_SECRET_KEY_FILE` ou
 
 Sem uma chave válida, o ICT falha ao iniciar. O fallback persistido em
 `instance/secret_key.txt` existe apenas com `CONFORTO_DEVELOPMENT=1` ou
-`CONFORTO_TESTING=1`. Regenerar o segredo invalida as sessões existentes.
+`CONFORTO_TESTING=1`. Arquivos antigos dessa pasta (o volume `instance` de
+uma instalação anterior ao ADR) devem ser apagados: o código deixou de lê-los,
+mas o arquivo continua sendo uma chave de assinatura esquecida. Regenerar o
+segredo invalida as sessões existentes.
 
 O preparo e as regras de proteção dos segredos estão em
 [Desenvolvimento e validação](../DESENVOLVIMENTO.md).

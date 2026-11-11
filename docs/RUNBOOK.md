@@ -189,7 +189,8 @@ mesma ordem de precedência de `sharedauth.secrets.resolver_segredo`:
   segredo do Compose exige que o arquivo exista para a aplicação subir; quem
   quiser essa forma monta o arquivo e aponta a variável para ele);
 - ou a variável direta `SMTP_PASS`, definida em `.env.vps` (produção) ou
-  `.env.docker` (local).
+  `.env.docker` (local). O Compose a entrega ao `coletor`, que é quem envia
+  o e-mail, e ao `ict`, que só a usa para a tela dizer se há senha.
 
 **Provisionar**: defina `SMTP_PASS=<senha>` no arquivo de ambiente do processo
 e suba de novo (`~/deploy.sh conforto` no VPS). Deixar em branco é a operação
