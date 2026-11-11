@@ -76,6 +76,9 @@ RUN set -eu; \
           /opt/venv/bin/pip /opt/venv/bin/pip3 /opt/venv/bin/pip3.*; \
     ! command -v pip
 
+# `git` so serve para instalar o SharedAuth por URL; a imagem servida nao o usa.
+RUN apt-get purge -y --auto-remove git     && rm -rf /var/lib/apt/lists/*     && ! command -v git
+
 USER app
 CMD ["python", "run_ict.py"]
 

@@ -8,7 +8,7 @@ docker run --rm --read-only --tmpfs /tmp --entrypoint sh "$app_id" -ec '
   test "$(id -u)" != 0
   for path in /workspace /workspace/app /workspace/migrations; do test ! -w "$path"; done
   for path in /workspace/.secrets /workspace/.certs /workspace/.env /workspace/tests; do test ! -e "$path"; done
-  for tool in gcc make wget ruff pytest mypy pip pip-audit; do ! command -v "$tool"; done
+  for tool in git gcc make wget ruff pytest mypy pip pip-audit; do ! command -v "$tool"; done
 '
 "${compose[@]}" up -d --no-build --pull never --wait --wait-timeout 180 ict
 for service in ict coletor; do
