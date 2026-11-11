@@ -21,6 +21,8 @@ CSRF de verdade para um POST/DELETE completo.
 
 from __future__ import annotations
 
+from flask import g
+
 from app.app_factory import confirmacao_de_exclusao_valida
 from app.dados_entrada import rotas as dados_entrada_rotas
 from app.ict import administracao
@@ -73,6 +75,7 @@ def test_reset_com_confirmacao_correta_apaga_o_historico(app, monkeypatch):
     monkeypatch.setattr(administracao.db, "limpar_historico", lambda: chamadas.append("limpou"))
 
     with app.test_request_context("/api/reset", method="POST", json={"confirmacao": "APAGAR"}):
+        g.usuario = {"id": 1, "perfil": "administrador"}
         resposta = administracao.reset()
 
     assert resposta.get_json() == {"ok": True}

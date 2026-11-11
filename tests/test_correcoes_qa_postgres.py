@@ -419,3 +419,26 @@ def test_logout_encerra_a_sessao_mesmo_se_a_revogacao_falhar(criar_conta, monkey
     monkeypatch.setattr(auth.db, "revogar_sessao", falha)
     assert cliente.post("/logout", headers=cabecalhos).status_code == 302
     assert cliente.get("/preferencias").status_code == 302  # sem sessão: volta ao login
+
+
+def test_reset_global_recusa_conta_com_zonas_restritas_e_preserva_as_outras(criar_conta):
+    """`/api/reset` apaga o historico de todas as zonas: so acesso global pode.
+
+    A rota irma `apagar-historico` ja recusava; o reset so conferia o texto de
+    confirmacao e deixava um tecnico limitado a uma zona apagar as demais.
+    """
+    admin, headers, criar = criar_conta
+    a = db.criar_zona(zona("Reset A"))["id"]
+    b = db.criar_zona(zona("Reset B"))["id"]
+    tecnico, cabecalhos, _, _ = criar("tecnico", zonas=[a])
+    dados = {"entradas": {"tbs": 30, "tbu": 22}}
+    assert admin.post(f"/api/zonas/{b}/calcular", json=dados, headers=headers).status_code == 200
+    assert len(db.obter_leituras_recentes_zona(b)) == 1
+
+    resposta = tecnico.post("/api/reset", json={"confirmacao": "APAGAR"}, headers=cabecalhos)
+
+    assert resposta.status_code == 403
+    assert len(db.obter_leituras_recentes_zona(b)) == 1
+    resposta = admin.post("/api/reset", json={"confirmacao": "APAGAR"}, headers=headers)
+    assert resposta.status_code == 200
+    assert db.obter_leituras_recentes_zona(b) == []

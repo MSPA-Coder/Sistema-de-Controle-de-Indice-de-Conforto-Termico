@@ -16,6 +16,8 @@ from app.termico import agregacao
 from .. import database as db
 from ..app_factory import confirmacao_de_exclusao_valida
 from ..models import senha_smtp_configurada
+from ..seguranca import auth
+from ..seguranca.zonas import zonas_permitidas
 from .coletor_client import chamar_coletor
 
 administracao_bp = Blueprint("administracao", __name__)
@@ -95,8 +97,6 @@ def obter_configuracoes():
 @administracao_bp.route("/api/configuracoes", methods=["POST"])
 def salvar_configuracoes():
     dados = request.get_json(force=True, silent=True) or {}
-    from app.seguranca import auth
-
     usuario = auth.usuario_atual()
     perfil = usuario["perfil"] if usuario else ""
     if not auth.area_permitida(perfil, "sistema"):
@@ -129,6 +129,9 @@ def reset():
     dados = request.get_json(force=True, silent=True) or {}
     if not confirmacao_de_exclusao_valida(dados):
         return jsonify({"erro": "Digite APAGAR para confirmar a exclusão."}), 400
+    if zonas_permitidas(auth.usuario_atual()) is not None:
+        # O historico e apagado para todas as zonas: so acesso global.
+        return jsonify({"erro": "Seu perfil não tem acesso a esta função."}), 403
     db.limpar_historico()
     registrar_evento_revisavel(
         "HISTORICO_LIMPO", "dados", "Removeu medições e agregados históricos"
