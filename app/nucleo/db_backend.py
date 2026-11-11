@@ -95,7 +95,10 @@ def _engine(url: str):
         pool_size=5,
         max_overflow=10,
         pool_recycle=1800,
-        connect_args={"application_name": "conforto_termico"},
+        # A sessão fala UTC: `timestamptz` sai sempre no mesmo fuso, seja qual
+        # for o `TimeZone` do servidor, e texto sem offset gravado por um
+        # cliente SQL é lido como UTC (o que o histórico sempre assumiu).
+        connect_args={"application_name": "conforto_termico", "options": "-c timezone=UTC"},
     )
     from .papel_do_banco import instalar as instalar_trava_de_papel
 
@@ -128,7 +131,12 @@ def _normalizar_valor(valor):
 
     if isinstance(valor, (dict, list)):
         return json.dumps(valor, ensure_ascii=False)
-    if isinstance(valor, (datetime.date, datetime.datetime)):
+    if isinstance(valor, datetime.datetime):
+        # `timestamptz` chega com fuso; o contrato é sempre UTC com `+00:00`.
+        if valor.tzinfo is not None:
+            valor = valor.astimezone(datetime.UTC)
+        return valor.isoformat()
+    if isinstance(valor, datetime.date):
         return valor.isoformat()
     return valor
 

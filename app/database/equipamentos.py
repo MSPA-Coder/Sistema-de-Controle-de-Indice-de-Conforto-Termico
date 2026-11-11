@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import datetime
 import ipaddress
 import json
 import re
 
+from app.models import agora_utc, como_local_ingenuo
 from app.termico import thermal_indices as ti
 
 from .comum import conexao, normalizar_texto
@@ -25,6 +25,12 @@ CAMPOS_MEDIVEIS = tuple(ti.CAMPO_METADADOS.keys())
 
 _ROTULO_DNS = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
 _NOME_DE_HOST = re.compile(rf"{_ROTULO_DNS}(?:\.{_ROTULO_DNS})*")
+
+
+def _com_hora_local(registro: dict) -> dict:
+    """`criado_em` volta ao contrato das telas: hora local, sem offset."""
+    registro["criado_em"] = como_local_ingenuo(registro.get("criado_em"))
+    return registro
 
 
 def validar_host(host: str) -> str:
@@ -64,7 +70,7 @@ def salvar_estado_equipamentos(
     def _bool_sql(valor):
         return None if valor is None else int(bool(valor))
 
-    agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+    agora = agora_utc()
     with conexao() as conn:
         conn.execute(
             """
@@ -114,7 +120,7 @@ def salvar_comando_manual_atuador(
     """Atualiza apenas o atuador comandado, preservando o outro grupo."""
     if tipo not in ("ventilador", "nebulizador"):
         raise ValueError("Tipo de atuador invalido.")
-    agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+    agora = agora_utc()
     coluna_desejada = f"{tipo}_desejado"
     coluna_confirmada = f"{tipo}_confirmado"
     coluna_legada = f"{tipo}_ligado"
@@ -159,7 +165,7 @@ def salvar_comando_manual_atuador(
 
 def registrar_falha_operacional_zona(zona_id: int, mensagem: str) -> None:
     """Marca falha do ciclo sem inventar um novo estado dos equipamentos."""
-    agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+    agora = agora_utc()
     with conexao() as conn:
         conn.execute(
             """
@@ -278,7 +284,7 @@ def validar_equipamento(dados: dict) -> dict:
 
 def criar_equipamento(zona_id: int, dados: dict) -> dict:
     """Valida e insere equipamento com a zona na mesma transação."""
-    agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+    agora = agora_utc()
     with conexao() as conn:
         zona_existe = conn.execute("SELECT 1 FROM zonas WHERE id = ?", (zona_id,)).fetchone()
         if zona_existe is None:
@@ -313,7 +319,7 @@ def criar_equipamento(zona_id: int, dados: dict) -> dict:
         linha = conn.execute(
             "SELECT * FROM equipamentos WHERE id = ?", (cursor.lastrowid,)
         ).fetchone()
-    return dict(linha)
+    return _com_hora_local(dict(linha))
 
 
 def obter_equipamento(equipamento_id: int) -> dict | None:
@@ -321,7 +327,7 @@ def obter_equipamento(equipamento_id: int) -> dict | None:
         linha = conn.execute(
             "SELECT * FROM equipamentos WHERE id = ?", (equipamento_id,)
         ).fetchone()
-    return dict(linha) if linha else None
+    return _com_hora_local(dict(linha)) if linha else None
 
 
 def atualizar_equipamento(
@@ -370,7 +376,7 @@ def atualizar_equipamento(
         linha = conn.execute(
             "SELECT * FROM equipamentos WHERE id = ?", (equipamento_id,)
         ).fetchone()
-    return dict(linha)
+    return _com_hora_local(dict(linha))
 
 
 def excluir_equipamento(equipamento_id: int) -> bool:

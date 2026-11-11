@@ -7,7 +7,7 @@ concessão, deixando a decisão de autorização na camada ``seguranca``.
 
 from __future__ import annotations
 
-import datetime
+from app.models import agora_utc
 
 from .comum import conexao
 
@@ -46,7 +46,7 @@ def listar_zonas_do_usuario(usuario_id: int) -> list[dict]:
 
 
 def conceder_acesso_zona(usuario_id: int, zona_id: int) -> bool:
-    agora = datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
+    agora = agora_utc()
     with conexao() as conn:
         if conn.execute("SELECT 1 FROM usuarios WHERE id = ?", (usuario_id,)).fetchone() is None:
             return False

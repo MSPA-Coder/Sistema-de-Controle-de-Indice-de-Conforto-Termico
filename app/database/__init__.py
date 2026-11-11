@@ -44,7 +44,6 @@ from .equipamentos import (
 from .equipamentos import salvar_comando_manual_atuador as salvar_comando_manual_atuador
 from .equipamentos import salvar_estado_equipamentos as salvar_estado_equipamentos
 from .leituras import INTERVALO_MINIMO_LEITURAS as INTERVALO_MINIMO_LEITURAS
-from .leituras import _formatar_janela as _formatar_janela
 from .leituras import _intervalo_minimo_leituras as _intervalo_minimo_leituras
 from .leituras import agregar_janela_15min as agregar_janela_15min
 from .leituras import consolidar_resumo_horario as consolidar_resumo_horario

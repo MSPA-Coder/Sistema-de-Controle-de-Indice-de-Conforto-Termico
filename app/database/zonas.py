@@ -18,7 +18,7 @@ import json
 import math
 from decimal import Decimal, InvalidOperation
 
-from app.models import fuso_local, parsear_timestamp
+from app.models import agora_local, agora_utc, como_local_ingenuo, fuso_local, parsear_timestamp
 from app.termico import thermal_indices as ti
 
 from .comum import coagir_booleano as coagir_booleano
@@ -97,7 +97,7 @@ def obter_controle_zona(zona_id: int) -> dict | None:
         "zona_id": zona_id,
         "modo": linha["modo"],
         "acionamento_habilitado": bool(linha["acionamento_habilitado"]),
-        "atualizado_em": linha["atualizado_em"],
+        "atualizado_em": como_local_ingenuo(linha["atualizado_em"]),
     }
 
 
@@ -116,7 +116,7 @@ def salvar_controle_zona(zona_id: int, dados: dict) -> dict:
     if not isinstance(acionamento, bool):
         raise ZonaInvalidaError("acionamento_habilitado precisa ser booleano.")
 
-    agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+    agora = agora_utc()
     with _conexao() as conn:
         conn.execute(
             """
@@ -134,7 +134,7 @@ def salvar_controle_zona(zona_id: int, dados: dict) -> dict:
         "zona_id": zona_id,
         "modo": modo,
         "acionamento_habilitado": acionamento,
-        "atualizado_em": agora,
+        "atualizado_em": como_local_ingenuo(agora),
     }
 
 
@@ -203,7 +203,7 @@ def _validar_zona(dados: dict) -> dict:
 
 def criar_zona(dados: dict) -> dict:
     validado = _validar_zona(dados)
-    agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+    agora = agora_utc()
     with _conexao() as conn:
         cursor = conn.execute(
             """INSERT INTO zonas
@@ -234,12 +234,12 @@ def criar_zona(dados: dict) -> dict:
         "indice": validado["indice"],
         "ativa": validado["ativa"],
         "ciclos_expiracao_leitura": validado["ciclos_expiracao_leitura"],
-        "criado_em": agora,
+        "criado_em": como_local_ingenuo(agora),
         "equipamentos": [],
         "controle": {
             "modo": MODO_OPERACAO_PADRAO,
             "acionamento_habilitado": False,
-            "atualizado_em": agora,
+            "atualizado_em": como_local_ingenuo(agora),
         },
     }
 
@@ -255,6 +255,13 @@ def criar_zona(dados: dict) -> dict:
 #: O que sobra é vocabulário de domínio: qual zona, que tipo de equipamento,
 #: como se chama e o que mede.
 COLUNAS_EQUIPAMENTO_SEM_FIACAO = ("id", "zona_id", "tipo", "nome", "campo_medido")
+
+
+def _com_hora_local(registro: dict) -> dict:
+    """`criado_em` volta ao contrato das telas: hora local, sem offset."""
+    if "criado_em" in registro:
+        registro["criado_em"] = como_local_ingenuo(registro["criado_em"])
+    return registro
 
 
 def listar_zonas(
@@ -301,11 +308,14 @@ def listar_zonas(
 
     equipamentos_por_zona: dict[int, list[dict]] = {}
     for linha in linhas_equipamentos:
-        equipamentos_por_zona.setdefault(linha["zona_id"], []).append(dict(linha))
+        equipamentos_por_zona.setdefault(linha["zona_id"], []).append(
+            _com_hora_local(dict(linha))
+        )
 
     zonas = [dict(linha) for linha in linhas_zonas]
     controle_por_zona = {linha["zona_id"]: linha for linha in linhas_controle}
     for zona in zonas:
+        _com_hora_local(zona)
         zona["ativa"] = bool(zona["ativa"])
         zona["equipamentos"] = equipamentos_por_zona.get(zona["id"], [])
         controle = controle_por_zona.get(zona["id"])
@@ -314,7 +324,7 @@ def listar_zonas(
             "acionamento_habilitado": bool(controle["acionamento_habilitado"])
             if controle
             else False,
-            "atualizado_em": controle["atualizado_em"] if controle else None,
+            "atualizado_em": como_local_ingenuo(controle["atualizado_em"]) if controle else None,
         }
     return zonas
 
@@ -332,13 +342,13 @@ def obter_zona(zona_id: int) -> dict | None:
             "FROM controle_zonas WHERE zona_id = ?",
             (zona_id,),
         ).fetchone()
-    zona = dict(linha)
+    zona = _com_hora_local(dict(linha))
     zona["ativa"] = bool(zona["ativa"])
-    zona["equipamentos"] = [dict(e) for e in equipamentos]
+    zona["equipamentos"] = [_com_hora_local(dict(e)) for e in equipamentos]
     zona["controle"] = {
         "modo": controle["modo"] if controle else MODO_OPERACAO_PADRAO,
         "acionamento_habilitado": bool(controle["acionamento_habilitado"]) if controle else False,
-        "atualizado_em": controle["atualizado_em"] if controle else None,
+        "atualizado_em": como_local_ingenuo(controle["atualizado_em"]) if controle else None,
     }
     return zona
 
@@ -355,7 +365,7 @@ def obter_estado_operacional_zonas() -> list[dict]:
 
     configuracoes = obter_configuracoes()
     intervalo = float(configuracoes.get("intervaloLeituraSegundos") or 1)
-    agora = datetime.datetime.now()
+    agora = agora_utc()
     resultado = []
     for zona in zonas:
         ciclos_expiracao = int(zona.get("ciclos_expiracao_leitura") or 3)
@@ -371,7 +381,7 @@ def obter_estado_operacional_zonas() -> list[dict]:
         leitura_atual = False
         if ultimo_ciclo_em:
             try:
-                idade = agora - datetime.datetime.fromisoformat(ultimo_ciclo_em)
+                idade = agora - parsear_timestamp(ultimo_ciclo_em)
                 idade_leitura_segundos = max(0, int(idade.total_seconds()))
                 leitura_atual = idade <= limite_atualidade
             except (TypeError, ValueError):
@@ -404,7 +414,7 @@ def obter_estado_operacional_zonas() -> list[dict]:
                 "limite_atualidade_segundos": int(limite_atualidade.total_seconds()),
                 "ciclos_expiracao_leitura": ciclos_expiracao,
                 "falhas": falhas,
-                "ultimo_ciclo_em": ultimo_ciclo_em,
+                "ultimo_ciclo_em": como_local_ingenuo(ultimo_ciclo_em),
             }
         )
     return resultado
@@ -453,7 +463,7 @@ def atualizar_zona(zona_id: int, dados: dict) -> dict | None:
     zona["controle"] = {
         "modo": controle["modo"] if controle else MODO_OPERACAO_PADRAO,
         "acionamento_habilitado": bool(controle["acionamento_habilitado"]) if controle else False,
-        "atualizado_em": controle["atualizado_em"] if controle else None,
+        "atualizado_em": como_local_ingenuo(controle["atualizado_em"]) if controle else None,
     }
     return zona
 
@@ -567,7 +577,7 @@ def obter_painel_zonas() -> list[dict]:
     tenha acesso ao mesmo banco, incluindo um processo de "dashboard"
     somente-leitura que nunca fala Modbus (ver `zona_service.py` e
     `agents.md`)."""
-    agora = datetime.datetime.now(fuso_local()).replace(microsecond=0)
+    agora = agora_local()
     inicio_dia = agora.replace(hour=0, minute=0, second=0)
 
     with _conexao(escrita=False) as conn:

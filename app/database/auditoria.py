@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import datetime
 import json
 from typing import Any
+
+from app.models import agora_utc
 
 from .comum import conexao
 
@@ -22,7 +23,7 @@ def registrar_evento_auditoria(
     detalhes: dict[str, Any],
 ) -> None:
     """Persiste somente o contexto mínimo necessário para revisão posterior."""
-    criado_em = datetime.datetime.now(datetime.UTC).isoformat()
+    criado_em = agora_utc()
     with conexao() as conn:
         conn.execute(
             """

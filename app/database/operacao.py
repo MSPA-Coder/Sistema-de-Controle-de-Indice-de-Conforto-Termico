@@ -6,6 +6,8 @@ import datetime
 import json
 from typing import TYPE_CHECKING
 
+from app.models import agora_utc, como_local_ingenuo, parsear_timestamp
+
 from .comum import conexao
 from .configuracoes import obter_configuracoes
 
@@ -16,12 +18,12 @@ if TYPE_CHECKING:
 def salvar_status_coletor(
     status: str,
     *,
-    iniciado_em: str | None = None,
-    ultimo_ciclo_em: str | None = None,
-    proximo_ciclo_em: str | None = None,
+    iniciado_em: datetime.datetime | None = None,
+    ultimo_ciclo_em: datetime.datetime | None = None,
+    proximo_ciclo_em: datetime.datetime | None = None,
     erro: str | None = None,
 ) -> dict:
-    agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+    agora = agora_utc()
     with conexao() as conn:
         atual = conn.execute("SELECT * FROM estado_coletor WHERE id = 1").fetchone()
         inicio = iniciado_em or (atual["iniciado_em"] if atual else None) or agora
@@ -43,10 +45,10 @@ def salvar_status_coletor(
         )
     return {
         "status": status,
-        "iniciado_em": inicio,
-        "heartbeat_em": agora,
-        "ultimo_ciclo_em": ultimo,
-        "proximo_ciclo_em": proximo_ciclo_em,
+        "iniciado_em": como_local_ingenuo(inicio),
+        "heartbeat_em": como_local_ingenuo(agora),
+        "ultimo_ciclo_em": como_local_ingenuo(ultimo),
+        "proximo_ciclo_em": como_local_ingenuo(proximo_ciclo_em),
         "erro": erro,
     }
 
@@ -66,7 +68,7 @@ def obter_status_coletor() -> dict:
         }
 
     dados = dict(linha)
-    heartbeat = datetime.datetime.fromisoformat(dados["heartbeat_em"])
+    heartbeat = parsear_timestamp(dados["heartbeat_em"])
     intervalo = float(obter_configuracoes().get("intervaloLeituraSegundos") or 1)
     limite = datetime.timedelta(seconds=max(10.0, intervalo * 3))
     # O coletor pode entrar em repouso quando nao ha zona automatica. Nesse
@@ -76,12 +78,14 @@ def obter_status_coletor() -> dict:
     proximo_ciclo = dados.get("proximo_ciclo_em")
     if proximo_ciclo:
         try:
-            espera_anunciada = datetime.datetime.fromisoformat(proximo_ciclo) - heartbeat
+            espera_anunciada = parsear_timestamp(proximo_ciclo) - heartbeat
             if espera_anunciada > datetime.timedelta(0):
                 limite = max(limite, espera_anunciada + datetime.timedelta(seconds=10))
         except (TypeError, ValueError):
             pass
-    dados["online"] = dados["status"] == "online" and datetime.datetime.now() - heartbeat <= limite
+    dados["online"] = dados["status"] == "online" and agora_utc() - heartbeat <= limite
+    for campo in ("iniciado_em", "heartbeat_em", "ultimo_ciclo_em", "proximo_ciclo_em"):
+        dados[campo] = como_local_ingenuo(dados[campo])
     if not dados["online"] and dados["status"] == "online":
         dados["status"] = "sem_heartbeat"
     dados.pop("id", None)
@@ -91,7 +95,7 @@ def obter_status_coletor() -> dict:
 def registrar_evento_operacao(
     tipo: str, acao: str, *, zona_id: int | None = None, detalhes: dict | None = None
 ) -> None:
-    agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+    agora = agora_utc()
     with conexao() as conn:
         conn.execute(
             "INSERT INTO eventos_operacao (zona_id, tipo, acao, detalhes, criado_em) "
@@ -127,6 +131,7 @@ def listar_eventos_operacao(
     resultado = []
     for linha in linhas:
         item = dict(linha)
+        item["criado_em"] = como_local_ingenuo(item["criado_em"])
         item["detalhes"] = json.loads(item["detalhes"])
         resultado.append(item)
     return resultado

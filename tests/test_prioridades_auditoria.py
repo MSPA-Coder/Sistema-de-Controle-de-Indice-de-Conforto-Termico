@@ -24,7 +24,7 @@ class _ConexaoEstadoFalsa:
 
 
 def test_estado_operacional_marca_leitura_antiga_como_desatualizada(monkeypatch):
-    antigo = (datetime.datetime.now() - datetime.timedelta(hours=1)).replace(
+    antigo = (datetime.datetime.now(datetime.UTC) - datetime.timedelta(hours=1)).replace(
         microsecond=0
     )
     zona = {
@@ -98,7 +98,7 @@ def test_estado_operacional_preserva_sem_leitura_quando_nunca_houve_ciclo(monkey
 
 
 def test_estado_operacional_respeita_ciclos_de_expiracao_por_zona(monkeypatch):
-    recente = (datetime.datetime.now() - datetime.timedelta(seconds=150)).replace(microsecond=0)
+    recente = (datetime.datetime.now(datetime.UTC) - datetime.timedelta(seconds=150)).replace(microsecond=0)
     zonas = [
         {"id": 9, "nome": "Dois ciclos", "ativa": True, "ciclos_expiracao_leitura": 2,
          "controle": {"modo": "automatico", "acionamento_habilitado": True}},

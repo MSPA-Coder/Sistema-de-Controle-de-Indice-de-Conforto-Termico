@@ -10,17 +10,19 @@ from __future__ import annotations
 
 import datetime
 
+from app.models import agora_utc
+
 from .comum import conexao
 
 
 def revogar_sessao(sid: str, expira_em: datetime.datetime) -> None:
     """Registra o `sid` como encerrado até `expira_em` (UTC) e limpa os vencidos."""
-    agora = datetime.datetime.now(datetime.UTC).isoformat()
+    agora = agora_utc()
     with conexao() as conn:
         conn.execute("DELETE FROM sessoes_revogadas WHERE expira_em < ?", (agora,))
         conn.execute(
             "INSERT INTO sessoes_revogadas (sid, expira_em) VALUES (?, ?) ON CONFLICT DO NOTHING",
-            (sid, expira_em.astimezone(datetime.UTC).isoformat()),
+            (sid, expira_em),
         )
 
 

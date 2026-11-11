@@ -42,7 +42,7 @@ from typing import TYPE_CHECKING
 from app.database.comum import conexao
 from app.termico import thermal_indices as ti
 
-from ..models import Email, timestamp_utc
+from ..models import Email, agora_utc
 
 if TYPE_CHECKING:
     import logging
@@ -107,7 +107,7 @@ def _enfileirar_outbox(destino: str, conteudo: str, smtp_config: dict) -> int:
     transitórias continuam no mesmo registro para retry e auditoria.
     """
     chave = _chave_deduplicacao(destino, conteudo, smtp_config)
-    agora = timestamp_utc()
+    agora = agora_utc()
     with conexao() as conn:
         conn.execute(
             """
@@ -129,11 +129,8 @@ def _enfileirar_outbox(destino: str, conteudo: str, smtp_config: dict) -> int:
 
 
 def _reivindicar_outbox(limite: int = 10) -> list[dict]:
-    agora = datetime.datetime.now(datetime.UTC)
-    agora_texto = agora.isoformat(timespec="seconds")
-    expirado = (agora - datetime.timedelta(seconds=TEMPO_BLOQUEIO_OUTBOX_SEGUNDOS)).isoformat(
-        timespec="seconds"
-    )
+    agora = agora_utc()
+    expirado = agora - datetime.timedelta(seconds=TEMPO_BLOQUEIO_OUTBOX_SEGUNDOS)
     limite = max(1, min(100, int(limite)))
     itens = []
     with conexao() as conn:
@@ -151,13 +148,13 @@ def _reivindicar_outbox(limite: int = 10) -> list[dict]:
             FOR UPDATE SKIP LOCKED
             LIMIT ?
             """,
-            (agora_texto, limite),
+            (agora, limite),
         ).fetchall()
         for linha in linhas:
             conn.execute(
                 "UPDATE notificacoes_outbox SET status='enviando', tentativas=tentativas+1, "
                 "bloqueado_em=? WHERE id=?",
-                (agora_texto, linha["id"]),
+                (agora, linha["id"]),
             )
             item = dict(linha)
             item["tentativas"] = int(item.get("tentativas") or 0) + 1
@@ -178,7 +175,7 @@ def _concluir_outbox(item_id: int) -> None:
         conn.execute(
             "UPDATE notificacoes_outbox SET status='enviado', enviado_em=?, "
             "bloqueado_em=NULL, proxima_tentativa_em=NULL WHERE id=?",
-            (timestamp_utc(), item_id),
+            (agora_utc(), item_id),
         )
 
 
@@ -187,10 +184,9 @@ def _falhar_outbox(item: dict, erro: str) -> None:
     permanente = tentativas >= MAX_TENTATIVAS_OUTBOX
     proxima = None
     if not permanente:
-        proxima = (
-            datetime.datetime.now(datetime.UTC)
-            + datetime.timedelta(seconds=INTERVALO_RETRY_OUTBOX_SEGUNDOS * tentativas)
-        ).isoformat(timespec="seconds")
+        proxima = agora_utc() + datetime.timedelta(
+            seconds=INTERVALO_RETRY_OUTBOX_SEGUNDOS * tentativas
+        )
     with conexao() as conn:
         conn.execute(
             "UPDATE notificacoes_outbox SET status=?, proxima_tentativa_em=?, "

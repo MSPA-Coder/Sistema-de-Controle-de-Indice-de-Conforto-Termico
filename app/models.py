@@ -37,42 +37,13 @@ _EMAIL_REGEX = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 
 def agora_utc() -> datetime.datetime:
-    """Instante UTC consciente de fuso, sem microssegundos.
+    """O "agora" do sistema: instante UTC com fuso, sem microssegundos.
 
-    O banco ainda guarda timestamps como texto por compatibilidade. Novas
-    escritas usam sempre o offset explícito; ``parsear_timestamp`` abaixo
-    permite ler as linhas antigas, que eram ``datetime`` ingênuos.
+    É a única fonte de "agora" de `app/` (um teste de varredura reprova
+    `datetime.now()` e `date.today()` fora deste módulo). As colunas de instante
+    do banco são `timestamptz`; os pontos de escrita passam este valor direto.
     """
     return datetime.datetime.now(datetime.UTC).replace(microsecond=0)
-
-
-def timestamp_utc() -> str:
-    return agora_utc().isoformat(timespec="seconds")
-
-
-def parsear_timestamp(valor: object) -> datetime.datetime:
-    """Lê ISO-8601 novo e legado, normalizando o resultado para UTC."""
-    if not isinstance(valor, str):
-        raise ValueError("timestamp precisa ser texto ISO-8601")
-    momento = datetime.datetime.fromisoformat(valor)
-    if momento.tzinfo is None:
-        momento = momento.replace(tzinfo=datetime.UTC)
-    return momento.astimezone(datetime.UTC)
-
-
-def como_utc_iso(valor: object) -> object:
-    """O instante com o offset explícito (`+00:00`), para o navegador ler certo.
-
-    Janelas e horas agregadas são gravadas em UTC SEM offset, e `new Date()` no
-    navegador lê texto sem offset como hora LOCAL: os gráficos mostravam cada
-    janela 3 h fora do lugar. Valor que não é texto ISO passa como está.
-    """
-    if not isinstance(valor, str) or not valor:
-        return valor
-    try:
-        return parsear_timestamp(valor).isoformat(timespec="seconds")
-    except ValueError:
-        return valor
 
 
 def fuso_local() -> ZoneInfo:
@@ -83,25 +54,82 @@ def fuso_local() -> ZoneInfo:
         return ZoneInfo("America/Sao_Paulo")
 
 
+def agora_local() -> datetime.datetime:
+    """O mesmo instante de `agora_utc()`, no fuso do usuário."""
+    return agora_utc().astimezone(fuso_local())
+
+
+def hoje_local() -> datetime.date:
+    """O dia do calendário do usuário (não o dia UTC)."""
+    return agora_local().date()
+
+
+def parsear_timestamp(valor: object) -> datetime.datetime:
+    """Lê um instante (texto ISO-8601 ou `datetime`) e o devolve em UTC.
+
+    Sem offset, o valor é UTC: é o que o texto legado sem offset de `leituras`
+    e das janelas agregadas sempre significou.
+    """
+    if isinstance(valor, datetime.datetime):
+        momento = valor
+    elif isinstance(valor, str):
+        momento = datetime.datetime.fromisoformat(valor)
+    else:
+        raise ValueError("timestamp precisa ser texto ISO-8601 ou datetime")
+    if momento.tzinfo is None:
+        momento = momento.replace(tzinfo=datetime.UTC)
+    return momento.astimezone(datetime.UTC)
+
+
+def como_utc_iso(valor: object) -> object:
+    """O instante com o offset explícito (`+00:00`), para o navegador ler certo.
+
+    `new Date()` no navegador lê texto sem offset como hora LOCAL; por isso o
+    que sai do banco para a tela leva sempre o offset. Valor que não é texto
+    ISO passa como está.
+    """
+    if not isinstance(valor, str) or not valor:
+        return valor
+    try:
+        return parsear_timestamp(valor).isoformat(timespec="seconds")
+    except ValueError:
+        return valor
+
+
+def como_local_ingenuo(valor: object) -> str | None:
+    """Hora local sem offset (`AAAA-MM-DDTHH:MM:SS`), o formato antigo das telas.
+
+    As colunas de estado e cadastro (`usuarios`, `zonas`, `controle_zonas`,
+    `estado_coletor` e afins) guardavam a hora local em texto, e as APIs e o
+    JavaScript recebem esse formato desde o início. As colunas agora são
+    `timestamptz`; esta função devolve ao contrato o que ele sempre mostrou.
+    """
+    if valor is None or valor == "":
+        return None
+    return (
+        parsear_timestamp(valor)
+        .astimezone(fuso_local())
+        .replace(tzinfo=None)
+        .isoformat(timespec="seconds")
+    )
+
+
 def limites_utc_do_periodo(
     data_inicio: str | None, data_fim: str | None
-) -> tuple[str | None, str | None]:
+) -> tuple[datetime.datetime | None, datetime.datetime | None]:
     """Dias LOCAIS de/até viram o intervalo UTC semiaberto [início, fim).
 
     Os filtros da tela mandam datas do calendário do usuário; o banco guarda
-    instantes UTC em texto ISO. Comparar `2026-09-24 00:00:00` direto com esse
-    texto recortava o dia em UTC -- das 21h do dia anterior às 21h do dia, no
-    horário de Brasília. Os limites saem sem offset, no mesmo formato
-    `AAAA-MM-DDTHH:MM:SS` do texto gravado, para a comparação de texto (e os
-    índices sobre ela) continuar valendo tanto para linhas com `+00:00` quanto
-    para janelas gravadas sem offset.
+    instantes (`timestamptz`). Comparar a data crua recortaria o dia em UTC --
+    das 21h do dia anterior às 21h do dia, no horário de Brasília. Os limites
+    saem como `datetime` UTC, prontos para comparar com a coluna.
     """
     fuso = fuso_local()
 
-    def _utc(dia: datetime.date) -> str | None:
+    def _utc(dia: datetime.date) -> datetime.datetime | None:
         meia_noite = datetime.datetime.combine(dia, datetime.time(0), tzinfo=fuso)
         try:
-            return meia_noite.astimezone(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S")
+            return meia_noite.astimezone(datetime.UTC)
         except OverflowError:
             # Data nos extremos do calendário (0001-01-01 / 9999-12-31): não há
             # instante UTC representável, e "sem limite" é o que ela significa.
@@ -394,7 +422,7 @@ class Email:
         zona: dict | None = None,
     ) -> str:
         """Monta o texto do e-mail no mesmo layout das Figuras 20/22/25/28."""
-        agora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        agora = agora_local().strftime("%d/%m/%Y %H:%M:%S")
         return (
             f"Status: {ti.rotulo_do_status(status)}\n"
             f"Data: {agora}\n"

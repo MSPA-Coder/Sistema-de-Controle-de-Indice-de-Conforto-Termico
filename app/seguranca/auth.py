@@ -79,7 +79,7 @@ from sharedauth.secrets import DIRETORIO_SECRETS_COMPOSE, resolver_segredo
 from sharedauth.session import marca_de_sessao, marcas_conferem
 
 from .. import database as db
-from ..models import fuso_local, parsear_timestamp
+from ..models import agora_utc, fuso_local, parsear_timestamp
 from ..nucleo import idioma, regional
 from . import tokens as _tokens
 
@@ -712,7 +712,7 @@ def logout() -> ResponseReturnValue:
             validade = current_app.permanent_session_lifetime
             db.revogar_sessao(
                 str(sid),
-                datetime.datetime.now(datetime.UTC) + validade + datetime.timedelta(minutes=5),
+                agora_utc() + validade + datetime.timedelta(minutes=5),
             )
         registrar_evento_revisavel(EventosAuditoria.LOGOUT, "autenticacao", "Encerrou a sessão")
     except Exception:

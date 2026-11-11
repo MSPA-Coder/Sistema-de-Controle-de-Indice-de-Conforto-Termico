@@ -2,7 +2,6 @@
 
 import datetime
 import json
-from types import SimpleNamespace
 
 import pytest
 
@@ -49,13 +48,8 @@ def test_painel_consolida_tendencia_sem_cruzar_zonas(banco, diferenca, tendencia
 def test_dia_do_painel_usa_fuso_local_na_virada_utc(banco, monkeypatch):
     instante = datetime.datetime(2026, 10, 19, 3, 30, tzinfo=datetime.UTC)
 
-    class Relogio(datetime.datetime):
-        @classmethod
-        def now(cls, tz=None):
-            return instante.astimezone(tz) if tz else instante.replace(tzinfo=None)
-
     monkeypatch.setenv("TZ", "America/Sao_Paulo")
-    monkeypatch.setattr(zonas, "datetime", SimpleNamespace(datetime=Relogio, timedelta=datetime.timedelta))
+    monkeypatch.setattr(zonas, "agora_local", lambda: instante.astimezone(zonas.fuso_local()))
     zona = db.criar_zona({"nome": "Virada", "especie": "frangos", "indice": "ITU"})
     with banco() as conn:
         for data, status, valor in [("2026-10-19T02:30:00+00:00", "Emergencia", 90),

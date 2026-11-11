@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import datetime
-
+from ..models import agora_utc, como_local_ingenuo
 from ..nucleo.idioma import normalizar as normalizar_idioma
 from ..nucleo.regional import normalize_regional_format
 from .comum import PERFIS_VALIDOS, coagir_booleano, conexao, normalizar_texto
@@ -56,6 +55,9 @@ def _validar_usuario(dados: dict, *, exigir_senha: bool) -> dict:
 def _linha_usuario_publica(linha) -> dict:
     usuario = dict(linha)
     usuario.pop("senha_hash", None)
+    for campo in ("criado_em", "atualizado_em", "ultimo_login_em"):
+        if campo in usuario:
+            usuario[campo] = como_local_ingenuo(usuario[campo])
     usuario["ativo"] = bool(usuario["ativo"])
     # Mesma coagir-para-bool de `ativo`: a coluna e INTEGER 0/1 no banco (ver
     # `migrations/versions/20261103_base.py`), e quem le espera booleano.
@@ -74,7 +76,7 @@ def criar_usuario(dados: dict, *, exigir_troca: bool = True) -> dict:
     caminho novo -- nasca protegida.
     """
     validado = _validar_usuario(dados, exigir_senha=True)
-    agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+    agora = agora_utc()
     with conexao() as conn:
         existe = conn.execute(
             "SELECT 1 FROM usuarios WHERE login = ?", (validado["login"],)
@@ -174,7 +176,7 @@ def atualizar_usuario(usuario_id: int, dados: dict) -> dict:
                 raise UltimoAdministradorError(
                     "Esta é a última conta de administrador ativa. Promova outro usuário a administrador antes de alterar esta."
                 )
-        agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+        agora = agora_utc()
         if "senha_hash" in validado:
             # Senha vinda daqui e senha que outra pessoa escolheu: liga a
             # obrigacao de trocar, como a redefinicao faz. A tela de edicao
@@ -235,7 +237,7 @@ def redefinir_senha_usuario(usuario_id: int, senha_hash: str) -> dict:
     perfil e estado, e um caminho que faz as duas coisas juntas convida a
     redefinir senha sem querer ao salvar um formulario de cadastro.
     """
-    agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+    agora = agora_utc()
     with conexao() as conn:
         atual = conn.execute("SELECT 1 FROM usuarios WHERE id = ?", (usuario_id,)).fetchone()
         if atual is None:
@@ -250,7 +252,7 @@ def redefinir_senha_usuario(usuario_id: int, senha_hash: str) -> dict:
 
 def trocar_senha_propria(usuario_id: int, senha_hash: str) -> dict:
     """Grava a senha escolhida pelo proprio dono e desliga a obrigacao."""
-    agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+    agora = agora_utc()
     with conexao() as conn:
         atual = conn.execute("SELECT 1 FROM usuarios WHERE id = ?", (usuario_id,)).fetchone()
         if atual is None:
@@ -270,7 +272,7 @@ def atualizar_formato_regional(usuario_id: int, formato: str | None) -> str:
     a tela oferece duas opções e o banco recusa qualquer outra por CHECK.
     """
     normalizado = normalize_regional_format(formato)
-    agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+    agora = agora_utc()
     with conexao() as conn:
         atual = conn.execute("SELECT 1 FROM usuarios WHERE id = ?", (usuario_id,)).fetchone()
         if atual is None:
@@ -285,7 +287,7 @@ def atualizar_formato_regional(usuario_id: int, formato: str | None) -> str:
 def atualizar_idioma(usuario_id: int, idioma: str | None) -> str:
     """Grava o idioma da interface da própria conta."""
     escolhido = normalizar_idioma(idioma)
-    agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+    agora = agora_utc()
     with conexao() as conn:
         atual = conn.execute("SELECT 1 FROM usuarios WHERE id = ?", (usuario_id,)).fetchone()
         if atual is None:
@@ -298,6 +300,6 @@ def atualizar_idioma(usuario_id: int, idioma: str | None) -> str:
 
 
 def registrar_login_usuario(usuario_id: int) -> None:
-    agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+    agora = agora_utc()
     with conexao() as conn:
         conn.execute("UPDATE usuarios SET ultimo_login_em = ? WHERE id = ?", (agora, usuario_id))

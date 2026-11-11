@@ -11,10 +11,11 @@ import json
 import logging
 import os
 import threading
-from datetime import UTC, datetime
 from typing import Any
 
 from sharedauth.logs import sanitizar_log
+
+from app.models import agora_utc
 
 # Logger dedicado para auditoria
 audit_logger = logging.getLogger("conforto_termico.audit")
@@ -81,7 +82,7 @@ def log_evento(
         detalhes: Detalhes adicionais do evento (dados sensíveis serão sanitizados)
     """
     registro = {
-        "timestamp": datetime.now(UTC).isoformat(),
+        "timestamp": agora_utc().isoformat(),
         "evento": evento,
         "categoria": categoria,
         "acao": acao,

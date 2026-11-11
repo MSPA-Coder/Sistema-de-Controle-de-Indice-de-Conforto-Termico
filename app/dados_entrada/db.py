@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from app.models import timestamp_utc
+from app.models import agora_utc, parsear_timestamp
 from app.nucleo import db_backend
 
 from .cidades import (
@@ -91,8 +91,8 @@ def iniciar_banco() -> None:
     """O schema ``dados_entrada`` é criado exclusivamente pelo Alembic."""
 
 
-def _agora() -> str:
-    return timestamp_utc()
+def _agora() -> datetime.datetime:
+    return agora_utc()
 
 
 def sincronizar_zonas(zonas: list[dict]) -> list[dict]:
@@ -350,9 +350,7 @@ def criar_execucao(
     recuperar_execucoes_expiradas()
     agora = _agora()
     lease_token = str(uuid.uuid4())
-    lease_until = (
-        datetime.datetime.now(datetime.UTC) + datetime.timedelta(minutes=5)
-    ).isoformat(timespec="seconds")
+    lease_until = agora + datetime.timedelta(minutes=5)
     with _conexao() as conn:
         cursor = conn.execute(
             """
@@ -382,9 +380,7 @@ def criar_execucao(
 def heartbeat_execucao(execucao_id: int, *, conn=None) -> bool:
     """Renova o lease de uma execução ainda em processamento."""
     agora = _agora()
-    lease_until = (
-        datetime.datetime.now(datetime.UTC) + datetime.timedelta(minutes=5)
-    ).isoformat(timespec="seconds")
+    lease_until = agora + datetime.timedelta(minutes=5)
     if conn is not None:
         cursor = conn.execute(
             "UPDATE execucoes SET heartbeat_em=?, lease_until=? "
@@ -624,9 +620,27 @@ def iterar_medicoes_csv(
                 )
             while linhas := resultado.fetchmany(lote):
                 for linha in linhas:
-                    yield tuple(linha[coluna] for coluna in colunas)
+                    yield tuple(_valor_csv(linha, coluna) for coluna in colunas)
 
     return colunas, _linhas()
+
+
+def _valor_csv(linha, coluna: str):
+    """Instantes saem no formato de sempre do CSV (contrato com a análise).
+
+    `timestamp_utc`: `AAAA-MM-DDTHH:MMZ+00:00` ao minuto; `timestamp_local`: o
+    mesmo instante no fuso da própria linha (`fuso_horario`), com o offset.
+    """
+    valor = linha[coluna]
+    if coluna == "timestamp_utc":
+        return parsear_timestamp(valor).isoformat(timespec="minutes")
+    if coluna == "timestamp_local":
+        return (
+            parsear_timestamp(valor)
+            .astimezone(ZoneInfo(linha["fuso_horario"]))
+            .isoformat(timespec="minutes")
+        )
+    return valor
 
 
 def obter_cache_clima(chave: str) -> dict | None:
@@ -694,8 +708,8 @@ def copiar_medicoes_para_historico(execucao_id: int) -> dict:
                 conn.execute("SELECT pg_advisory_xact_lock(hashtext(?))",
                              (f"conforto:agregacao:{chave['zona_id']}:{chave['indice']}",))
             for tabela, coluna, bucket in (
-                ("agregados_15min", "janela_inicio", "date_bin(INTERVAL '15 minutes', m.timestamp_utc::timestamp, TIMESTAMP '2000-01-01')"),
-                ("resumos_horarios", "hora_inicio", "date_trunc('hour', m.timestamp_utc::timestamp)"),
+                ("agregados_15min", "janela_inicio", "date_bin(INTERVAL '15 minutes', m.timestamp_utc, TIMESTAMPTZ '2000-01-01 00:00:00+00')"),
+                ("resumos_horarios", "hora_inicio", "date_trunc('hour', m.timestamp_utc, 'UTC')"),
             ):
                 conn.execute(
                     f"""DELETE FROM historico.{tabela} a
@@ -704,7 +718,7 @@ def copiar_medicoes_para_historico(execucao_id: int) -> dict:
                         LEFT JOIN historico_exportado he ON he.medicao_id = m.id
                         WHERE m.execucao_id=? AND he.medicao_id IS NULL
                           AND a.zona_id=m.zona_id AND a.indice=m.indice
-                          AND a.{coluna}=to_char({bucket}, 'YYYY-MM-DD"T"HH24:MI:SS')
+                          AND a.{coluna}={bucket}
                     )""",
                     (execucao_id,),
                 )

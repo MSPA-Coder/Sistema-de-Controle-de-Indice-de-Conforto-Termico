@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import datetime
 import json
 import re
 from typing import Any, cast
 
+from app.models import agora_utc
 from app.nucleo import cache as cache_module
 from app.termico import thermal_indices as ti
 
@@ -230,7 +230,7 @@ def salvar_configuracoes(configuracoes: dict) -> dict:
     # advisory lock protege o documento de configuracoes contra lost updates
     # entre processos diferentes; a serialização local do backend anterior não
     # oferecia essa garantia.
-    agora = datetime.datetime.now().replace(microsecond=0).isoformat(timespec="seconds")
+    agora = agora_utc()
     with conexao() as conn:
         conn.execute("SELECT pg_advisory_xact_lock(hashtext('conforto:configuracoes'))")
         linhas = conn.execute("SELECT chave, valor FROM configuracoes").fetchall()

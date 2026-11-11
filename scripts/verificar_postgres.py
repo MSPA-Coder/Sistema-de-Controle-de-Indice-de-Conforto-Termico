@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-
 from app import database
 from app.dados_entrada import db as dados_entrada_db
+from app.models import agora_utc
 from app.nucleo import db_backend
 
 
@@ -46,7 +45,7 @@ def main() -> int:
                 "frangos",
                 "ITU",
                 1,
-                datetime.now().isoformat(timespec="seconds"),
+                agora_utc(),
             ),
         )
         if not cursor.lastrowid:

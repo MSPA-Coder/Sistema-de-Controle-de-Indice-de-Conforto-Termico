@@ -13,6 +13,7 @@ import time
 from collections import defaultdict
 from typing import TYPE_CHECKING, TypeVar, cast
 
+from app.models import agora_utc
 from app.nucleo import notificacoes
 from app.termico import agregacao
 from app.termico import thermal_indices as ti
@@ -83,7 +84,7 @@ class GerenciadorControleZonas:
 
     @staticmethod
     def _agora() -> datetime.datetime:
-        return datetime.datetime.now().replace(microsecond=0)
+        return agora_utc()
 
     @staticmethod
     def _intervalo_segundos() -> float:
@@ -105,8 +106,8 @@ class GerenciadorControleZonas:
         proximo = agora + datetime.timedelta(seconds=self._intervalo_segundos())
         db.salvar_status_coletor(
             "online",
-            iniciado_em=agora.isoformat(timespec="seconds"),
-            proximo_ciclo_em=proximo.isoformat(timespec="seconds"),
+            iniciado_em=agora,
+            proximo_ciclo_em=proximo,
         )
         self._thread = threading.Thread(target=self._loop, name="controle-zonas", daemon=True)
         self._thread.start()
@@ -127,7 +128,7 @@ class GerenciadorControleZonas:
             )
             proximo = self._agora() + datetime.timedelta(seconds=intervalo)
             db.salvar_status_coletor(
-                "online", proximo_ciclo_em=proximo.isoformat(timespec="seconds")
+                "online", proximo_ciclo_em=proximo
             )
             self._acordar.clear()
             if self._acordar.wait(intervalo):
@@ -251,7 +252,7 @@ class GerenciadorControleZonas:
                     {"zona_id": zona["id"], "zona_nome": zona["nome"], "erro": mensagem}
                 )
 
-        agora = self._agora().isoformat(timespec="seconds")
+        agora = self._agora()
         db.salvar_status_coletor("online", ultimo_ciclo_em=agora, erro=None)
 
         if resultados:

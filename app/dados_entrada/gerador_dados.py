@@ -30,6 +30,7 @@ from zoneinfo import ZoneInfo
 import certifi
 import truststore
 
+from app.models import hoje_local
 from app.termico import thermal_indices as ti
 
 from . import db as dados_db
@@ -117,8 +118,8 @@ def validar_parametros(dados: dict, total_zonas: int) -> ParametrosGeracao:
         except ValueError as erro:
             raise GeracaoDadosError("data_final deve estar no formato AAAA-MM-DD.") from erro
     else:
-        data_final = datetime.date.today() - datetime.timedelta(days=ATRASO_PADRAO_ERA5_DIAS)
-    data_final_maxima = datetime.date.today() - datetime.timedelta(days=ATRASO_PADRAO_ERA5_DIAS)
+        data_final = hoje_local() - datetime.timedelta(days=ATRASO_PADRAO_ERA5_DIAS)
+    data_final_maxima = hoje_local() - datetime.timedelta(days=ATRASO_PADRAO_ERA5_DIAS)
     if data_final > data_final_maxima:
         raise GeracaoDadosError(
             "A data final precisa ser igual ou anterior a "
@@ -708,8 +709,8 @@ def gerar(dados: dict, zonas: list[dict]) -> dict:
                         "zona_nome": zona["nome"],
                         "especie": zona["especie"],
                         "indice": zona["indice"],
-                        "timestamp_utc": instante_utc.isoformat(timespec="minutes"),
-                        "timestamp_local": instante_local.isoformat(timespec="minutes"),
+                        "timestamp_utc": instante_utc,
+                        "timestamp_local": instante_local,
                         "fuso_horario": config["fuso_horario"],
                         "tbs_externa_c": round(tbs, 3),
                         "ur_externa_pct": round(ur, 3),

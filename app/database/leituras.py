@@ -16,7 +16,6 @@ from app.models import (
     como_utc_iso,
     limites_utc_do_periodo,
     parsear_timestamp,
-    timestamp_utc,
 )
 from app.termico import thermal_indices as ti
 
@@ -51,7 +50,7 @@ def salvar_leitura(
     *,
     zona_id: int,
     amostra_id: str | None = None,
-    timestamp_utc: str | None = None,
+    timestamp_utc: str | datetime.datetime | None = None,
 ) -> bool:
     """Grava uma leitura de zona no histórico.
 
@@ -112,9 +111,9 @@ def salvar_leitura(
                 valor,
                 status,
                 json.dumps(entradas),
-                agora.isoformat(timespec="seconds"),
+                agora,
                 zona_id,
-                instante_amostra,
+                momento_amostra,
                 identidade,
             ),
         )
@@ -145,7 +144,7 @@ def salvar_leitura_recente_zona(
     limite: int = 30,
 ) -> None:
     """Mantém uma janela curta para gráficos entre processos separados."""
-    agora = timestamp_utc()
+    agora = agora_utc()
     limite = max(1, min(200, int(limite)))
     with conexao() as conn:
         conn.execute(
@@ -417,13 +416,12 @@ def limpar_historico() -> None:
 
 
 # A lógica de quando consolidar pertence a ``agregacao.py``; este agregado
-# fornece apenas as consultas e gravações idempotentes.
-def _formatar_janela(momento: datetime.datetime, minutos: int) -> str:
-    """Arredonda ``momento`` para o início do bucket de ``minutos``."""
-    bucket = (momento.minute // minutos) * minutos
-    if momento.tzinfo is not None:
-        momento = momento.astimezone(datetime.UTC).replace(tzinfo=None)
-    return momento.replace(minute=bucket, second=0, microsecond=0).isoformat(timespec="seconds")
+# fornece apenas as consultas e gravações idempotentes. Janelas e horas são
+# `timestamptz` (início do bucket, em UTC) e o banco as calcula com `date_bin` e
+# `date_trunc` direto sobre a coluna: sem `::timestamp`, o índice por instante
+# continua valendo e o fuso do servidor não entra na conta.
+_BUCKET_15MIN = "date_bin(INTERVAL '15 minutes', {coluna}, TIMESTAMPTZ '2000-01-01 00:00:00+00')"
+_BUCKET_HORA = "date_trunc('hour', {coluna}, 'UTC')"
 
 
 def janelas_15min_pendentes(
@@ -431,37 +429,23 @@ def janelas_15min_pendentes(
 ) -> list[str]:
     """Devolve os inícios de janelas fechadas ainda não consolidadas."""
     agora = agora_utc()
-    janela_atual_aberta = _formatar_janela(agora, 15)
+    janela_atual_aberta = agora.replace(minute=(agora.minute // 15) * 15, second=0)
     limite = max(1, min(LIMITE_JANELAS_PENDENTES, int(limite)))
+    bucket_leitura = _BUCKET_15MIN.format(coluna="l.criado_em")
     with conexao(escrita=False) as conn:
         linhas = conn.execute(
-            """
-            SELECT DISTINCT
-                to_char(
-                    date_bin(
-                        INTERVAL '15 minutes',
-                        l.criado_em::timestamp,
-                        TIMESTAMP '2000-01-01'
-                    ),
-                    'YYYY-MM-DD"T"HH24:MI:SS'
-                ) AS janela_inicio
+            f"""
+            SELECT DISTINCT {bucket_leitura} AS janela_inicio
             FROM leituras l
             WHERE l.zona_id = ?
               AND l.indice = ?
-              AND l.criado_em::timestamp < ?::timestamp
+              AND l.criado_em < ?
               AND NOT EXISTS (
                   SELECT 1
                   FROM agregados_15min a
                   WHERE a.zona_id = l.zona_id
                     AND a.indice = l.indice
-                    AND a.janela_inicio = to_char(
-                        date_bin(
-                            INTERVAL '15 minutes',
-                            l.criado_em::timestamp,
-                            TIMESTAMP '2000-01-01'
-                        ),
-                        'YYYY-MM-DD"T"HH24:MI:SS'
-                    )
+                    AND a.janela_inicio = {bucket_leitura}
               )
             ORDER BY janela_inicio
             LIMIT ?
@@ -472,22 +456,21 @@ def janelas_15min_pendentes(
 
 
 def agregar_janela_15min(
-    zona_id: int, especie: str, indice: str, janela_inicio: str
+    zona_id: int, especie: str, indice: str, janela_inicio: str | datetime.datetime
 ) -> dict | None:
     """Consolida uma janela de 15 minutos por UPSERT, se tiver leituras."""
-    janela_fim = (
-        datetime.datetime.fromisoformat(janela_inicio) + datetime.timedelta(minutes=15)
-    ).isoformat(timespec="seconds")
+    inicio = parsear_timestamp(janela_inicio)
+    fim = inicio + datetime.timedelta(minutes=15)
     with conexao() as conn:
         conn.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"conforto:agregacao:{zona_id}:{indice}",))
         linhas = conn.execute(
             """
             SELECT valor, entradas FROM leituras
             WHERE zona_id = ? AND indice = ?
-              AND criado_em::timestamp >= ?::timestamp
-              AND criado_em::timestamp < ?::timestamp
+              AND criado_em >= ?
+              AND criado_em < ?
             """,
-            (zona_id, indice, janela_inicio, janela_fim),
+            (zona_id, indice, inicio, fim),
         ).fetchall()
         if not linhas:
             return None
@@ -503,12 +486,12 @@ def agregar_janela_15min(
             for campo, valores_campo in entradas_por_campo.items()
         }
 
-        agora = timestamp_utc()
+        agora = agora_utc()
         registro = {
             "zona_id": zona_id,
             "especie": especie,
             "indice": indice,
-            "janela_inicio": janela_inicio,
+            "janela_inicio": inicio.isoformat(timespec="seconds"),
             "amostras": len(valores),
             "valor_medio": round(sum(valores) / len(valores), 2),
             "valor_minimo": round(min(valores), 2),
@@ -533,7 +516,7 @@ def agregar_janela_15min(
                 zona_id,
                 especie,
                 indice,
-                janela_inicio,
+                inicio,
                 registro["amostras"],
                 registro["valor_medio"],
                 registro["valor_minimo"],
@@ -549,32 +532,23 @@ def horas_pendentes(
     zona_id: int, indice: str, limite: int = LIMITE_JANELAS_PENDENTES
 ) -> list[str]:
     """Devolve as horas fechadas ainda não resumidas."""
-    agora = agora_utc()
-    hora_atual_aberta = agora.replace(minute=0, second=0, microsecond=0).isoformat(
-        timespec="seconds"
-    )
+    hora_atual_aberta = agora_utc().replace(minute=0, second=0)
     limite = max(1, min(LIMITE_JANELAS_PENDENTES, int(limite)))
+    bucket_janela = _BUCKET_HORA.format(coluna="a.janela_inicio")
     with conexao(escrita=False) as conn:
         linhas = conn.execute(
-            """
-            SELECT DISTINCT
-                to_char(
-                    date_trunc('hour', a.janela_inicio::timestamp),
-                    'YYYY-MM-DD"T"HH24:MI:SS'
-                ) AS hora_inicio
+            f"""
+            SELECT DISTINCT {bucket_janela} AS hora_inicio
             FROM agregados_15min a
             WHERE a.zona_id = ?
               AND a.indice = ?
-              AND a.janela_inicio::timestamp < ?::timestamp
+              AND a.janela_inicio < ?
               AND NOT EXISTS (
                   SELECT 1
                   FROM resumos_horarios r
                   WHERE r.zona_id = a.zona_id
                     AND r.indice = a.indice
-                    AND r.hora_inicio = to_char(
-                        date_trunc('hour', a.janela_inicio::timestamp),
-                        'YYYY-MM-DD"T"HH24:MI:SS'
-                    )
+                    AND r.hora_inicio = {bucket_janela}
               )
             ORDER BY hora_inicio
             LIMIT ?
@@ -585,22 +559,21 @@ def horas_pendentes(
 
 
 def consolidar_resumo_horario(
-    zona_id: int, especie: str, indice: str, hora_inicio: str
+    zona_id: int, especie: str, indice: str, hora_inicio: str | datetime.datetime
 ) -> dict | None:
     """Consolida as leituras brutas de uma hora por UPSERT."""
-    hora_fim = (
-        datetime.datetime.fromisoformat(hora_inicio) + datetime.timedelta(hours=1)
-    ).isoformat(timespec="seconds")
+    inicio = parsear_timestamp(hora_inicio)
+    fim = inicio + datetime.timedelta(hours=1)
     with conexao() as conn:
         conn.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"conforto:agregacao:{zona_id}:{indice}",))
         linhas = conn.execute(
             """
             SELECT valor, status FROM leituras
             WHERE zona_id = ? AND indice = ?
-              AND criado_em::timestamp >= ?::timestamp
-              AND criado_em::timestamp < ?::timestamp
+              AND criado_em >= ?
+              AND criado_em < ?
             """,
-            (zona_id, indice, hora_inicio, hora_fim),
+            (zona_id, indice, inicio, fim),
         ).fetchall()
         if not linhas:
             return None
@@ -617,7 +590,7 @@ def consolidar_resumo_horario(
             status: round((contagem.get(status, 0) / total) * 100, 1) for status in ti.STATUS_ORDEM
         }
 
-        agora = timestamp_utc()
+        agora = agora_utc()
         conn.execute(
             """
             INSERT INTO resumos_horarios
@@ -641,7 +614,7 @@ def consolidar_resumo_horario(
                 zona_id,
                 especie,
                 indice,
-                hora_inicio,
+                inicio,
                 total,
                 valor_medio,
                 round(min(valores), 2),
@@ -657,7 +630,7 @@ def consolidar_resumo_horario(
     return {
         "zona_id": zona_id,
         "indice": indice,
-        "hora_inicio": hora_inicio,
+        "hora_inicio": inicio.isoformat(timespec="seconds"),
         "amostras": total,
         "valor_medio": valor_medio,
         "status_da_media": status_da_media,
