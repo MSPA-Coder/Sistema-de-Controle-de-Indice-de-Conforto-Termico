@@ -142,8 +142,7 @@ Nunca escreva código para o teste passar.
 A suíte tem duas camadas. A maior não abre conexão nenhuma (ver o docstring de
 `tests/conftest.py`). A camada `banco` roda contra o `postgres-teste`, efêmero
 e sem porta, que o `quality` sobe junto, com o schema criado pela cadeia
-Alembic inteira. Ela serve ao que **só o PostgreSQL prova** -- comparação de
-texto ISO como instante, `date_bin`/`date_trunc`, fuso, agregação por janela --
+Alembic inteira. Ela serve ao que **só o PostgreSQL prova** -- instante em `timestamptz`, `date_bin`/`date_trunc`, fuso, agregação por janela --
 e não substitui os testes de domínio sem banco. Um teste nela é válido quando
 um dublê não detectaria o defeito. No venv do host, sem `TESTE_DATABASE_URL`,
 essa camada é pulada.
@@ -168,8 +167,8 @@ dependências; a decisão atual é não modificar a aplicação.
 ## Integridade e recuperação de dados
 
 As revisões novas são aditivas. O histórico grava `timestamp_utc` e
-`amostra_id` para deduplicação atômica; a leitura de timestamps legados sem
-offset assume UTC. O job de dados de entrada grava medições em staging com uma
+`amostra_id` para deduplicação atômica; os instantes são `timestamptz` (ADR 012) e
+o texto sem offset que um cliente SQL grave é lido como UTC. O job de dados de entrada grava medições em staging com uma
 execução `processando`, renova um lease/heartbeat por lote e só publica a
 execução quando ela passa a `concluida`. Leases expirados são recuperados e o
 staging incompleto é descartado. Exports CSV também ignoram execuções não
