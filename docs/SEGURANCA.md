@@ -47,8 +47,9 @@ para as demais contas continua 403, que não revela quais ids existem.
   seguinte com esse cookie é tratada como deslogada. Sessões de antes dessa
   mudança não têm `sid` e valem até vencer. Sair de um aparelho não derruba os
   outros da mesma conta; trocar a senha continua derrubando todos.
-- **Login em tempo constante.** Conta inexistente também gasta uma verificação
-  de hash, para o tempo de resposta não revelar quais logins existem.
+- **Login em tempo constante.** Conta inexistente, inativa e ativa gastam a
+  mesma verificação de hash (`sharedauth.passwords.conferir_login`), para o
+  tempo de resposta não revelar quais logins existem nem quais estão inativos.
 - **Trilha de auditoria com autor.** O ator vem de `g.usuario`. Além do
   cadastro, entram login (sucesso e falha), logout, troca e redefinição de
   senha, criação/edição/exclusão de conta, zonas liberadas, geração de dados,
