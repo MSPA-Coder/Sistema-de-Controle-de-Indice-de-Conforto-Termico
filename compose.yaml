@@ -241,8 +241,6 @@ services:
       - secret_key
     ports:
       - "127.0.0.1:${APP_PORT:-5001}:5000"
-    volumes:
-      - app_instance:/workspace/instance
     depends_on:
       schema:
         condition: service_completed_successfully
@@ -326,7 +324,6 @@ services:
 
 volumes:
   postgres_data:
-  app_instance:
 
 secrets:
   local_ca:

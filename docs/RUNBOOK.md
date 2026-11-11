@@ -96,7 +96,10 @@ docker compose --env-file .env.docker down
 
 - `postgres_data`: usuários, zonas, equipamentos, configurações, medições,
   agregados, eventos e dados de entrada;
-- `app_instance`: arquivos locais de suporte ao runtime, quando habilitados;
+- `app_instance` não existe mais: a chave de sessão e os tokens internos vêm de
+  `.secrets/`, e o ICT não grava em `/workspace/instance`. Instalações antigas
+  podem ter o volume `conforto-termico_app_instance` órfão, com uma
+  `secret_key.txt` anterior ao ADR 007: remova-o, com o "sim" do mantenedor;
 - `.secrets/`: arquivos locais necessários ao Compose, fora dos volumes e do Git.
 
 O schema `historico` reúne configuração e dados operacionais. O schema

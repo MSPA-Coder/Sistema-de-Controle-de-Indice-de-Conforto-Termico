@@ -190,7 +190,7 @@ def gerar_hash_senha(senha: str) -> str:
 #
 # A geracao silenciosa fica restrita aos ambientes em que perder a chave e
 # invalidar sessoes e aceitavel. Nos demais, uma configuracao incompleta precisa
-# falhar na inicializacao em vez de depender do volume `app_instance`.
+# falhar na inicializacao em vez de gravar uma chave em disco do contêiner.
 # ---------------------------------------------------------------------------
 
 

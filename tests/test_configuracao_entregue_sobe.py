@@ -124,3 +124,12 @@ def test_o_servico_que_envia_email_recebe_a_senha_smtp():
     """
     assert "SMTP_PASS" in _variaveis_do_servico("coletor")
     assert "SMTP_PASS" in _variaveis_do_servico("ict")
+
+
+def test_o_ict_nao_monta_volume_em_workspace_instance():
+    """Chave de sessao e tokens vem de `/run/secrets`; o volume `instance` era um
+    segundo lugar onde uma chave de assinatura antiga ficava esquecida."""
+    texto = (RAIZ / "compose.yaml").read_text(encoding="utf-8")
+    bloco = re.search(r"^  ict:\n(.*?)(?=^  [\w-]+:\n|\Z)", texto, re.M | re.S).group(1)
+    assert "/workspace/instance" not in bloco
+    assert "app_instance" not in texto
