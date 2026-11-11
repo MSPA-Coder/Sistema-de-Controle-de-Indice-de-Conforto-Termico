@@ -1,6 +1,7 @@
 """ICT → HTTP privado → malha simulada → PostgreSQL, sem hardware externo."""
 
 import smtplib
+import ssl
 from email import message_from_string
 from threading import Thread
 
@@ -128,7 +129,11 @@ def test_notificacao_manual_confirma_resultado_smtp_sem_perder_medicao(ponte, mo
         def __exit__(self, *args):
             return False
 
-        def starttls(self):
+        def starttls(self, *, context=None):
+            # STARTTLS sem verificar certificado entregaria a senha a quem estivesse
+            # no caminho: o contexto tem de exigir certificado e nome do servidor.
+            assert context is not None
+            assert context.verify_mode == ssl.CERT_REQUIRED and context.check_hostname
             self.tls = True
 
         def login(self, usuario, senha):

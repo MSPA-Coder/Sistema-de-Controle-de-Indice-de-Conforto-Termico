@@ -22,6 +22,7 @@ import datetime
 import os
 import re
 import smtplib
+import ssl
 from email.mime.text import MIMEText
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -343,7 +344,11 @@ class Email:
             msg["From"] = usuario
             msg["To"] = self.destino
             with smtplib.SMTP(host, int(porta), timeout=10) as servidor:
-                servidor.starttls()
+                # Com o contexto padrao do `smtplib` o certificado e o nome do
+                # servidor nao sao conferidos, e a senha iria a quem estivesse
+                # no caminho. Servidor sem STARTTLS levanta SMTPNotSupportedError
+                # e nada e enviado.
+                servidor.starttls(context=ssl.create_default_context())
                 # Credenciais sao usadas apenas internamente - nunca logadas
                 servidor.login(usuario, senha)
                 servidor.sendmail(usuario, [self.destino], msg.as_string())
