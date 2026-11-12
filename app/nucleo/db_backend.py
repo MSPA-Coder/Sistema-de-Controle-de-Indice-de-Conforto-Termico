@@ -84,6 +84,33 @@ def postgres_ativo() -> bool:
 
 _engines_criados: dict[str, Any] = {}
 
+# Teto de tempo das sessões do papel restrito (coletor e ict). A operação
+# legítima mais longa é copiar uma geração ao histórico: medida em 12/11/2026,
+# 40 mil medições levam 2,4 s num PostgreSQL em memória (~60 µs por linha, com
+# os 6 índices de `leituras`), logo o máximo de 2 milhões leva ~2 min lá e
+# bem mais num disco de VPS. Por isso 15 min e não os 55 s do ControleBancario:
+# o teto serve para uma consulta descontrolada não prender o pool, não para
+# cortar a operação grande. `statement_timeout` já cobre a espera por lock. O
+# `schema` (Alembic) e a suíte, sem a trava de papel, não têm teto.
+_TETOS_DE_SESSAO = (
+    ("statement_timeout", "DB_STATEMENT_TIMEOUT_MS", "900000"),
+    ("idle_in_transaction_session_timeout", "DB_IDLE_IN_TRANSACTION_TIMEOUT_MS", "300000"),
+)
+
+
+def opcoes_de_sessao() -> str:
+    """Opções de servidor (`-c ...`) de toda conexão nova do pool."""
+    from .papel_do_banco import exigido
+
+    opcoes = ["-c timezone=UTC"]
+    if exigido():
+        for parametro, variavel, padrao in _TETOS_DE_SESSAO:
+            valor = os.environ.get(variavel, "").strip() or padrao
+            if not valor.isdigit():
+                raise RuntimeError(f"{variavel} deve ser um número de milissegundos.")
+            opcoes.append(f"-c {parametro}={valor}")
+    return " ".join(opcoes)
+
 
 @lru_cache(maxsize=4)
 def _engine(url: str):
@@ -98,7 +125,7 @@ def _engine(url: str):
         # A sessão fala UTC: `timestamptz` sai sempre no mesmo fuso, seja qual
         # for o `TimeZone` do servidor, e texto sem offset gravado por um
         # cliente SQL é lido como UTC (o que o histórico sempre assumiu).
-        connect_args={"application_name": "conforto_termico", "options": "-c timezone=UTC"},
+        connect_args={"application_name": "conforto_termico", "options": opcoes_de_sessao()},
     )
     from .papel_do_banco import instalar as instalar_trava_de_papel
 
