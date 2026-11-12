@@ -112,6 +112,12 @@ def _montar_formatos_antigos(banco) -> None:
     _preencher(banco, "dados_entrada.medicoes", id=1, execucao_id=1, zona_id=1,
                timestamp_utc="2026-11-11T10:00+00:00", timestamp_local="2026-11-11T07:00-03:00",
                fuso_horario="America/Sao_Paulo")
+    # Colunas que a primeira revisão deixou em texto e a seguinte converte.
+    _preencher(banco, "dados_entrada.cache_clima", chave="a", consultado_em="2026-11-11T10:00:00+00:00")
+    _preencher(banco, "dados_entrada.cache_clima", chave="b", consultado_em="2026-11-11 10:00:00+00")
+    _preencher(banco, "dados_entrada.cache_clima", chave="c", consultado_em="2026-11-11T10:00:00")
+    _preencher(banco, "dados_entrada.historico_exportado", medicao_id=1,
+               copiado_em="2026-11-11T10:00:00-03:00")
 
 
 def test_revisao_converte_os_tres_formatos_antigos_para_o_instante_certo(banco_antigo):
@@ -143,6 +149,27 @@ def test_revisao_converte_os_tres_formatos_antigos_para_o_instante_certo(banco_a
     assert instante("dados_entrada.medicoes", "timestamp_local") == "2026-11-11T10:00:00"
     # Dias do calendário viram `date`.
     assert _um(banco, "SELECT data_inicio FROM dados_entrada.execucoes") == datetime.date(2026, 11, 1)
+    # Cache do clima e cópia ao histórico: offset vale como está; sem offset é UTC.
+    assert instante("dados_entrada.cache_clima", "consultado_em", "chave='a'") == "2026-11-11T10:00:00"
+    assert instante("dados_entrada.cache_clima", "consultado_em", "chave='b'") == "2026-11-11T10:00:00"
+    assert instante("dados_entrada.cache_clima", "consultado_em", "chave='c'") == "2026-11-11T10:00:00"
+    assert instante("dados_entrada.historico_exportado", "copiado_em") == "2026-11-11T13:00:00"
+
+
+def test_revisao_das_colunas_restantes_falha_com_texto_invalido(banco_antigo):
+    banco = banco_antigo
+    _montar_formatos_antigos(banco)
+    banco.execute("UPDATE dados_entrada.cache_clima SET consultado_em = '' WHERE chave = 'c'")
+
+    with pytest.raises(RuntimeError, match=r"cache_clima\.consultado_em.*NULL"):
+        command.upgrade(Config("alembic.ini"), "head")
+
+    # Nada ficou pela metade: a outra coluna restante continua texto.
+    assert _um(
+        banco,
+        "SELECT data_type FROM information_schema.columns WHERE table_schema='dados_entrada' "
+        "AND table_name='historico_exportado' AND column_name='copiado_em'",
+    ) == "text"
 
 
 def test_revisao_falha_inteira_com_texto_invalido_em_coluna_obrigatoria(banco_antigo):
@@ -186,6 +213,12 @@ def test_downgrade_devolve_texto_iso_no_formato_que_cada_coluna_tinha(banco_anti
     assert _um(banco, "SELECT timestamp_local FROM dados_entrada.medicoes") == "2026-11-11T07:00-03:00"
     assert _um(banco, "SELECT timestamp_utc FROM dados_entrada.medicoes") == "2026-11-11T10:00+00:00"
     assert _um(banco, "SELECT data_fim FROM dados_entrada.execucoes") == "2026-11-10"
+    assert _um(
+        banco, "SELECT consultado_em FROM dados_entrada.cache_clima WHERE chave='a'"
+    ) == "2026-11-11T10:00:00+00:00"
+    assert _um(
+        banco, "SELECT copiado_em FROM dados_entrada.historico_exportado"
+    ) == "2026-11-11T13:00:00+00:00"
 
 
 # --- O código novo, pela porta pública --------------------------------------
@@ -193,12 +226,13 @@ def test_downgrade_devolve_texto_iso_no_formato_que_cada_coluna_tinha(banco_anti
 
 def _colunas_da_revisao() -> list[tuple]:
     caminho = pathlib.Path(__file__).resolve().parent.parent / "migrations/versions"
-    spec = importlib.util.spec_from_file_location(
-        "revisao_instantes", caminho / "20261111_instantes_com_fuso.py"
-    )
-    modulo = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(modulo)
-    return modulo.COLUNAS
+    colunas = []
+    for nome in ("20261111_instantes_com_fuso", "20261111_instantes_restantes"):
+        spec = importlib.util.spec_from_file_location(f"revisao_{nome}", caminho / f"{nome}.py")
+        modulo = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(modulo)
+        colunas += modulo.COLUNAS
+    return colunas
 
 
 def test_nenhuma_coluna_de_instante_continua_texto(banco):

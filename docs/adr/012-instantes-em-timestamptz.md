@@ -17,11 +17,13 @@ do contêiner deslocaria heartbeat, "leitura atual" e janelas sem nenhum erro.
 
 ## Decisão
 
-- As 36 colunas de instante são `timestamptz` e os dois dias do calendário de
+- As 38 colunas de instante são `timestamptz` e os dois dias do calendário de
   `execucoes` (`data_inicio`, `data_fim`) são `date`. A revisão
-  `20261111_instantes_com_fuso` converte, distinguindo os formatos pelo próprio
+  `20261111_instantes_com_fuso` converte 36, distinguindo os formatos pelo próprio
   texto (offset presente vale como está; sem offset, vale o fuso que o código
-  gravava na coluna) e recusando texto inválido.
+  gravava na coluna) e recusando texto inválido; `20261111_instantes_restantes`
+  converte as duas que ela esqueceu (`cache_clima.consultado_em` e
+  `historico_exportado.copiado_em`), pela mesma regra.
 - Há uma só fonte de "agora" em `app/models.py` (`agora_utc`, `agora_local`,
   `hoje_local`); um teste reprova `datetime.now()` e `date.today()` em outro
   lugar de `app/`.

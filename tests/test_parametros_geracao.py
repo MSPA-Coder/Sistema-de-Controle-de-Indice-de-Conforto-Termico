@@ -11,6 +11,7 @@ from app.dados_entrada.gerador_dados import (
     estimar_globo_negro,
     validar_parametros,
 )
+from app.models import hoje_local
 
 
 def parametros(**campos):
@@ -32,7 +33,8 @@ def test_periodo_inclui_data_final_e_preserva_semente():
 
 
 def test_limite_de_consolidacao_aceita_ultimo_dia_e_recusa_dia_seguinte():
-    limite = dt.date.today() - dt.timedelta(days=8)
+    # O código conta o dia do usuário (Brasília), não o dia UTC do contêiner.
+    limite = hoje_local() - dt.timedelta(days=8)
     assert validar_parametros(parametros(data_final=limite.isoformat()), 1).data_final == limite
     with pytest.raises(GeracaoDadosError):
         validar_parametros(parametros(data_final=(limite + dt.timedelta(days=1)).isoformat()), 1)
