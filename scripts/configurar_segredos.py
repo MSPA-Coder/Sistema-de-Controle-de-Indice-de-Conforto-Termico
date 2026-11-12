@@ -17,18 +17,18 @@ RAIZ = Path(__file__).resolve().parents[1]
 DIRETORIO = RAIZ / ".secrets"
 APP_UID = 10001
 APP_GID = 10001
-POSTGRES_UID = 0
-POSTGRES_GID = 0
+POSTGRES_UID = 70
 
-# Cada segredo é montado em serviços com identidades distintas. A senha do
-# PostgreSQL precisa ser lida tanto pelo processo ``postgres`` quanto pelos
-# processos da aplicação; as capacidades internas têm raízes físicas
-# independentes para que a rotação ou exposição de uma não autorize a outra.
+# Cada segredo é montado em serviços com identidades distintas. As duas senhas
+# do PostgreSQL são lidas pelo processo ``postgres`` (uid 70, o dono) e pela
+# aplicação (grupo ``app``, gid 10001), nunca por "outros": 0440, e não 0444.
+# As capacidades internas têm raízes físicas independentes para que a rotação
+# ou exposição de uma não autorize a outra.
 ARQUIVOS = {
-    "postgres_password.txt": (36, POSTGRES_UID, POSTGRES_GID, 0o444),
+    "postgres_password.txt": (36, POSTGRES_UID, APP_GID, 0o440),
     # Papel restrito de `coletor` e `ict`; o `db-provision` aplica esta senha ao
     # papel a cada subida, então ela não exige rotação coordenada.
-    "postgres_app_password.txt": (36, POSTGRES_UID, POSTGRES_GID, 0o444),
+    "postgres_app_password.txt": (36, POSTGRES_UID, APP_GID, 0o440),
     "internal_read_token.txt": (48, APP_UID, APP_GID, 0o400),
     "internal_control_token.txt": (48, APP_UID, APP_GID, 0o400),
     # Chave de assinatura de sessão, montada só no `ict`. CUIDADO ao rodar com

@@ -331,7 +331,8 @@ secrets:
   postgres_password:
     file: .secrets/postgres_password.txt
   # Senha do papel restrito de `coletor` e `ict`. Legível pelo uid 70 (o
-  # `db-provision` roda como `postgres`) e pelo uid da aplicação: 0444.
+  # `db-provision` roda como `postgres`) e pelo grupo da aplicação: 0440, dono
+  # uid 70, grupo 10001 (`scripts/configurar_segredos.py`).
   postgres_app_password:
     file: .secrets/postgres_app_password.txt
   internal_read_token:
