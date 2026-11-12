@@ -670,7 +670,11 @@ def excluir_cache_clima(chave: str) -> None:
 
 
 def copiar_medicoes_para_historico(execucao_id: int) -> dict:
-    """Copia uma geração concluída ao schema ``historico`` uma única vez."""
+    """Copia uma geração concluída ao schema ``historico`` uma única vez.
+
+    Medição de zona que já foi excluída não é copiada (nem contada): a
+    `historico.leituras` exige a zona, e a geração pode ter sido feita antes da
+    exclusão. Fica na `medicoes`, como dado da pesquisa."""
     with _conexao() as conn:
         conn.execute(
             "SELECT pg_advisory_xact_lock(hashtext(?))",
@@ -690,6 +694,7 @@ def copiar_medicoes_para_historico(execucao_id: int) -> dict:
             SELECT COUNT(*) FROM medicoes m
             LEFT JOIN historico_exportado he ON he.medicao_id = m.id
             WHERE m.execucao_id=? AND he.medicao_id IS NULL
+              AND EXISTS (SELECT 1 FROM historico.zonas z WHERE z.id = m.zona_id)
             """,
                 (execucao_id,),
             ).fetchone()[0]
@@ -732,6 +737,7 @@ def copiar_medicoes_para_historico(execucao_id: int) -> dict:
                        m.timestamp_utc, m.execucao_id || ':' || m.id::text
                 FROM medicoes m LEFT JOIN historico_exportado he ON he.medicao_id = m.id
                 WHERE m.execucao_id=? AND he.medicao_id IS NULL
+                  AND EXISTS (SELECT 1 FROM historico.zonas z WHERE z.id = m.zona_id)
                 ORDER BY m.zona_id, m.timestamp_utc
                 ON CONFLICT DO NOTHING
                 """,
@@ -743,6 +749,7 @@ def copiar_medicoes_para_historico(execucao_id: int) -> dict:
                 SELECT m.id, ? FROM medicoes m
                 LEFT JOIN historico_exportado he ON he.medicao_id = m.id
                 WHERE m.execucao_id=? AND he.medicao_id IS NULL
+                  AND EXISTS (SELECT 1 FROM historico.zonas z WHERE z.id = m.zona_id)
                 """,
                 (agora, execucao_id),
             )

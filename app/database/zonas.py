@@ -472,9 +472,12 @@ def excluir_zona(zona_id: int) -> bool:
     """Remove a zona e (via ON DELETE CASCADE) seus equipamentos. O
     historico de leituras ja gravado permanece -- perder o registro
     historico so porque a zona foi reconfigurada/removida seria pior do
-    que manter uma referencia a uma zona que não existe mais."""
+    que manter uma referencia a uma zona que não existe mais. A configuracao
+    de dados de entrada da zona sai junto, na mesma transacao (nao ha FK
+    entre os schemas); as `medicoes` geradas ficam."""
     with _conexao() as conn:
         cursor = conn.execute("DELETE FROM zonas WHERE id = ?", (zona_id,))
+        conn.execute("DELETE FROM dados_entrada.configuracoes_zona WHERE zona_id = ?", (zona_id,))
     return int(cursor.rowcount) > 0
 
 

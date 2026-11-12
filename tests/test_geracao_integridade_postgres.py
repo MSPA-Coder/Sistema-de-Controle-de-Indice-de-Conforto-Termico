@@ -118,6 +118,28 @@ def test_publicacao_posterior_reconsolida_janelas_e_horas_afetadas(ambiente):
     assert agregacao.executar_para_zona(zona)["horas_consolidadas"] == 0
 
 
+def test_zona_excluida_leva_a_configuracao_e_a_copia_ignora_as_medicoes_dela(ambiente):
+    a, _ = configurar(latitude=-20)
+    b, _ = configurar(latitude=-21)
+    execucao = g.gerar(parametros(), [a, b])
+    assert execucao["total_medicoes"] == 48
+
+    assert db.excluir_zona(a["id"])
+
+    with dados._conexao(escrita=False) as conn:
+        zonas_com_config = [r[0] for r in conn.execute(
+            "SELECT zona_id FROM configuracoes_zona").fetchall()]
+        medicoes_da_excluida = conn.execute(
+            "SELECT count(*) FROM medicoes WHERE zona_id=?", (a["id"],)).fetchone()[0]
+    assert zonas_com_config == [b["id"]]
+    assert medicoes_da_excluida == 24  # dado da pesquisa: fica
+
+    copia = dados.copiar_medicoes_para_historico(execucao["execucao_id"])
+    assert copia["novas_copiadas"] == 24
+    assert db.contar_leituras() == 24
+    assert dados.copiar_medicoes_para_historico(execucao["execucao_id"])["novas_copiadas"] == 0
+
+
 def test_publicacao_aguarda_consolidacao_da_mesma_zona(ambiente):
     zona, _ = configurar()
     execucao = g.gerar(parametros(), [zona])
