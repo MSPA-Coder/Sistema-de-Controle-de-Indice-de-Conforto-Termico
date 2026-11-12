@@ -58,13 +58,25 @@ Duas notas menores sobre a dissertação, sem efeito em número nenhum:
 - cálculos manuais, ciclos de zona e séries geradas usam a mesma sequência
   canônica de validação, arredondamento e classificação.
 
-Timestamps persistidos por código novo são ISO-8601 com offset UTC (`+00:00`).
-Linhas antigas sem offset são lidas como UTC para compatibilidade. Leituras
+Instantes são `timestamptz` no banco (ADR 012) e saem das APIs em UTC com
+offset (`+00:00`); só o que sempre foi hora local sem offset (cadastro, estado
+do coletor, controle e eventos de operação) mantém esse formato. Leituras
 podem receber uma identidade de amostra; a persistência combina essa identidade
 com lock transacional para que retries e ciclos concorrentes não dupliquem a
 mesma amostra.
 
-Não há rotina de retenção: nenhuma parte da aplicação apaga leituras brutas.
+Não há rotina de retenção, de propósito (a pesquisa quer série longa): só a
+ação manual "Apagar histórico" (confirmação `APAGAR`, só para quem enxerga todas
+as zonas) remove leituras brutas. Sem coleta contínua o histórico não cresce;
+com ela, cerca de 7.200 leituras por dia para 5 zonas a 1 por minuto
+(~2,6 milhões por ano), e o dump diário do BackupRestore cresce junto. Decidir a
+retenção antes de ligar a coleta contínua.
+
+Excluir uma zona apaga, por `ON DELETE CASCADE`, equipamentos, estado, controle,
+leituras recentes, agregados de 15 minutos e resumos horários dela, e a
+configuração de dados de entrada. As leituras brutas ficam, com `zona_id` nulo
+(`ON DELETE SET NULL`), e só quem não tem ACL por zona as enxerga; as medições
+geradas (`dados_entrada.medicoes`) ficam e não são mais copiadas ao histórico.
 
 O simulador de sensores gera TBS/TBU conjuntamente, com depressão sintética de
 1 a 6 °C, e mantém margem para jitter de até 0,4 °C por sensor. Resfriamento
