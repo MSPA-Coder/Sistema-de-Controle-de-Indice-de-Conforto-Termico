@@ -128,3 +128,10 @@ reverte migrações do banco.
 A proteção central dos bancos local e do VPS pertence ao projeto irmão
 [BackupRestore](https://github.com/MSPA-Coder/BackupRestore), não a um serviço
 desta composição.
+
+## Decisões registradas
+
+`docs/adr/` começa em 007. Os ADR 001 a 006 (separação ICT e coletor, PostgreSQL
+em produção, pipeline de CI, ferramentas de qualidade, chave de sessão
+persistida e implantação no VPS) foram removidos do repositório na versão 2.1.1
+(commit `52ea5d3`, 22/08/2026) e estão no `git log`.
