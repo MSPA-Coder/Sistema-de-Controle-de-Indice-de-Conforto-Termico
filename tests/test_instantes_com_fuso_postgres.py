@@ -30,6 +30,9 @@ from app.database.comum import conexao
 pytestmark = pytest.mark.usefixtures("banco")
 
 ANTERIOR = "20261111_auditoria_so_insercao"
+# Fixa a ultima revisao da conversao: as linhas de enchimento do teste (perfil "x")
+# nao passariam pelas revisoes posteriores, que testam o que lhes cabe.
+ALVO = "20261111_instantes_restantes"
 UTC = datetime.UTC
 
 
@@ -124,7 +127,7 @@ def test_revisao_converte_os_tres_formatos_antigos_para_o_instante_certo(banco_a
     banco = banco_antigo
     _montar_formatos_antigos(banco)
 
-    command.upgrade(Config("alembic.ini"), "head")
+    command.upgrade(Config("alembic.ini"), ALVO)
 
     def instante(tabela, coluna, onde="TRUE"):
         valor = _um(banco, f"SELECT {coluna} FROM {tabela} WHERE {onde}")
@@ -162,7 +165,7 @@ def test_revisao_das_colunas_restantes_falha_com_texto_invalido(banco_antigo):
     banco.execute("UPDATE dados_entrada.cache_clima SET consultado_em = '' WHERE chave = 'c'")
 
     with pytest.raises(RuntimeError, match=r"cache_clima\.consultado_em.*NULL"):
-        command.upgrade(Config("alembic.ini"), "head")
+        command.upgrade(Config("alembic.ini"), ALVO)
 
     # Nada ficou pela metade: a outra coluna restante continua texto.
     assert _um(
@@ -178,7 +181,7 @@ def test_revisao_falha_inteira_com_texto_invalido_em_coluna_obrigatoria(banco_an
     banco.execute("UPDATE historico.usuarios SET criado_em = 'ontem' WHERE id = 2")
 
     with pytest.raises(RuntimeError, match=r"usuarios\.criado_em.*NULL"):
-        command.upgrade(Config("alembic.ini"), "head")
+        command.upgrade(Config("alembic.ini"), ALVO)
 
     # Nada ficou pela metade: a primeira coluna da lista continua texto.
     assert _um(
@@ -194,13 +197,13 @@ def test_revisao_recusa_texto_sem_offset_em_timestamp_local(banco_antigo):
     banco.execute("UPDATE dados_entrada.medicoes SET timestamp_local = '2026-11-11T07:00:00'")
 
     with pytest.raises(RuntimeError, match=r"medicoes\.timestamp_local"):
-        command.upgrade(Config("alembic.ini"), "head")
+        command.upgrade(Config("alembic.ini"), ALVO)
 
 
 def test_downgrade_devolve_texto_iso_no_formato_que_cada_coluna_tinha(banco_antigo):
     banco = banco_antigo
     _montar_formatos_antigos(banco)
-    command.upgrade(Config("alembic.ini"), "head")
+    command.upgrade(Config("alembic.ini"), ALVO)
 
     command.downgrade(Config("alembic.ini"), ANTERIOR)
 
