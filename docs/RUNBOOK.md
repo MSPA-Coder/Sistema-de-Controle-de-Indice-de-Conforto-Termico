@@ -49,6 +49,8 @@ o banco atual, valide o restore no sandbox e siga o procedimento do
 Não use `alembic stamp` para esconder divergência e não execute `downgrade`
 em produção como tentativa improvisada: só use o downgrade da revisão quando
 ele fizer parte do plano aprovado, com backup verificado e janela de retorno.
+O downgrade da revisão base (`20261021_01_sessoes_revogadas`, arquivo `20261103_base.py`) apaga por inteiro os esquemas
+`historico` e `dados_entrada`: nunca `alembic downgrade base` sem dump novo.
 Se o job `schema` falhar, mantenha os serviços dependentes parados, capture
 somente logs sem segredos, corrija a compatibilidade e execute o upgrade
 novamente após conferir o backup. `docker compose down` preserva os volumes;
@@ -124,7 +126,9 @@ O mecanismo preferido é o projeto irmão
 O BackupRestore verifica os artefatos antes de catalogá-los, registra SHA-256 e
 origem, aplica retenção somente depois de haver substituto válido e oferece
 ensaio de restauração no PostgreSQL descartável `backuprestore-sandbox`. O
-restore do ConfortoTermico já foi ensaiado. Consulte o README e
+ensaio mensal restaura o dump do ConfortoTermico lá e compara tabelas e linhas;
+a data do último está em `ensaio-mensal-ultimo.txt`, na pasta do
+BackupRestore. Consulte o README e
 `RESTAURAR.md` daquele projeto para operação e recuperação; não reproduza aqui
 comandos que possam divergir da ferramenta central.
 
@@ -205,3 +209,28 @@ servidor e suba de novo -- não há reinicialização adicional nem migração
 envolvida, porque a senha nunca fica em disco gerido pela aplicação nem em
 tabela nenhuma. A tela mostra apenas se HÁ senha configurada
 (`smtpSenhaConfigurada`), nunca o valor.
+
+## Trocar os outros segredos
+
+`scripts/configurar_segredos.py` não sobrescreve arquivo existente: para trocar
+um segredo só, apague o arquivo dele em `.secrets/` e rode o script de novo (o
+mesmo comando da instalação). `--force` troca todos de uma vez e, por isso, não
+serve para rotação de um só. O Compose compara a configuração, não o conteúdo
+do arquivo: depois de trocar, recrie os serviços citados com
+`docker compose up -d --force-recreate <serviços>`. Os procedimentos abaixo não
+foram ensaiados em produção.
+
+| Segredo | Quem o lê | O que fazer | Prova |
+|---|---|---|---|
+| `secret_key.txt` | `ict` | apagar, gerar, recriar `ict` | `/health` responde; as sessões abertas caem e o login volta a funcionar |
+| `internal_read_token.txt`, `internal_control_token.txt` | `ict` e `coletor` | apagar, gerar, recriar os dois juntos (entre um e outro o ICT recebe 401 do coletor) | `/health` dos dois; a tela de operação carrega o estado das zonas |
+| `postgres_app_password.txt` | `db-provision`, `ict`, `coletor` | apagar, gerar, subir de novo: o `db-provision` aplica a senha nova ao papel `conforto_app`; recriar `ict` e `coletor` | `/health` dos dois |
+| `postgres_password.txt` | `postgres`, `db-provision`, `schema` | trocar a senha do papel administrativo **no banco antes** de trocar o arquivo (`ALTER ROLE`, por `psql` dentro do contêiner `postgres`, sem a senha na linha de comando), gravar a mesma senha no arquivo e subir de novo | o `schema` termina com código 0 |
+
+Depois de qualquer troca, confira que nenhum arquivo ficou legível por
+"outros" (`ls -l .secrets`): as duas senhas do PostgreSQL ficam 0440, dono uid
+70 e grupo 10001; os demais, 0400, dono uid 10001. Um arquivo que o script
+criou antes de 12/11/2026 pode estar 0444 (dono root); ajuste com
+`sudo chown 70:10001 .secrets/postgres_password.txt .secrets/postgres_app_password.txt`
+e `sudo chmod 440` nos dois, depois de conferir que nenhum script do host lê esses
+arquivos como outro usuário (o backup deve usar `docker exec`).
