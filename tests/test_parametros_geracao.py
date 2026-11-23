@@ -32,6 +32,19 @@ def test_periodo_inclui_data_final_e_preserva_semente():
     assert resultado.semente == 42
 
 
+def test_semente_zero_e_inteiros_grandes_preservam_reprodutibilidade():
+    for valor in (0, "0", "9007199254740993"):
+        assert validar_parametros(parametros(semente=valor), 1).semente == int(valor)
+    for invalida in (True, 1.25, 2**63):
+        with pytest.raises(GeracaoDadosError):
+            validar_parametros(parametros(semente=invalida), 1)
+
+
+def test_periodo_anterior_ao_arquivo_meteorologico_tem_erro_de_dominio():
+    with pytest.raises(GeracaoDadosError):
+        validar_parametros(parametros(dias=5, data_final="0001-01-01"), 1)
+
+
 def test_limite_de_consolidacao_aceita_ultimo_dia_e_recusa_dia_seguinte():
     # O código conta o dia do usuário (Brasília), não o dia UTC do contêiner.
     limite = hoje_local() - dt.timedelta(days=8)

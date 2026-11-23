@@ -1,5 +1,10 @@
 {
   "Conforto Térmico": "Thermal Comfort",
+  "A resposta da fonte climática excedeu o tamanho esperado.": "The weather response exceeds the expected size.",
+  "O período solicitado começa antes do histórico disponível do ERA5.": "The requested period starts before the available ERA5 records.",
+  "A semente desta zona excede a faixa de inteiros do banco.": "The seed for this zone exceeds the database integer range.",
+  "As entradas manuais precisam ser um objeto JSON.": "Manual inputs must be a JSON object.",
+  "O corpo da requisição precisa ser um objeto JSON.": "The request body must be a JSON object.",
   "Entrar": "Sign in",
   "Entre com seu usuário para continuar.": "Sign in to continue.",
   "Usuário": "User",

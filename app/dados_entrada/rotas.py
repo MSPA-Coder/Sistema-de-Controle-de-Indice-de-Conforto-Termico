@@ -18,6 +18,14 @@ from .cidades import referencias_publicas
 _INICIOS_DE_FORMULA = ("=", "+", "-", "@", "\t", "\r")
 
 
+def _id_execucao(valor: object) -> int:
+    # A conversão direta por int() arredonda frações e trata True como ID 1.
+    identificador = int(str(valor))
+    if not 1 <= identificador <= 2**63 - 1:
+        raise ValueError("ID de execução fora da faixa.")
+    return identificador
+
+
 def _zonas_ativas_da_conta() -> list[dict]:
     """Zonas ativas que a conta pode ver (administradores veem todas)."""
     return filtrar_por_zona(
@@ -99,12 +107,8 @@ def gerar_dados():
 
 @dados_entrada_leitura_bp.route("/api/dados-entrada/execucoes", methods=["GET"])
 def listar_execucoes():
-    execucoes = dados_db.listar_execucoes()
     permitidas = zonas_permitidas(auth.usuario_atual())
-    if permitidas is not None:
-        # Execução com medição de zona alheia não aparece para quem não a enxerga.
-        vetadas = dados_db.execucoes_com_zona_fora(permitidas)
-        execucoes = [e for e in execucoes if e["id"] not in vetadas]
+    execucoes = dados_db.listar_execucoes(permitidas=permitidas)
     return jsonify(
         {
             "execucoes": execucoes,
@@ -117,7 +121,7 @@ def listar_execucoes():
 def exportar_csv():
     bruto_id = request.args.get("execucao_id")
     try:
-        execucao_id = int(bruto_id) if bruto_id else None
+        execucao_id = _id_execucao(bruto_id) if bruto_id else None
     except ValueError:
         return jsonify({"erro": "execucao_id deve ser inteiro."}), 400
     if execucao_id is not None and dados_db.obter_execucao(execucao_id) is None:
@@ -153,12 +157,12 @@ def excluir_medicoes():
         return jsonify({"erro": "Digite APAGAR para confirmar a exclusão."}), 400
     execucao_id = dados.get("execucao_id")
     try:
-        execucao_id = int(execucao_id) if execucao_id not in (None, "") else None
-    except (TypeError, ValueError):
+        execucao_id = _id_execucao(execucao_id) if execucao_id not in (None, "") else None
+    except ValueError:
         return jsonify({"erro": "execucao_id deve ser inteiro."}), 400
     permitidas = zonas_permitidas(auth.usuario_atual())
     if permitidas is not None and (
-        execucao_id is None or not dados_db.zonas_da_execucao(execucao_id) <= permitidas
+        execucao_id is None or not dados_db.execucao_permitida(execucao_id, permitidas)
     ):
         # Apagar tudo, ou uma execução com zona alheia, atinge dados que a conta
         # não enxerga: fica com quem tem acesso global.
@@ -177,12 +181,12 @@ def excluir_medicoes():
 def copiar_para_historico():
     dados = request.get_json(force=True, silent=True) or {}
     try:
-        bruto_execucao_id = dados.get("execucao_id")
-        if bruto_execucao_id is None:
-            raise ValueError
-        execucao_id = int(bruto_execucao_id)
+        execucao_id = _id_execucao(dados.get("execucao_id"))
+    except ValueError:
+        return jsonify({"erro": "Informe uma execução válida."}), 400
+    try:
         permitidas = zonas_permitidas(auth.usuario_atual())
-        if permitidas is not None and not dados_db.zonas_da_execucao(execucao_id) <= permitidas:
+        if permitidas is not None and not dados_db.execucao_permitida(execucao_id, permitidas):
             # A cópia é da execução inteira (e idempotente): quem não enxerga
             # todas as zonas dela não pode publicá-la.
             return jsonify({"erro": "Seu perfil não tem acesso a esta função."}), 403
@@ -194,8 +198,6 @@ def copiar_para_historico():
             detalhes={"execucao_id": execucao_id, "novas_copiadas": resultado["novas_copiadas"]},
         )
         return jsonify({"ok": True, **resultado})
-    except (TypeError, ValueError):
-        return jsonify({"erro": "Informe uma execução válida."}), 400
     except dados_db.ConfiguracaoDadosEntradaError:
         return jsonify({"erro": "Os dados de entrada não podem ser copiados com esses parâmetros."}), 400
     except Exception:

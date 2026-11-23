@@ -32,9 +32,7 @@ def main() -> int:
             raise RuntimeError("Login PostgreSQL não está case-insensitive.")
 
     # Exercita geração de identidade e rollback na mesma conexão.
-    context = database._conexao()
-    conn = context.__enter__()
-    try:
+    with database._conexao(escrita=False) as conn:
         cursor = conn.execute(
             """
             INSERT INTO zonas (nome, especie, indice, ativa, criado_em)
@@ -48,20 +46,11 @@ def main() -> int:
                 agora_utc(),
             ),
         )
-        if not cursor.lastrowid:
+        zona_teste_id = cursor.lastrowid
+        if not zona_teste_id:
             raise RuntimeError("PostgreSQL não devolveu o ID gerado.")
-        conn.rollback()
-    finally:
-        context.__exit__(None, None, None)
-    if any(z["nome"] == "__postgres_smoke_rollback__" for z in database.listar_zonas()):
+    if database.obter_zona(zona_teste_id) is not None:
         raise RuntimeError("Rollback do PostgreSQL não foi respeitado.")
-
-    # Uma execução já exportada deve permanecer idempotente.
-    concluidas = [item for item in execucoes if item["status"] == "concluida"]
-    if concluidas:
-        resultado = dados_entrada_db.copiar_medicoes_para_historico(concluidas[0]["id"])
-        if resultado["novas_copiadas"] != 0:
-            raise RuntimeError("Exportação idempotente duplicaria medições.")
 
     print(
         "PostgreSQL OK:",

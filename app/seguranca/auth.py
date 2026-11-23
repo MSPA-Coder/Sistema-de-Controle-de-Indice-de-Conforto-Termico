@@ -79,7 +79,7 @@ from sharedauth.secrets import DIRETORIO_SECRETS_COMPOSE, resolver_segredo
 from sharedauth.session import marca_de_sessao, marcas_conferem
 
 from .. import database as db
-from ..models import agora_utc, fuso_local, parsear_timestamp
+from ..models import agora_utc, fuso_local
 from ..nucleo import idioma, regional
 from . import tokens as _tokens
 
@@ -547,14 +547,16 @@ def registrar_carregamento_usuario(app: Flask) -> None:
 
     @app.template_filter("data_hora_regional")
     def _filtro_data_hora_regional(valor: object) -> str:
-        """Instante ISO (UTC) no fuso local e no formato regional da conta."""
+        """O cadastro fornece hora local; instantes com offset são convertidos."""
         if not valor:
             return ""
         try:
-            instante = parsear_timestamp(valor)
+            instante = valor if isinstance(valor, datetime.datetime) else datetime.datetime.fromisoformat(str(valor))
         except (TypeError, ValueError):
             return str(valor)
-        return regional.formatar_data_hora(instante.astimezone(fuso_local()))
+        if instante.tzinfo is not None:
+            instante = instante.astimezone(fuso_local())
+        return regional.formatar_data_hora(instante)
 
 
 def registrar_controle_de_area(app: Flask) -> None:

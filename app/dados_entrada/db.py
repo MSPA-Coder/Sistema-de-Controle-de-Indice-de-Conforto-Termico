@@ -344,7 +344,7 @@ def criar_execucao(
     dias: int,
     intervalo_minutos: int,
     semente: int,
-    total_zonas: int,
+    zona_ids: Sequence[int],
     fonte_clima: str,
 ) -> int:
     recuperar_execucoes_expiradas()
@@ -357,8 +357,8 @@ def criar_execucao(
             INSERT INTO execucoes (
                 data_inicio, data_fim, dias, intervalo_minutos, semente,
                 fonte_clima, total_zonas, status, criado_em,
-                lease_token, lease_until, heartbeat_em
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'processando', ?, ?, ?, ?)
+                lease_token, lease_until, heartbeat_em, zonas_previstas
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'processando', ?, ?, ?, ?, ?)
             """,
             (
                 data_inicio,
@@ -367,11 +367,12 @@ def criar_execucao(
                 intervalo_minutos,
                 semente,
                 fonte_clima,
-                total_zonas,
+                len(zona_ids),
                 agora,
                 lease_token,
                 lease_until,
                 agora,
+                list(zona_ids),
             ),
         )
         return int(cursor.lastrowid)
@@ -519,18 +520,34 @@ def falhar_execucao(execucao_id: int, erro: str) -> None:
             conn.execute("DELETE FROM medicoes WHERE execucao_id=?", (execucao_id,))
 
 
-def listar_execucoes(limite: int = 20) -> list[dict]:
+# Em gerações antigas, só uma série concluída permite reconstruir o escopo.
+_ESCOPO_PERMITIDO = """
+    COALESCE(e.zonas_previstas, CASE WHEN e.status = 'concluida' THEN (
+        SELECT CASE WHEN COUNT(DISTINCT m.zona_id) = e.total_zonas AND e.total_zonas > 0
+                    THEN array_agg(DISTINCT m.zona_id) END
+        FROM medicoes m WHERE m.execucao_id = e.id
+    ) END) <@ ?::bigint[]
+"""
+
+
+def listar_execucoes(limite: int = 20, *, permitidas: frozenset[int] | None = None) -> list[dict]:
+    if permitidas == frozenset():
+        return []
+    filtro = f"WHERE {_ESCOPO_PERMITIDO}" if permitidas is not None else ""
+    parametros = [sorted(permitidas)] if permitidas is not None else []
     with _conexao(escrita=False) as conn:
         linhas = conn.execute(
-            """
-            SELECT e.*, COUNT(he.medicao_id) AS medicoes_copiadas
-            FROM execucoes e
-            LEFT JOIN medicoes m ON m.execucao_id = e.id
-            LEFT JOIN historico_exportado he ON he.medicao_id = m.id
-            GROUP BY e.id
+            f"""
+            SELECT e.id, e.data_inicio, e.data_fim, e.dias, e.intervalo_minutos,
+                   e.semente, e.fonte_clima, e.total_zonas, e.total_medicoes, e.status,
+                   e.erro, e.criado_em, e.concluido_em, e.lease_until, e.heartbeat_em,
+                   e.publicado_em, (SELECT COUNT(*) FROM medicoes m
+                       JOIN historico_exportado he ON he.medicao_id = m.id
+                       WHERE m.execucao_id = e.id) AS medicoes_copiadas
+            FROM execucoes e {filtro}
             ORDER BY e.id DESC LIMIT ?
             """,
-            (max(1, min(100, int(limite))),),
+            (*parametros, max(1, min(100, int(limite)))),
         ).fetchall()
     return [dict(linha) for linha in linhas]
 
@@ -541,27 +558,14 @@ def obter_execucao(execucao_id: int) -> dict | None:
     return dict(linha) if linha else None
 
 
-def zonas_da_execucao(execucao_id: int) -> frozenset[int]:
-    """Zonas que têm medições na execução (para conferir a ACL antes de copiar)."""
+def execucao_permitida(execucao_id: int, permitidas: frozenset[int]) -> bool:
+    if not permitidas:
+        return False
     with _conexao(escrita=False) as conn:
-        linhas = conn.execute(
-            "SELECT DISTINCT zona_id FROM medicoes WHERE execucao_id=?", (execucao_id,)
-        ).fetchall()
-    return frozenset(int(linha["zona_id"]) for linha in linhas if linha["zona_id"] is not None)
-
-
-def execucoes_com_zona_fora(permitidas: frozenset[int]) -> frozenset[int]:
-    """Execuções que têm medição de alguma zona fora de `permitidas`."""
-    with _conexao(escrita=False) as conn:
-        if permitidas:
-            linhas = conn.execute(
-                "SELECT DISTINCT execucao_id FROM medicoes WHERE zona_id IS NULL OR zona_id NOT IN "
-                f"({','.join('?' for _ in permitidas)})",
-                tuple(sorted(permitidas)),
-            ).fetchall()
-        else:
-            linhas = conn.execute("SELECT DISTINCT execucao_id FROM medicoes").fetchall()
-    return frozenset(int(linha["execucao_id"]) for linha in linhas)
+        return conn.execute(
+            f"SELECT 1 FROM execucoes e WHERE e.id = ? AND {_ESCOPO_PERMITIDO}",
+            (execucao_id, sorted(permitidas)),
+        ).fetchone() is not None
 
 
 def excluir_medicoes(execucao_id: int | None = None) -> int:
@@ -609,6 +613,7 @@ def iterar_medicoes_csv(
                     "JOIN execucoes e ON e.id=m.execucao_id WHERE e.status='concluida'"
                     f"{restricao} ORDER BY m.execucao_id,m.zona_id,m.timestamp_utc",
                     parametros_zonas,
+                    tamanho_lote=lote,
                 )
             else:
                 resultado = conn.execute(
@@ -617,6 +622,7 @@ def iterar_medicoes_csv(
                     f"WHERE m.execucao_id=? AND e.status='concluida'{restricao} "
                     "ORDER BY m.zona_id,m.timestamp_utc",
                     (execucao_id, *parametros_zonas),
+                    tamanho_lote=lote,
                 )
             while linhas := resultado.fetchmany(lote):
                 for linha in linhas:

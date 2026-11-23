@@ -5,7 +5,9 @@ FROM ${RUNTIME_IMAGE}
 USER root
 RUN python -c 'import json; from importlib.metadata import distributions; from pathlib import Path; Path("/runtime-dependencies.json").write_text(json.dumps({d.metadata["Name"]:d.version for d in distributions()}))'
 RUN python -m ensurepip --upgrade
-RUN --mount=type=cache,target=/root/.cache/pip PIP_CONSTRAINT=/workspace/constraints.txt python -m pip install -c constraints.txt ".[dev]"
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python -c "import tomllib; print('\n'.join(tomllib.load(open('pyproject.toml', 'rb'))['project']['optional-dependencies']['dev']))" >/tmp/dev.txt \
+    && python -m pip install -c constraints.txt -r /tmp/dev.txt && python -m pip check
 COPY tests ./tests
 COPY compose.yaml ./
 COPY .env.docker.example ./

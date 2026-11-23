@@ -139,7 +139,7 @@ class LinhaCompat(Mapping):
 
     def __init__(self, row) -> None:
         self._mapping = {chave: _normalizar_valor(valor) for chave, valor in row._mapping.items()}
-        self._values = tuple(_normalizar_valor(valor) for valor in row)
+        self._values = tuple(self._mapping.values())
 
     def __getitem__(self, key):
         if isinstance(key, int):
@@ -348,10 +348,13 @@ class ConexaoPostgresCompat:
         self._connection = connection
         self.schema = schema
 
-    def execute(self, sql: str, parametros: tuple | list = ()) -> ResultadoCompat:
+    def execute(
+        self, sql: str, parametros: tuple | list = (), *, tamanho_lote: int | None = None,
+    ) -> ResultadoCompat:
         adapted, convertidos = _adaptar_placeholders(sql)
         _conferir_aridade(sql, convertidos, len(tuple(parametros)))
-        result = self._connection.exec_driver_sql(adapted, tuple(parametros))
+        opcoes = {"yield_per": tamanho_lote} if tamanho_lote is not None else {}
+        result = self._connection.exec_driver_sql(adapted, tuple(parametros), execution_options=opcoes)
         match = _INSERT_TABLE_RE.match(sql)
         table = match.group(1) if match else None
         return ResultadoCompat(result, self._connection, self.schema, table)

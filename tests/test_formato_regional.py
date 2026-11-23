@@ -70,6 +70,14 @@ def test_datas_e_numeros_no_formato_dos_eua():
     assert regional.adaptar_numero("1.234,56") == "1.234,56"
 
 
+def test_ultimo_login_local_nao_recebe_o_deslocamento_duas_vezes(app, monkeypatch):
+    """O cadastro já entrega o último acesso em hora local sem offset."""
+    monkeypatch.setenv("TZ", "America/Sao_Paulo")
+    formatar = app.jinja_env.filters["data_hora_regional"]
+    assert formatar("2026-11-23T00:30:00") == "23/11/2026 00:30"
+    assert formatar("2026-11-23T03:30:00+00:00") == "23/11/2026 00:30"
+
+
 def test_a_tela_usa_o_formato_do_usuario_e_nao_vaza(entrar):
     cliente = entrar("us")
     assert 'data-regional="us"' in cliente.get("/").get_data(as_text=True)

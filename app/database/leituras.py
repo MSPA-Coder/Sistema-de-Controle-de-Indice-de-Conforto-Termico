@@ -92,7 +92,7 @@ def salvar_leitura(
         ultima = conn.execute(
             "SELECT COALESCE(timestamp_utc, criado_em) AS instante "
             "FROM leituras WHERE zona_id = ? AND indice = ? "
-            "ORDER BY id DESC LIMIT 1",
+            "ORDER BY instante DESC LIMIT 1",
             (zona_id, indice),
         ).fetchone()
         if ultima:
@@ -124,7 +124,7 @@ def obter_historico_por_zona(zona_id: int, limite: int = 20) -> list[dict]:
     """Devolve o histórico de uma zona, em ordem cronológica."""
     with conexao(escrita=False) as conn:
         linhas = conn.execute(
-            "SELECT * FROM leituras WHERE zona_id = ? ORDER BY id DESC LIMIT ?",
+            "SELECT * FROM leituras WHERE zona_id = ? ORDER BY criado_em DESC, id DESC LIMIT ?",
             (zona_id, limite),
         ).fetchall()
     dados = [dict(linha) for linha in linhas]
@@ -183,61 +183,54 @@ def obter_leituras_recentes_zona(zona_id: int, limite: int = 30) -> list[dict]:
     return dados
 
 
-def obter_historicos_recentes_zonas(limite: int = 30) -> dict[int, list[dict]]:
-    """Devolve a janela recente de todas as zonas em uma só consulta comum.
-
-    Para zonas que ainda não tenham janela recente, busca o fallback do
-    histórico persistido para todas elas de uma vez só (uma consulta com
-    janela por partição), preservando o contrato cronológico do dashboard
-    sem uma consulta por zona.
-    """
+def obter_historicos_recentes_zonas(
+    limite: int = 30, zona_ids: frozenset[int] | None = None,
+) -> dict[int, list[dict]]:
+    """Janela recente das zonas visíveis, com fallback no histórico persistido."""
     limite = max(1, min(200, int(limite)))
+    if zona_ids == frozenset():
+        return {}
+    filtro = "WHERE z.id = ANY(?)" if zona_ids is not None else ""
+    parametros = [sorted(zona_ids)] if zona_ids is not None else []
     with conexao(escrita=False) as conn:
-        zonas = [
-            linha["id"] for linha in conn.execute("SELECT id FROM zonas ORDER BY id").fetchall()
-        ]
         linhas_recentes = conn.execute(
-            """
-            SELECT recentes.*
+            f"""
+            SELECT z.id AS zona_consultada, recentes.*
             FROM zonas z
-            CROSS JOIN LATERAL (
+            LEFT JOIN LATERAL (
                 SELECT l.* FROM leituras_recentes_zona l
                 WHERE l.zona_id = z.id
                 ORDER BY l.id DESC LIMIT ?
-            ) recentes
-            ORDER BY recentes.zona_id, recentes.id DESC
+            ) recentes ON TRUE
+            {filtro}
+            ORDER BY z.id, recentes.id DESC
             """,
-            (limite,),
+            (limite, *parametros),
         ).fetchall()
 
-        historicos: dict[int, list[dict]] = {zona_id: [] for zona_id in zonas}
+        historicos: dict[int, list[dict]] = {}
         for linha in linhas_recentes:
-            zona_id = linha["zona_id"]
-            itens = historicos.get(zona_id)
-            if itens is not None and len(itens) < limite:
-                itens.append(dict(linha))
+            item = dict(linha)
+            itens = historicos.setdefault(item.pop("zona_consultada"), [])
+            if item["id"] is not None:
+                itens.append(item)
 
         zonas_sem_janela = [zona_id for zona_id, itens in historicos.items() if not itens]
         if zonas_sem_janela:
-            marcadores = ",".join("?" for _ in zonas_sem_janela)
             linhas_fallback = conn.execute(
-                f"""
-                SELECT * FROM (
-                    SELECT *, ROW_NUMBER() OVER (
-                        PARTITION BY zona_id ORDER BY id DESC
-                    ) AS _posicao
-                    FROM leituras
-                    WHERE zona_id IN ({marcadores})
-                ) AS janela
-                WHERE _posicao <= ?
-                ORDER BY zona_id, id DESC
+                """
+                SELECT l.* FROM zonas z
+                CROSS JOIN LATERAL (
+                    SELECT * FROM leituras WHERE zona_id = z.id
+                    ORDER BY criado_em DESC, id DESC LIMIT ?
+                ) l
+                WHERE z.id = ANY(?)
+                ORDER BY z.id, l.criado_em DESC, l.id DESC
                 """,
-                (*zonas_sem_janela, limite),
+                (limite, zonas_sem_janela),
             ).fetchall()
             for linha in linhas_fallback:
-                item = dict(linha)
-                item.pop("_posicao", None)
-                historicos[linha["zona_id"]].append(item)
+                historicos[linha["zona_id"]].append(dict(linha))
 
         for itens in historicos.values():
             itens.reverse()
@@ -379,7 +372,7 @@ def obter_historico_leituras(
             FROM leituras l
             LEFT JOIN zonas z ON z.id = l.zona_id
             {where}
-            ORDER BY l.id ASC
+            ORDER BY l.criado_em, l.id
             LIMIT ? OFFSET ?
             """,
             [*parametros, limite, deslocamento_calculado],

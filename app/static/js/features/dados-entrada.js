@@ -491,7 +491,7 @@ export function criarDadosEntrada({
         dias: Number(documento.getElementById("dados-entrada-dias").value),
         intervalo_minutos: Number(documento.getElementById("dados-entrada-intervalo").value),
         data_final: documento.getElementById("dados-entrada-data-final").value || null,
-        semente: Number(documento.getElementById("dados-entrada-semente").value),
+          semente: documento.getElementById("dados-entrada-semente").value,
       };
       const resultado = await respostaJson("/api/dados-entrada/gerar", {
         method: "POST",

@@ -133,7 +133,7 @@ def test_recusa_http_preserva_status_e_nao_abre_circuito(monkeypatch, status):
             "http://coletor.invalid", status, "recusa", {}, BytesIO(b'{"erro":"recusa"}')
         )
 
-    monkeypatch.setattr(coletor_client.urllib.request, "urlopen", recusar)
+    monkeypatch.setattr(coletor_client._transporte, "open", recusar)
     with Flask(__name__).app_context():
         for _ in range(6):
             resposta, codigo = coletor_client.chamar_coletor(
@@ -144,7 +144,7 @@ def test_recusa_http_preserva_status_e_nao_abre_circuito(monkeypatch, status):
     assert chamadas == 6
 
 
-@pytest.mark.parametrize("status", [None, 500, 502, 503, 504])
+@pytest.mark.parametrize("status", [None, 301, 302, 307, 500, 502, 503, 504])
 def test_falha_de_infraestrutura_abre_um_circuito_para_o_coletor(monkeypatch, status):
     monkeypatch.setenv("CONFORTO_INTERNO_TOKEN_CONTROLE", "raiz-sintetica-publica")
     chamadas = 0
@@ -156,7 +156,7 @@ def test_falha_de_infraestrutura_abre_um_circuito_para_o_coletor(monkeypatch, st
             raise URLError("rede sintética")
         raise HTTPError("http://coletor.invalid", status, "falha", {}, BytesIO(b"{}"))
 
-    monkeypatch.setattr(coletor_client.urllib.request, "urlopen", indisponivel)
+    monkeypatch.setattr(coletor_client._transporte, "open", indisponivel)
     with Flask(__name__).app_context():
         for indice in range(7):
             resposta, codigo = coletor_client.chamar_coletor(
@@ -174,7 +174,7 @@ def test_resposta_invalida_do_coletor_nao_vira_sucesso(monkeypatch, corpo):
     class Resposta(BytesIO):
         status = 200
 
-    monkeypatch.setattr(coletor_client.urllib.request, "urlopen", lambda *a, **k: Resposta(corpo))
+    monkeypatch.setattr(coletor_client._transporte, "open", lambda *a, **k: Resposta(corpo))
     with Flask(__name__).app_context():
         resposta, codigo = coletor_client.chamar_coletor(
             "/api/interno/zonas/1/calcular", metodo="POST"

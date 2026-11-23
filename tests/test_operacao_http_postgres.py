@@ -86,6 +86,26 @@ def test_recusa_de_negocio_nao_vira_indisponibilidade_nem_gravacao(ponte, metodo
     assert db.obter_leituras_recentes_zona(zid) == []
 
 
+@pytest.mark.parametrize("corpo,formato", [
+    (b"null", "application/json"),
+    (b"{", "application/json"),
+    (b"entradas=25", "application/x-www-form-urlencoded"),
+    (b'{"entradas":null}', "application/json"),
+    (b'{"entradas":[]}', "application/json"),
+])
+def test_corpo_invalido_nao_inicia_ciclo_de_sensor(ponte, corpo, formato):
+    """O coletor interpretava falhas de parsing como uma solicitação de leitura."""
+    (cliente, headers), _, _ = ponte
+    zid = db.criar_zona(zona())["id"]
+    for campo in ("tbs", "tbu"):
+        db.criar_equipamento(zid, equipamento(nome=campo, campo_medido=campo))
+    resposta = cliente.post(f"/api/zonas/{zid}/calcular", data=corpo,
+                            content_type=formato, headers=headers)
+    assert resposta.status_code == 400
+    assert db.listar_eventos_operacao(zid) == []
+    assert db.obter_leituras_recentes_zona(zid) == []
+
+
 @pytest.mark.parametrize("token", ["", "qa-raiz-controle-somente-sintetica", "leitura"])
 def test_token_ausente_bruto_ou_de_leitura_nao_autoriza_controle(ponte, token):
     _, coletor, _ = ponte

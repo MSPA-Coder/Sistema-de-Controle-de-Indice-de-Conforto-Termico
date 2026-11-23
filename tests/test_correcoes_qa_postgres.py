@@ -383,8 +383,6 @@ def test_lista_de_usuarios_mostra_quantas_zonas_cada_conta_tem(criar_conta):
 
 
 def test_conta_com_zonas_restritas_nao_apaga_dados_de_outras_zonas(criar_conta):
-    from app.dados_entrada import db as dados_db
-
     _, _, criar = criar_conta
     a = db.criar_zona(zona("QA A"))["id"]
     tecnico, cabecalhos, _, _ = criar("tecnico", zonas=[a])
@@ -394,7 +392,15 @@ def test_conta_com_zonas_restritas_nao_apaga_dados_de_outras_zonas(criar_conta):
         resposta = tecnico.delete(caminho, json={"confirmacao": "APAGAR"}, headers=cabecalhos)
         assert resposta.status_code == 403, caminho
     assert tecnico.get("/api/dados-entrada/execucoes").status_code == 200
-    assert dados_db.execucoes_com_zona_fora(frozenset({a})) is not None
+
+
+@pytest.mark.parametrize("identificador", [True, 1.5, -1, 2**63])
+def test_exclusao_recusa_identificador_invalido(criar_conta, identificador):
+    """Um booleano ou uma fração era convertido no ID de outra execução."""
+    admin, headers, _ = criar_conta
+    resposta = admin.delete("/api/dados-entrada/medicoes",
+                            json={"confirmacao": "APAGAR", "execucao_id": identificador}, headers=headers)
+    assert resposta.status_code == 400
 
 
 def test_login_inexistente_nao_deixa_o_texto_digitado_na_trilha(criar_conta):
