@@ -18,6 +18,7 @@ from sqlalchemy.engine import make_url
 pytestmark = pytest.mark.usefixtures("banco")
 
 ANTERIOR = "20261111_instantes_restantes"
+REVISAO_CHECKS = "20261112_checks_de_dominio"
 USUARIO = (
     "INSERT INTO historico.usuarios (nome, login, senha_hash, perfil, ativo, criado_em, atualizado_em) "
     "VALUES ('QA', %s, 'x', %s, %s, '2026-11-12T00:00:00+00', '2026-11-12T00:00:00+00')"
@@ -105,12 +106,12 @@ def test_linha_ja_gravada_fora_do_dominio_aborta_a_revisao_sem_alterar_nada(banc
 
 def test_a_revisao_pode_rodar_duas_vezes(banco_anterior):
     banco = banco_anterior
-    command.upgrade(Config("alembic.ini"), "head")
+    command.upgrade(Config("alembic.ini"), REVISAO_CHECKS)
     antes = _constraints(banco)
     assert len(antes) == 14
 
     banco.execute("UPDATE alembic_version SET version_num = %s", (ANTERIOR,))
-    command.upgrade(Config("alembic.ini"), "head")
+    command.upgrade(Config("alembic.ini"), REVISAO_CHECKS)
 
     assert _constraints(banco) == antes
 

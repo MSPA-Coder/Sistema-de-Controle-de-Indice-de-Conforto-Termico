@@ -494,42 +494,27 @@ def obter_estatisticas_zonas() -> list[dict]:
 
     Usado pela aba "Análises" do dashboard (2 relatorios por zona)."""
     with _conexao(escrita=False) as conn:
-        zonas = conn.execute("SELECT id, nome, especie, indice FROM zonas ORDER BY id").fetchall()
-        contagens = conn.execute(
+        zonas = conn.execute(
             """
-            SELECT zona_id, indice, status, COUNT(*) AS total
-            FROM leituras
-            WHERE zona_id IS NOT NULL
-            GROUP BY zona_id, indice, status
-            """
-        ).fetchall()
-        agregados = conn.execute(
-            """
-            SELECT zona_id, indice, AVG(valor) AS media, MIN(valor) AS minimo, MAX(valor) AS maximo
-            FROM leituras
-            WHERE zona_id IS NOT NULL
-            GROUP BY zona_id, indice
+            SELECT z.id, z.nome, z.especie, z.indice, COUNT(l.id) AS total,
+                   AVG(l.valor) AS media, MIN(l.valor) AS minimo, MAX(l.valor) AS maximo,
+                   COUNT(*) FILTER (WHERE l.status = 'Conforto') AS "Conforto",
+                   COUNT(*) FILTER (WHERE l.status = 'Alerta') AS "Alerta",
+                   COUNT(*) FILTER (WHERE l.status = 'Perigo') AS "Perigo",
+                   COUNT(*) FILTER (WHERE l.status = 'Emergencia') AS "Emergencia"
+            FROM zonas z LEFT JOIN leituras l ON l.zona_id = z.id AND l.indice = z.indice
+            GROUP BY z.id ORDER BY z.id
             """
         ).fetchall()
-
-    contagens_por_zona_indice: dict[tuple[int, str], dict[str, int]] = {}
-    for linha in contagens:
-        chave = (linha["zona_id"], linha["indice"])
-        contagens_por_zona_indice.setdefault(chave, {})[linha["status"]] = linha["total"]
-
-    agregados_por_zona_indice = {(linha["zona_id"], linha["indice"]): linha for linha in agregados}
 
     resultado = []
     for zona in zonas:
-        chave = (zona["id"], zona["indice"])
-        contagem_status = contagens_por_zona_indice.get(chave, {})
-        total = sum(contagem_status.values())
-        agregado = agregados_por_zona_indice.get(chave)
+        total = zona["total"]
 
         percentuais = None
         if total:
             percentuais = {
-                status: round((contagem_status.get(status, 0) / total) * 100, 1)
+                status: round((zona[status] / total) * 100, 1)
                 for status in ti.STATUS_ORDEM
             }
 
@@ -541,9 +526,9 @@ def obter_estatisticas_zonas() -> list[dict]:
                 "indice": zona["indice"],
                 "total_leituras": total,
                 "percentuais": percentuais,
-                "media": round(agregado["media"], 2) if agregado else None,
-                "minimo": round(agregado["minimo"], 2) if agregado else None,
-                "maximo": round(agregado["maximo"], 2) if agregado else None,
+                "media": round(zona["media"], 2) if total else None,
+                "minimo": round(zona["minimo"], 2) if total else None,
+                "maximo": round(zona["maximo"], 2) if total else None,
             }
         )
     return resultado
@@ -613,10 +598,10 @@ def obter_painel_zonas() -> list[dict]:
                 SELECT l.id, l.valor, l.status, l.entradas, l.criado_em
                 FROM leituras l
                 WHERE l.zona_id = z.id AND l.indice = z.indice
-                ORDER BY l.id DESC
+                ORDER BY l.criado_em DESC, l.id DESC
                 LIMIT ?
             ) recentes
-            ORDER BY z.id, recentes.id
+            ORDER BY z.id, recentes.criado_em, recentes.id
             """,
             (LIMITE_LEITURAS_PAINEL_EXECUTIVO,),
         ).fetchall()

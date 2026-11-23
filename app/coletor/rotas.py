@@ -112,7 +112,9 @@ def testar_conexao_interno(zona_id, equipamento_id):
 def calcular_zona(zona_id):
     dados = request.get_json(force=True, silent=True) or {}
     try:
-        entradas = dados.get("entradas") if isinstance(dados.get("entradas"), dict) else None
+        entradas = dados.get("entradas")
+        if "entradas" in dados and not isinstance(entradas, dict):
+            return jsonify({"erro": "As entradas manuais precisam ser um objeto JSON."}), 400
         resposta = gerenciador_controle.calcular_manual(
             zona_id, entradas, logger=current_app.logger
         )

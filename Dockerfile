@@ -20,7 +20,7 @@ RUN --mount=type=secret,id=local_ca,required=false \
 RUN apt-get update \
     && apt-get upgrade -y --no-install-recommends \
     && apt-get install --no-install-recommends -y \
-       ca-certificates git postgresql-client openssl openssl-provider-legacy libpcre2-8-0 \
+       ca-certificates git openssl openssl-provider-legacy libpcre2-8-0 \
     && rm -rf /var/lib/apt/lists/* \
     && python -m pip install --no-cache-dir --upgrade \
        pip setuptools
@@ -90,7 +90,8 @@ USER root
 RUN python -m ensurepip --upgrade \
     && python -m pip --version
 RUN --mount=type=cache,target=/root/.cache/pip \
-    PIP_CONSTRAINT=/workspace/constraints.txt python -m pip install -c constraints.txt ".[dev]"
+    python -c "import tomllib; print('\n'.join(tomllib.load(open('pyproject.toml', 'rb'))['project']['optional-dependencies']['dev']))" >/tmp/dev.txt \
+    && python -m pip install -c constraints.txt -r /tmp/dev.txt && python -m pip check
 COPY --chown=app:app pyproject.toml ./
 COPY --chown=app:app tests ./tests
 COPY --chown=app:app compose.yaml .env.docker.example ./

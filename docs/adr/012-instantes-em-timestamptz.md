@@ -37,6 +37,5 @@ do contêiner deslocaria heartbeat, "leitura atual" e janelas sem nenhum erro.
 
 - Janelas e horas usam `date_bin`/`date_trunc` direto sobre a coluna.
 - O deploy migra o banco (a revisão reescreve as tabelas); começa por dump novo.
-- Pendência conhecida, não alterada: o filtro `data_hora_regional` lê o texto sem
-  offset como UTC, e `ultimo_login_em` chega a ele em hora local sem offset (como
-  sempre chegou), então a tela de usuários mostra o último acesso 3 h antes.
+- Na tela de usuários, o filtro regional preserva a hora local de
+  `ultimo_login_em` e converte instantes que trazem offset explícito.

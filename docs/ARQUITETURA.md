@@ -34,7 +34,17 @@ O SharedAuth fornece sessão, CSRF, autenticação, rate limit de login,
 autorização comum, hash de senha, cabeçalhos de segurança, CSP e health checks.
 Perfis e a associação entre perfis e áreas pertencem a `app/seguranca/auth.py`.
 
+O cálculo manual aceita `{"entradas": {...}}` com os campos do índice.
+O painel envia `{}` para solicitar uma leitura dos sensores. Um corpo inválido
+ou um campo `entradas` de outro tipo recebe HTTP 400 antes do ciclo.
+
 ## Responsabilidades de dados
+
+Cada geração registra as zonas previstas antes de iniciar a coleta. A lista de
+execuções, a cópia e a exclusão exigem acesso a todas essas zonas, inclusive
+depois de uma falha. Para séries antigas, as medições de uma execução concluída
+permitem reconstruir o conjunto completo. Execuções antigas cujo escopo não
+pode ser determinado ficam disponíveis somente ao administrador.
 
 O ICT grava cadastros e configurações. O coletor lê esses parâmetros e grava
 leituras, estados, heartbeat e eventos. Agregados de 15 minutos e resumos

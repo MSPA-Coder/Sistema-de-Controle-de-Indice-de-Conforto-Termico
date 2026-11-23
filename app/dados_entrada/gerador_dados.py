@@ -24,6 +24,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from http.client import HTTPException
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -43,6 +44,8 @@ INTERVALO_MINIMO_MINUTOS = 1
 INTERVALO_MAXIMO_MINUTOS = 1440
 MAXIMO_MEDICOES = 2_000_000
 ATRASO_PADRAO_ERA5_DIAS = 8
+PRIMEIRO_DIA_ERA5 = datetime.date(1940, 1, 1)
+MAX_RESPOSTA_CLIMA_BYTES = 8 * 1024 * 1024
 # Medicoes por lote antes de cada `executemany` + commit. Cada lote e sua
 # propria transacao (ver `dados_db.sessao_geracao`), entao este numero
 # tambem controla a frequencia com que o lock de escrita e liberado para
@@ -125,11 +128,13 @@ def validar_parametros(dados: dict, total_zonas: int) -> ParametrosGeracao:
             "A data final precisa ser igual ou anterior a "
             f"{data_final_maxima.isoformat()}, pois o ERA5 possui atraso de consolidação."
         )
-    data_inicio = data_final - datetime.timedelta(days=dias - 1)
-    try:
-        semente = int(dados.get("semente", 20260718) or 20260718)
-    except (TypeError, ValueError) as erro:
-        raise GeracaoDadosError("A semente da simulação deve ser inteira.") from erro
+    duracao = datetime.timedelta(days=dias - 1)
+    if data_final < PRIMEIRO_DIA_ERA5 + duracao:
+        raise GeracaoDadosError("O período solicitado começa antes do histórico disponível do ERA5.")
+    data_inicio = data_final - duracao
+    semente = 20260718 if dados.get("semente") in (None, "") else _inteiro(
+        dados, "semente", -(2**63), 2**63 - 1,
+    )
 
     pontos_por_zona = math.ceil(dias * 1440 / intervalo)
     total = pontos_por_zona * total_zonas
@@ -222,11 +227,14 @@ def _baixar_json(url: str) -> dict:
         except Exception:
             contexto_tls = ssl.create_default_context(cafile=certifi.where())
         with urllib.request.urlopen(requisicao, timeout=45, context=contexto_tls) as resposta:
-            payload = json.loads(resposta.read().decode("utf-8"))
+            bruto = resposta.read(MAX_RESPOSTA_CLIMA_BYTES + 1)
+            if len(bruto) > MAX_RESPOSTA_CLIMA_BYTES:
+                raise GeracaoDadosError("A resposta da fonte climática excedeu o tamanho esperado.")
+            payload = json.loads(bruto.decode("utf-8"))
         if not isinstance(payload, dict):
             raise GeracaoDadosError("A fonte climática devolveu uma resposta inválida.")
         return payload
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as erro:
+    except (OSError, HTTPException, UnicodeDecodeError, json.JSONDecodeError, RecursionError) as erro:
         raise GeracaoDadosError(
             "Não foi possível obter o clima histórico real no Open-Meteo. "
             "Nenhum valor climático foi inventado; verifique a internet e tente novamente."
@@ -240,7 +248,7 @@ def obter_clima_horario(
     fim_utc_exclusivo: datetime.datetime,
 ) -> ClimaHorario:
     # Um dia extra fornece a ancora das interpolacoes no fim do periodo.
-    data_inicio = (inicio_utc - datetime.timedelta(days=1)).date().isoformat()
+    data_inicio = max(PRIMEIRO_DIA_ERA5, (inicio_utc - datetime.timedelta(days=1)).date()).isoformat()
     data_fim = (fim_utc_exclusivo + datetime.timedelta(days=1)).date().isoformat()
     chave = _chave_cache(latitude, longitude, data_inicio, data_fim)
     cache = dados_db.obter_cache_clima(chave)
@@ -629,6 +637,8 @@ def gerar(dados: dict, zonas: list[dict]) -> dict:
     if not zonas:
         raise GeracaoDadosError("Ative ao menos uma zona antes de gerar os dados.")
     parametros = validar_parametros(dados, len(zonas))
+    if parametros.semente + max(zona["id"] for zona in zonas) * 100_003 > 2**63 - 1:
+        raise GeracaoDadosError("A semente desta zona excede a faixa de inteiros do banco.")
     configs = dados_db.sincronizar_zonas(zonas)
     por_id = {config["zona_id"]: config for config in configs}
     incompletas = [
@@ -646,7 +656,7 @@ def gerar(dados: dict, zonas: list[dict]) -> dict:
         dias=parametros.dias,
         intervalo_minutos=parametros.intervalo_minutos,
         semente=parametros.semente,
-        total_zonas=len(zonas),
+        zona_ids=[zona["id"] for zona in zonas],
         fonte_clima=FONTE_CLIMA,
     )
     # Ver `_metadados_origem_json`: conteudo constante para toda a execucao,

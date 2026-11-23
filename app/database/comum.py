@@ -26,7 +26,10 @@ def conexao(*, escrita: bool = True) -> Iterator:
     conn = db_backend.abrir_conexao_postgres("historico")
     try:
         yield conn
-        conn.commit()
+        if escrita:
+            conn.commit()
+        else:
+            conn.rollback()
     except Exception:
         conn.rollback()
         raise

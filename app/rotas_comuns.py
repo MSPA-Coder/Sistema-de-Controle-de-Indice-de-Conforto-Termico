@@ -129,8 +129,7 @@ def historicos_recentes_zonas():
         return jsonify(erro[0]), erro[1]
     limite = max(1, min(200, limite or 30))
     permitidas = zonas_permitidas(auth.usuario_atual())
-    historicos = db.obter_historicos_recentes_zonas(limite=limite)
-    return jsonify({zona: itens for zona, itens in historicos.items() if zona_visivel(permitidas, zona)})
+    return jsonify(db.obter_historicos_recentes_zonas(limite=limite, zona_ids=permitidas))
 
 
 @comum_bp.route("/api/zonas/<int:zona_id>/historico", methods=["GET"])

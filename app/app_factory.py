@@ -299,10 +299,13 @@ def _criar_app_base(processo: str, config: AppConfig) -> Flask:
         """
         if request.method not in ("POST", "PUT", "PATCH", "DELETE"):
             return None
-        if request.mimetype in ("application/x-www-form-urlencoded", "multipart/form-data"):
+        formulario = request.mimetype in ("application/x-www-form-urlencoded", "multipart/form-data")
+        if formulario and not request.path.startswith("/api/"):
+            return None
+        if not request.get_data():
             return None
         corpo = request.get_json(force=True, silent=True)
-        if corpo is not None and not isinstance(corpo, dict):
+        if formulario or not isinstance(corpo, dict):
             return jsonify({"erro": "O corpo da requisição precisa ser um objeto JSON."}), 400
         return None
 

@@ -14,6 +14,7 @@ from app.dados_entrada import db as dados
 from app.dados_entrada import gerador_dados as g
 from app.dados_entrada.cidades import CIDADES_POR_ESPECIE
 from app.termico import agregacao
+from scripts import verificar_postgres
 
 
 @pytest.fixture
@@ -55,6 +56,44 @@ def configurar(especie="frangos", latitude=-20):
 
 def parametros():
     return {"dias": 1, "intervalo_minutos": 60, "data_final": "2026-01-01", "semente": 42}
+
+
+def test_verificacao_do_banco_preserva_geracao_ainda_nao_copiada(ambiente):
+    """O smoke operacional publicava a última geração antes de validar a cópia."""
+    z, _ = configurar()
+    g.gerar(parametros(), [z])
+    assert verificar_postgres.main() == 0
+    assert db.contar_leituras() == 0
+    assert dados.listar_execucoes()[0]["medicoes_copiadas"] == 0
+
+
+def test_escopo_da_geracao_permanece_quando_a_falha_remove_os_lotes(ambiente):
+    """A autorização precisa continuar válida mesmo quando não sobra nenhuma medição."""
+    a, _ = configurar(latitude=-20)
+    b, _ = configurar(latitude=-21)
+    ambiente["falhar_segunda"] = True
+    with pytest.raises(g.GeracaoDadosError):
+        g.gerar(parametros(), [a, b])
+    execucao_id = dados.listar_execucoes()[0]["id"]
+    ambas = frozenset({a["id"], b["id"]})
+    assert dados.listar_execucoes(permitidas=frozenset({a["id"]})) == []
+    assert dados.listar_execucoes(permitidas=ambas)[0]["id"] == execucao_id
+    assert not dados.execucao_permitida(execucao_id, frozenset())
+    assert dados.execucao_permitida(execucao_id, ambas)
+
+
+def test_serie_anterior_a_migracao_exige_escopo_completo(ambiente):
+    a, _ = configurar(latitude=-20)
+    b, _ = configurar(latitude=-21)
+    eid = g.gerar(parametros(), [a, b])["execucao_id"]
+    with dados._conexao() as conn:
+        conn.execute("UPDATE execucoes SET zonas_previstas=NULL WHERE id=?", (eid,))
+    ambas = frozenset({a["id"], b["id"]})
+    assert dados.execucao_permitida(eid, ambas)
+    assert not dados.execucao_permitida(eid, frozenset({a["id"]}))
+    with dados._conexao() as conn:
+        conn.execute("DELETE FROM medicoes WHERE execucao_id=? AND zona_id=?", (eid, b["id"]))
+    assert not dados.execucao_permitida(eid, ambas)
 
 
 @pytest.mark.parametrize("especie", ["frangos", "bovinos", "suinos"])

@@ -29,6 +29,23 @@ def test_painel_rele_leitura_real_utc_e_estatistica_do_indice_atual():
     assert db.obter_estatisticas_zonas()[0]["total_leituras"] == 0
 
 
+def test_importacao_retroativa_preserva_a_ultima_medicao_e_o_intervalo(banco):
+    """Uma cópia ao histórico recebe IDs novos para medições antigas."""
+    zid = db.criar_zona({"nome": "QA", "especie": "frangos", "indice": "ITU"})["id"]
+    agora = agora_utc()
+    with banco() as conn:
+        for data, valor in [(agora, 81), (agora - datetime.timedelta(hours=2), 70)]:
+            conn.execute(
+                "INSERT INTO leituras(especie,indice,valor,status,entradas,criado_em,zona_id) "
+                "VALUES('frangos','ITU',?,'Perigo','{}',?,?)", (valor, data, zid),
+            )
+    assert db.obter_painel_zonas()[0]["valor_atual"] == 81
+    assert db.obter_historico_por_zona(zid, limite=1)[0]["valor"] == 81
+    assert db.obter_historicos_recentes_zonas(limite=1)[zid][0]["valor"] == 81
+    assert db.obter_historico_leituras(limite=1)["leituras"][0]["valor"] == 81
+    assert not db.salvar_leitura("frangos", "ITU", 82, "Perigo", {}, 60, zona_id=zid)
+
+
 @pytest.mark.parametrize("diferenca,tendencia", [(2, "subindo"), (-2, "descendo"), (0.1, "estavel")])
 def test_painel_consolida_tendencia_sem_cruzar_zonas(banco, diferenca, tendencia):
     zona = db.criar_zona({"nome": "Ativa", "especie": "frangos", "indice": "ITU"})
